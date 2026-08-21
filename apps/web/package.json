@@ -3,10 +3,10 @@
   "private": true,
   "version": "0.0.0",
   "scripts": {
-    "dev": "dotenv -e ../../.env -- next dev",
+    "dev": "dotenv -e ../../.env -- node scripts/run-next.mjs dev",
     "build": "dotenv -e ../../.env -- next build",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "start": "next start",
+    "start": "node scripts/run-next.mjs start",
     "lint": "next lint",
     "test": "vitest run"
   },

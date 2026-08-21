@@ -27,7 +27,9 @@ for (const signal of ["SIGINT", "SIGTERM"] as const) {
 }
 
 app
-  .listen({ port: Number(process.env.PORT ?? 4000), host: "0.0.0.0" })
+  // API_PORT, not PORT: the root .env is shared by every workspace, and a bare
+  // PORT would also be picked up by `next dev` and bind the web app here too.
+  .listen({ port: Number(process.env.API_PORT ?? 4000), host: "0.0.0.0" })
   .catch((err) => {
     app.log.error(err);
     process.exit(1);

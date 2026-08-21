@@ -31,8 +31,13 @@ pnpm dev                       # builds packages, then runs api + web
 Copy `.env` first. Install warns rather than fails without it, but everything
 that talks to the database needs `DATABASE_URL` set.
 
-- API: http://localhost:4000
-- Web: http://localhost:3000
+- API: http://localhost:4000 (`API_PORT`)
+- Web: http://localhost:3000 (`WEB_PORT`)
+
+The two ports are separate variables on purpose. A single shared `.env` means a
+bare `PORT` is read by *both* apps, and `next dev` would bind the API's port —
+on Windows both servers bind successfully and requests are answered by whichever
+one wins the race, which is a genuinely confusing thing to debug.
 
 ## PWA
 
