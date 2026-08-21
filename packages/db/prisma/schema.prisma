@@ -1,0 +1,98 @@
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/generated/prisma"
+  moduleFormat = "cjs"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum Role {
+  ADMIN
+  MENTOR
+  STUDENT
+}
+
+model Member {
+  id        String   @id @default(cuid())
+  name      String
+  email     String   @unique
+  role      Role     @default(STUDENT)
+  createdAt DateTime @default(now())
+
+  groups       GroupMember[]
+  attendance   Attendance[]
+  tasks        Task[]        @relation("AssignedTasks")
+  transactions Transaction[]
+}
+
+model Group {
+  id      String        @id @default(cuid())
+  name    String        @unique
+  members GroupMember[]
+  tasks   Task[]
+}
+
+model GroupMember {
+  groupId  String
+  memberId String
+  group    Group  @relation(fields: [groupId], references: [id])
+  member   Member @relation(fields: [memberId], references: [id])
+
+  @@id([groupId, memberId])
+}
+
+model Meeting {
+  id         String       @id @default(cuid())
+  title      String
+  scheduledAt DateTime
+  report     String?      // rich-text/markdown report body
+  createdAt  DateTime     @default(now())
+  attendance Attendance[]
+}
+
+model Attendance {
+  meetingId String
+  memberId  String
+  present   Boolean @default(false)
+  meeting   Meeting @relation(fields: [meetingId], references: [id])
+  member    Member  @relation(fields: [memberId], references: [id])
+
+  @@id([meetingId, memberId])
+}
+
+enum TaskStatus {
+  TODO
+  IN_PROGRESS
+  DONE
+}
+
+model Task {
+  id          String     @id @default(cuid())
+  title       String
+  description String?
+  status      TaskStatus @default(TODO)
+  groupId     String?
+  group       Group?     @relation(fields: [groupId], references: [id])
+  assigneeId  String?
+  assignee    Member?    @relation("AssignedTasks", fields: [assigneeId], references: [id])
+  createdAt   DateTime   @default(now())
+  dueAt       DateTime?
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+}
+
+model Transaction {
+  id            String          @id @default(cuid())
+  type          TransactionType
+  amount        Decimal
+  counterparty  String          // sponsor/payee name ("from who/where", "to who/where")
+  note          String?
+  recordedById  String?
+  recordedBy    Member?         @relation(fields: [recordedById], references: [id])
+  createdAt     DateTime        @default(now())
+}

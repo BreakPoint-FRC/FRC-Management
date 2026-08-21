@@ -1,0 +1,56 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        # Matches docker-compose.yml so local and CI failures look the same.
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: breakpoint
+          POSTGRES_PASSWORD: breakpoint
+          POSTGRES_DB: breakpoint
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U breakpoint"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.12.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+
+      # db:deploy and the app both read DATABASE_URL from the root .env; the
+      # example file already points at the postgres service above.
+      - name: Create .env
+        run: cp .env.example .env
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Apply migrations
+        run: pnpm --filter @breakpoint/db db:deploy
+
+      - run: pnpm lint
+
+      - run: pnpm typecheck
+
+      - run: pnpm test
+
+      - run: pnpm build

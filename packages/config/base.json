@@ -1,0 +1,22 @@
+{
+  // Extended by every workspace, never built directly. Deliberately NOT named
+  // tsconfig.*.json: editors validate that pattern as a standalone project and
+  // report TS18003 ("no inputs") on a config that has no sources of its own.
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+    // node16 rather than the legacy CommonJS/Node pair: moduleResolution=node10
+    // is deprecated and stops working in TypeScript 7. No package here sets
+    // "type": "module", so these still emit CommonJS.
+    "module": "node16",
+    "moduleResolution": "node16",
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true
+  }
+}

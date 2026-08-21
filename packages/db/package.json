@@ -1,0 +1,33 @@
+{
+  "name": "@breakpoint/db",
+  "private": true,
+  "version": "0.0.0",
+  "main": "dist/client.js",
+  "types": "dist/client.d.ts",
+  "scripts": {
+    "postinstall": "prisma generate",
+    "build": "prisma generate && tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "dev": "tsc -p tsconfig.json --watch --preserveWatchOutput",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:seed": "dotenv -e ../../.env -- tsx prisma/seed.ts",
+    "db:studio": "prisma studio"
+  },
+  "dependencies": {
+    "@prisma/client": "^7.6.0",
+    "@prisma/adapter-pg": "^7.6.0",
+    "pg": "^8.13.0"
+  },
+  "devDependencies": {
+    "@breakpoint/config": "workspace:*",
+    "@types/node": "^20.14.0",
+    "@types/pg": "^8.11.0",
+    "dotenv": "^16.4.5",
+    "dotenv-cli": "^7.4.2",
+    "prisma": "^7.6.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0"
+  }
+}
