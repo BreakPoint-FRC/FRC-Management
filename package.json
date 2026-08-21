@@ -5,6 +5,8 @@
     "build": "pnpm -r --if-present run build",
     "build:libs": "pnpm --filter @breakpoint/db --filter @breakpoint/types run build",
     "dev": "pnpm run build:libs && pnpm -r --if-present --parallel run dev",
+    "dev:api": "pnpm run build:libs && pnpm --filter @breakpoint/api dev",
+    "dev:web": "pnpm run build:libs && pnpm --filter @breakpoint/web dev",
     "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm run build:libs && pnpm -r --if-present run typecheck",
     "test": "pnpm run build:libs && pnpm -r --if-present run test",

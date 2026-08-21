@@ -59,6 +59,8 @@ deployed API origin or offline reads will cache nothing.
 | Command | Effect |
 | --- | --- |
 | `pnpm dev` | Build `packages/*`, then run api + web in watch mode |
+| `pnpm dev:api` | Build `packages/*`, then run only the API in watch mode |
+| `pnpm dev:web` | Build `packages/*`, then run only the web app in watch mode |
 | `pnpm build` | Build every workspace in dependency order |
 | `pnpm test` | Run vitest suites |
 | `pnpm lint` | Lint every workspace |
@@ -67,6 +69,18 @@ deployed API origin or offline reads will cache nothing.
 | `pnpm --filter @breakpoint/db db:deploy` | Apply pending migrations (CI/production) |
 | `pnpm --filter @breakpoint/db db:seed` | Load idempotent sample data |
 | `pnpm --filter @breakpoint/db db:studio` | Open Prisma Studio |
+
+Two things to know about the single-app scripts. `pnpm dev` also runs each
+package's own `tsc --watch`, so edits to `packages/*` rebuild live; `dev:api`
+and `dev:web` build the packages **once** at startup, so use `pnpm dev` if you
+are editing `packages/db` or `packages/types` at the same time. And the web
+app's pages read from the API, so `dev:web` on its own gives you a UI with
+failing fetches unless the API is running in another terminal.
+
+Both scripts build `packages/*` first on purpose. `pnpm --filter
+@breakpoint/api dev` on its own skips that step, and since `dist/` is
+gitignored and install only runs `prisma generate`, it fails with a
+module-not-found error on a freshly cloned repo.
 
 ## Contributing
 

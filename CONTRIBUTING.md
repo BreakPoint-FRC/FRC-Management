@@ -19,6 +19,9 @@ pnpm --filter @breakpoint/db db:seed        # sample data, so pages aren't empty
 pnpm dev                                    # api on :4000, web on :3000
 ```
 
+Working on one app only? `pnpm dev:api` or `pnpm dev:web` — see the README's
+Scripts table for how they differ from `pnpm dev`.
+
 Copy `.env` first. `packages/db` runs `prisma generate` in its `postinstall`;
 that step tolerates a missing `DATABASE_URL` and prints a warning instead of
 failing, but every command that touches the database — `db:migrate`,
