@@ -15,11 +15,12 @@ enum Role {
 }
 
 model Member {
-  id        String   @id @default(cuid())
-  name      String
-  email     String   @unique
-  role      Role     @default(STUDENT)
-  createdAt DateTime @default(now())
+  id         String    @id @default(cuid())
+  name       String
+  email      String    @unique
+  role       Role      @default(STUDENT)
+  createdAt  DateTime  @default(now())
+  archivedAt DateTime?
 
   groups       GroupMember[]
   attendance   Attendance[]

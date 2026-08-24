@@ -27,7 +27,6 @@ export async function membersRoutes(app: FastifyInstance) {
     return service.update(id, input);
   });
 
-  // TODO: restrict to ADMIN role once auth is added
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     await service.remove(id);

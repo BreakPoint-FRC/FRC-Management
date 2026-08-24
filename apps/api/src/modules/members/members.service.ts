@@ -3,7 +3,7 @@ import type { CreateMemberInput, UpdateMemberInput } from "./members.schema";
 
 export function createMembersService(prisma: PrismaClient) {
   return {
-    list: () => prisma.member.findMany(),
+    list: () => prisma.member.findMany({ where: { archivedAt: null } }),
 
     getById: (id: string) => prisma.member.findUnique({ where: { id } }),
 
@@ -12,7 +12,9 @@ export function createMembersService(prisma: PrismaClient) {
     update: (id: string, input: UpdateMemberInput) =>
       prisma.member.update({ where: { id }, data: input }),
 
-    // admin-only: "The Main Admin Should Be Able To Remove Users"
-    remove: (id: string) => prisma.member.delete({ where: { id } }),
+    // Soft-delete members so attendance and group-membership history stays intact.
+    // TODO: restrict to ADMIN role once auth is added.
+    remove: (id: string) =>
+      prisma.member.update({ where: { id }, data: { archivedAt: new Date() } }),
   };
 }
