@@ -57,13 +57,43 @@ describe("app", () => {
     await app.close();
   });
 
+  it("lists only active members", async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const app = buildWithPrisma(stubClient({ member: { findMany } }));
+
+    const response = await app.inject({ method: "GET", url: "/members" });
+
+    expect(response.statusCode).toBe(200);
+    expect(findMany).toHaveBeenCalledWith({ where: { archivedAt: null } });
+
+    await app.close();
+  });
+
+  it("archives a member without deleting their history", async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const app = buildWithPrisma(stubClient({ member: { update } }));
+
+    const response = await app.inject({
+      method: "DELETE",
+      url: "/members/seed-member-student-1",
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(update).toHaveBeenCalledWith({
+      where: { id: "seed-member-student-1" },
+      data: { archivedAt: expect.any(Date) },
+    });
+
+    await app.close();
+  });
+
   it("maps a Prisma P2025 on delete to 404", async () => {
     const notFound = new Prisma.PrismaClientKnownRequestError(
       "An operation failed because it depends on one or more records that were required but not found.",
       { code: "P2025", clientVersion: "7.9.1" }
     );
     const app = buildWithPrisma(
-      stubClient({ member: { delete: vi.fn().mockRejectedValue(notFound) } })
+      stubClient({ member: { update: vi.fn().mockRejectedValue(notFound) } })
     );
 
     const response = await app.inject({ method: "DELETE", url: "/members/nope" });
