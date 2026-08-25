@@ -7,6 +7,7 @@ import corsPlugin from "./plugins/cors";
 import { NotFoundError } from "./lib/http-errors";
 
 import { membersRoutes } from "./modules/members/members.routes";
+import { groupsRoutes } from "./modules/groups/groups.routes";
 import { meetingsRoutes } from "./modules/meetings/meetings.routes";
 import { tasksRoutes } from "./modules/tasks/tasks.routes";
 import { financeRoutes } from "./modules/finance/finance.routes";
@@ -81,6 +82,7 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.register(membersRoutes, { prefix: "/members" });
+  app.register(groupsRoutes, { prefix: "/groups" });
   app.register(meetingsRoutes, { prefix: "/meetings" });
   app.register(tasksRoutes, { prefix: "/tasks" });
   app.register(financeRoutes, { prefix: "/finance" });
