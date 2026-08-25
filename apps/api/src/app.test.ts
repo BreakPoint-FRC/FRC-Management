@@ -124,6 +124,30 @@ describe("app", () => {
     await app.close();
   });
 
+  it("names client errors outside the mapped set correctly", async () => {
+    const app = buildWithPrisma(stubClient({ group: { create: vi.fn() } }));
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/groups",
+      payload: "<group><name>Software</name></group>",
+      // Not text/plain: Fastify parses that one by default and the body then
+      // fails Zod as a 400. application/xml has no parser, so the request dies
+      // at content-type negotiation, which is the branch under test.
+      headers: { "content-type": "application/xml" },
+    });
+
+    // Regression guard: a hand-kept status map covered 400/404/409 only, so
+    // every other client error reported a meaningless `error: "Error"`.
+    expect(response.statusCode).toBe(415);
+    expect(response.json()).toMatchObject({
+      statusCode: 415,
+      error: "Unsupported Media Type",
+    });
+
+    await app.close();
+  });
+
   it("does not leak internal error details in a 500 response", async () => {
     const leaky = new Error(
       "Invalid `prisma.member.findMany()` invocation in C:\\Users\\secret\\path\\app.js"
