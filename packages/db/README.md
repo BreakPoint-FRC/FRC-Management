@@ -4,6 +4,16 @@ Prisma schema, migrations, and the shared `PrismaClient` singleton. Consumed by
 `apps/*` as a built package (`dist/`), never imported by path.
 
 - Schema: [prisma/schema.prisma](prisma/schema.prisma)
+- Roles: `Account` deliberately has no `role` column and no permission flags —
+  an account holds a list of `AccountRole` rows, each optionally scoped to a
+  `Group`. Read [../../docs/roles.md](../../docs/roles.md) before touching
+  `Role`, `AccountRole`, `RoleHierarchy`, or `Group`, and
+  [../../docs/authorization.md](../../docs/authorization.md) before touching
+  `Tool`, `GroupTool`, or `RolePermission`
+- Configuration vs sample data: the roles, tools, permission matrix and
+  departments are written by migrations, not by the seed. Without them nobody
+  can be authorized for anything, so a freshly deployed database would be
+  inert. The seed adds a team on top
 - Client: [src/client.ts](src/client.ts) — one instance, reused across hot
   reloads in development
 - Seed: [prisma/seed.ts](prisma/seed.ts) — idempotent sample data

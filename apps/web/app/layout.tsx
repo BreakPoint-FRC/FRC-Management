@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { RegisterServiceWorker } from "./register-sw";
+import { AuthProvider } from "@/components/auth/auth-provider";
 
 export const metadata: Metadata = {
   title: "BreakPoint",
@@ -36,9 +37,11 @@ export default function RootLayout({
   children: ReactNode;
 }) {
   return (
-    <html lang="en">
+    // lang="tr": every string a user reads here is Turkish, including the
+    // messages the API sends back.
+    <html lang="tr">
       <body>
-        {children}
+        <AuthProvider>{children}</AuthProvider>
         <RegisterServiceWorker />
       </body>
     </html>

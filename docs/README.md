@@ -1,6 +1,8 @@
 # BreakPoint docs
 
 - [migrations.md](migrations.md) — how to change the database safely
+- [roles.md](roles.md) — how roles are modelled, and the rules they follow
+- [authorization.md](authorization.md) — who may do what, and the order it is decided in
 - [documentation.md](documentation.md) — what has to be documented, and where
 - [product/](product/) — what BreakPoint is for and what ships when
   - [problems.md](product/problems.md) — the team problems this solves

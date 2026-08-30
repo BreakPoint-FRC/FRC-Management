@@ -17,6 +17,12 @@ const SW_SOURCE = readFileSync(
 
 const API_BASE = "http://localhost:4000";
 
+/** An access token the worker can read an account id out of, as the API's are. */
+const jwt = (sub: string) =>
+  `header.${btoa(JSON.stringify({ sub })).replace(/=/g, "")}.signature`;
+
+const bearer = (sub: string) => ({ Authorization: `Bearer ${jwt(sub)}` });
+
 type Handler = (event: any) => void;
 
 function createCacheStorage() {
@@ -82,6 +88,7 @@ function loadServiceWorker(fetchImpl: any) {
     Headers,
     URL,
     AbortController,
+    atob,
     setTimeout,
     clearTimeout,
     console,
@@ -206,14 +213,109 @@ describe("service worker", () => {
 
   it("drops caches from older versions on activate", async () => {
     const { handlers, cacheStorage } = loadServiceWorker(online);
-    cacheStorage.raw.set("breakpoint-shell-v0", new Map());
+    cacheStorage.raw.set("breakpoint-shell-v1", new Map());
+    cacheStorage.raw.set("breakpoint-api-v1-acc-a", new Map());
     cacheStorage.raw.set("unrelated-cache", new Map());
 
     await handlers.get("activate")!({ waitUntil: (p: Promise<unknown>) => p });
 
     const remaining = await cacheStorage.api.keys();
-    expect(remaining).not.toContain("breakpoint-shell-v0");
+    expect(remaining).not.toContain("breakpoint-shell-v1");
+    expect(remaining).not.toContain("breakpoint-api-v1-acc-a");
     // Caches belonging to other apps must be left alone.
     expect(remaining).toContain("unrelated-cache");
+  });
+
+  // The Cache API keys entries by URL alone -- the Authorization header is not
+  // part of the key -- so a single API cache hands the next person to sign in
+  // on a shared laptop the previous one's data. The account goes in the cache
+  // name instead, which no timing can get around.
+  describe("per-account API caches", () => {
+    it("never lets one account read another's cached response for the same URL", async () => {
+      const { handlers } = loadServiceWorker(online);
+      const url = `${API_BASE}/finance/entries`;
+
+      const mine = await dispatchFetch(handlers, { url, headers: bearer("acc-a") });
+      expect(await mine!.json()).toEqual([{ id: "m1", name: "Ada" }]);
+
+      // Slow venue wifi: the API times out and the worker falls back to cache.
+      online.mockRejectedValue(new Error("network down"));
+
+      const theirs = await dispatchFetch(handlers, { url, headers: bearer("acc-b") });
+      expect(theirs!.status).toBe(503);
+
+      // The owner still gets their own copy -- separation, not a purge.
+      const again = await dispatchFetch(handlers, { url, headers: bearer("acc-a") });
+      expect(await again!.json()).toEqual([{ id: "m1", name: "Ada" }]);
+    });
+
+    it("keeps a request without a token out of every account's cache", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+
+      await dispatchFetch(handlers, { url: `${API_BASE}/health` });
+
+      expect(await cacheStorage.api.keys()).toEqual(["breakpoint-api-v2-anon"]);
+    });
+  });
+
+  // The app sends this whenever the signed-in account changes: signing out,
+  // signing in, a refresh the server refused, a session revoked elsewhere.
+  describe("purge", () => {
+    // Awaiting waitUntil, not the handler: the worker keeps the browser alive
+    // through the promise it registers there, and the deletion happens in it.
+    async function dispatchPurge(handlers: Map<string, Handler>) {
+      let pending: Promise<unknown> = Promise.resolve();
+      handlers.get("message")!({
+        data: { type: "purge" },
+        waitUntil: (p: Promise<unknown>) => {
+          pending = p;
+        },
+      });
+      await pending;
+    }
+
+    it("drops every account's cached API responses", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      const url = `${API_BASE}/accounts`;
+
+      await dispatchFetch(handlers, { url, headers: bearer("acc-a") });
+      await dispatchFetch(handlers, { url, headers: bearer("acc-b") });
+      expect(await cacheStorage.api.keys()).toEqual([
+        "breakpoint-api-v2-acc-a",
+        "breakpoint-api-v2-acc-b",
+      ]);
+
+      await dispatchPurge(handlers);
+      expect(await cacheStorage.api.keys()).toEqual([]);
+
+      // And the next offline read finds nothing rather than stale data.
+      online.mockRejectedValue(new Error("network down"));
+      const afterPurge = await dispatchFetch(handlers, { url, headers: bearer("acc-a") });
+      expect(afterPurge!.status).toBe(503);
+    });
+
+    it("keeps the shell and navigation caches, which belong to nobody", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      await handlers.get("install")!({ waitUntil: (p: Promise<unknown>) => p });
+      await dispatchFetch(handlers, { url: "https://app.example/members", mode: "navigate" });
+
+      await dispatchPurge(handlers);
+
+      const remaining = await cacheStorage.api.keys();
+      expect(remaining).toContain("breakpoint-shell-v2");
+      expect(remaining).toContain("breakpoint-runtime-v2");
+    });
+
+    it("ignores messages it does not recognise", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      await dispatchFetch(handlers, { url: `${API_BASE}/accounts`, headers: bearer("acc-a") });
+
+      await handlers.get("message")!({
+        data: { type: "something-else" },
+        waitUntil: (p: Promise<unknown>) => p,
+      });
+
+      expect(await cacheStorage.api.keys()).toContain("breakpoint-api-v2-acc-a");
+    });
   });
 });

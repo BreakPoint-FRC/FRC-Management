@@ -63,6 +63,50 @@ Same for renames: add + backfill + switch reads, then drop. A rename in Prisma
 generates a `DROP` and an `ADD`, not a `RENAME`, unless you edit the SQL before
 it has ever been applied — which is the one and only time editing is allowed.
 
+## Write SQL that runs on the CI server, not just yours
+
+CI runs `postgres:16-alpine` ([ci.yml](../.github/workflows/ci.yml)), and it
+builds the database from empty on every run. A local Postgres that is newer will
+happily accept SQL that server rejects, and you will not find out until the
+pipeline is red on a branch that worked all day.
+
+The one that has already bitten us: **PostgreSQL 18 gives every `NOT NULL` its
+own named catalog entry** (`Member_id_not_null`), and 16 and 17 do not — there a
+`NOT NULL` is a column attribute with no name. So
+`ALTER TABLE ... RENAME CONSTRAINT "Member_id_not_null" ...` succeeds on 18 and
+fails with `42704 constraint does not exist` on 16. Three migrations in this
+repo did that and had to be made conditional; see the loop at the top of
+[20260829090000](../packages/db/prisma/migrations/20260829090000_rename_member_to_account_and_add_credentials/migration.sql)
+for the shape to copy.
+
+Note what this rules out: fixing it forward was **not** an option. The failing
+migration is fifth of thirteen, so on a fresh database nothing after it can run
+— a later migration correcting it would never be reached. A migration that
+cannot apply at all on an empty database has to be repaired in place, which is
+only allowed because it had not reached `main`.
+
+Two habits avoid the whole class of problem:
+
+- Prefer version-agnostic SQL. If you must touch something a newer server names
+  and an older one does not, guard it with a `pg_constraint` lookup instead of
+  assuming it exists.
+- Before pushing a hand-written migration, replay the whole chain from empty
+  against the CI image, not against your own database:
+
+  ```bash
+  docker run -d --name bp-pg16 -e POSTGRES_PASSWORD=postgres \
+    -e POSTGRES_USER=postgres -e POSTGRES_DB=breakpoint \
+    -p 55432:5432 postgres:16-alpine
+
+  DATABASE_URL="postgresql://postgres:postgres@127.0.0.1:55432/breakpoint" \
+    pnpm --filter @breakpoint/db exec prisma migrate deploy
+
+  docker rm -f bp-pg16
+  ```
+
+  `db:deploy` against a database that already has the tables proves nothing:
+  the bug only exists on the path CI takes, which is from nothing.
+
 ## Review checklist
 
 Read the SQL, not just the schema diff:

@@ -29,6 +29,7 @@ worker only registers in production. Keep writing those.
 | [README.md](../README.md) | What BreakPoint is, the stack, getting started, the scripts table, PWA behaviour |
 | [CONTRIBUTING.md](../CONTRIBUTING.md) | How to work on it: branches, commits, code layout, PR checklist |
 | [docs/migrations.md](migrations.md) | Database change rules |
+| [docs/roles.md](roles.md) | The member role model and the rules behind it |
 | [docs/documentation.md](documentation.md) | This file |
 | [docs/product/](product/) | Scope, roadmap, and the meeting notes behind them — the *why* of the features |
 | `packages/<name>/README.md` | Anything true only of that workspace |
