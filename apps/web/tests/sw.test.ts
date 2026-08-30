@@ -216,4 +216,55 @@ describe("service worker", () => {
     // Caches belonging to other apps must be left alone.
     expect(remaining).toContain("unrelated-cache");
   });
+
+  // Cached API responses are keyed by URL alone -- the Authorization header is
+  // not part of the key -- so on a shared machine the previous account's data
+  // is readable by the next one until the cache is dropped. Signing out is
+  // where that happens.
+  describe("purge on sign-out", () => {
+    async function dispatchPurge(handlers: Map<string, Handler>) {
+      await handlers.get("message")!({
+        data: { type: "purge" },
+        waitUntil: (p: Promise<unknown>) => p,
+      });
+    }
+
+    it("drops cached API responses", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      const url = `${API_BASE}/accounts`;
+
+      await dispatchFetch(handlers, { url });
+      expect(await cacheStorage.api.keys()).toContain("breakpoint-runtime-v1");
+
+      await dispatchPurge(handlers);
+      expect(await cacheStorage.api.keys()).not.toContain("breakpoint-runtime-v1");
+
+      // And the next offline read finds nothing rather than the old account's
+      // data.
+      online.mockRejectedValue(new Error("network down"));
+      const afterPurge = await dispatchFetch(handlers, { url });
+      expect(afterPurge!.status).toBe(503);
+    });
+
+    it("keeps the shell cache, which belongs to nobody", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      await handlers.get("install")!({ waitUntil: (p: Promise<unknown>) => p });
+
+      await dispatchPurge(handlers);
+
+      expect(await cacheStorage.api.keys()).toContain("breakpoint-shell-v1");
+    });
+
+    it("ignores messages it does not recognise", async () => {
+      const { handlers, cacheStorage } = loadServiceWorker(online);
+      await dispatchFetch(handlers, { url: `${API_BASE}/accounts` });
+
+      await handlers.get("message")!({
+        data: { type: "something-else" },
+        waitUntil: (p: Promise<unknown>) => p,
+      });
+
+      expect(await cacheStorage.api.keys()).toContain("breakpoint-runtime-v1");
+    });
+  });
 });

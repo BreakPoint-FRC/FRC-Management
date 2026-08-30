@@ -16,7 +16,12 @@ targets.
 1. Polls and opinions
 2. Roll call for team meetings
 3. Report storage and editor for group meetings
-4. Schedule arrangement
+4. Schedule arrangement — **shipped early**, as `/calendar`
+
+Schedule arrangement came forward because it cost almost nothing: meetings and
+tasks already carried the dates, so the calendar is a read-only view over them
+rather than a feature with records of its own. It stays in this list so the
+scope split still reads as it was agreed.
 
 ## V3
 

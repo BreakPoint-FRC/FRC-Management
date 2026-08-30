@@ -1,7 +1,8 @@
 # BreakPoint
 
-FRC team management app: meeting roll call & reports, group/cross-group task
-management, and a sponsorship/finance tracker.
+FRC team management app: accounts and role-based access, departments, seasons,
+meeting roll call & reports, group/cross-group task management with a change
+log and Gantt view, and a sponsorship/finance tracker.
 
 ## Layout
 
@@ -28,8 +29,26 @@ pnpm --filter @breakpoint/db db:seed   # sample data, so the pages aren't empty
 pnpm dev                       # builds packages, then runs api + web
 ```
 
+Then open http://localhost:3000, which redirects to the sign-in page.
+
+Every seeded account uses the password **`Breakpoint2026!`**. Sign in as
+`ada@breakpoint.test` for a `SYSTEM_ADMIN`, `kerem@breakpoint.test` for a
+department lead, or `emre@breakpoint.test` for a plain member. The three see
+noticeably different things — the admin gets eleven nav items, the lead six, the
+member four — which is the quickest way to check the permission model is
+working. The same holds inside a page: a member can add and move a task in
+their own department but has no Sil button, and the server refuses the request
+even if they forge one. The overview page puts each account's roles, departments and resolved
+permission matrix on one screen for the same reason.
+
+Accounts that predate authentication carry an unusable password placeholder and
+must be given a real one (`POST /accounts/:id/password`) before they can sign
+in.
+
 Copy `.env` first. Install warns rather than fails without it, but everything
-that talks to the database needs `DATABASE_URL` set.
+that talks to the database needs `DATABASE_URL` set, and the API refuses to
+start without `JWT_SECRET`. Generate a real one per environment with
+`openssl rand -hex 32`.
 
 - API: http://localhost:4000 (`API_PORT`)
 - Web: http://localhost:3000 (`WEB_PORT`)
@@ -38,6 +57,32 @@ The two ports are separate variables on purpose. A single shared `.env` means a
 bare `PORT` is read by *both* apps, and `next dev` would bind the API's port —
 on Windows both servers bind successfully and requests are answered by whichever
 one wins the race, which is a genuinely confusing thing to debug.
+
+## Authentication
+
+Two tokens. The access token is a short-lived JWT the client sends in an
+`Authorization` header; the refresh token is a long-lived opaque value in an
+httpOnly cookie that JavaScript cannot read.
+
+```
+POST /auth/login     { email, password }  -> { accessToken } + refresh cookie
+POST /auth/refresh   (cookie)             -> a new accessToken, and a new cookie
+POST /auth/logout    (cookie)             -> 204
+GET  /auth/me                             -> account, roles, groups, permissions
+POST /auth/password  { currentPassword, newPassword }
+```
+
+The access token is deliberately not stored in `localStorage` — a token that
+survives a tab close is what turns an XSS bug into a stolen session. It lives in
+memory, and `apps/web/lib/api-client.ts` silently refreshes once on a 401 and
+replays the request.
+
+Refresh tokens rotate: using one revokes it and issues another. Presenting a
+token that has already been used revokes **every** session for that account,
+because there is no way to tell the thief from the owner.
+
+Passwords are hashed with argon2id. Who may do what is decided entirely on the
+server — see [docs/authorization.md](docs/authorization.md).
 
 ## PWA
 
@@ -53,6 +98,15 @@ still require the network.
 - `apps/web/scripts/generate-icons.mjs` — regenerates `public/icons/` (no image
   dependencies). Run `node scripts/generate-icons.mjs` from `apps/web` after
   changing the colours, or just replace the PNGs with your own.
+
+Signing out clears the worker's cached API responses. That is not tidiness:
+the Cache API keys entries by URL alone, so the `Authorization` header that made
+a response specific to one account is not part of the key. On a shared pit
+laptop the next person to sign in would otherwise be served the previous one's
+data whenever the network is slow enough to hit the 5s API timeout. The app
+posts `{ type: "purge" }` to the worker on sign-out and the worker drops
+`breakpoint-runtime-v1`; the shell cache stays, because the offline page and
+icons belong to nobody.
 
 The service worker registers in production builds only — in dev it would serve
 stale chunks and fight hot reload. Because `NEXT_PUBLIC_API_URL` is baked in at
@@ -90,6 +144,8 @@ module-not-found error on a freshly cloned repo.
 ## Contributing
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commits, code layout, PR checklist
+- [docs/authorization.md](docs/authorization.md) — who may do what, and how it is checked
+- [docs/roles.md](docs/roles.md) — the role model and the rules behind it
 - [docs/migrations.md](docs/migrations.md) — database change rules
 - [docs/documentation.md](docs/documentation.md) — what to document, and where
 - [docs/product/](docs/product/) — scope and roadmap

@@ -1,151 +1,272 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { Prisma, type PrismaClient } from "@breakpoint/db";
+
 import { buildApp } from "./app";
+
+// Everything here runs against a stub client and app.inject, so the suite needs
+// neither a database nor a listening socket. The stub is the seam the prisma
+// plugin exists for.
+
+function stubClient(overrides: Record<string, unknown>) {
+  return {
+    $disconnect: vi.fn().mockResolvedValue(undefined),
+    // Services use $transaction([...]) to pair a page with its count. The
+    // elements are already promises from the stubs below.
+    $transaction: (operations: unknown) =>
+      Array.isArray(operations) ? Promise.all(operations) : (operations as () => unknown)(),
+    ...overrides,
+  };
+}
 
 function buildWithPrisma(stub: unknown) {
   return buildApp({ prisma: stub as PrismaClient });
 }
 
-// A stub client whose $disconnect is a no-op, so app.close() stays offline.
-function stubClient(overrides: Record<string, unknown>) {
-  return { $disconnect: vi.fn().mockResolvedValue(undefined), ...overrides };
+/** An account that is signed in, active, and holds one all-powerful global role. */
+const ADMIN = {
+  id: "account-1",
+  email: "ada@breakpoint.test",
+  fullName: "Ada Yilmaz",
+  isActive: true,
+  archivedAt: null,
+  roles: [{ groupId: null, role: { id: "role-admin", scope: "GLOBAL" } }],
+};
+
+const FULL_PERMISSION = {
+  canRead: true,
+  canCreate: true,
+  canUpdate: true,
+  canDelete: true,
+};
+
+/** The stub rows every authorized request walks through. */
+function authorizedStubs(extra: Record<string, unknown> = {}) {
+  return {
+    tool: { findUnique: async () => ({ id: "tool-accounts", isActive: true }) },
+    roleHierarchy: { findMany: async () => [] },
+    rolePermission: { findMany: async () => [FULL_PERMISSION] },
+    ...extra,
+  };
 }
 
-describe("app", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-  });
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
-  it("serves a health check without touching the database", async () => {
+describe("health", () => {
+  it("reports ok without a token", async () => {
     const app = buildWithPrisma(stubClient({}));
-
     const response = await app.inject({ method: "GET", url: "/health" });
 
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ status: "ok" });
+    await app.close();
+  });
+});
 
+describe("authentication", () => {
+  it("refuses a protected route with no token", async () => {
+    const app = buildWithPrisma(stubClient({}));
+    const response = await app.inject({ method: "GET", url: "/accounts" });
+
+    expect(response.statusCode).toBe(401);
     await app.close();
   });
 
-  it("disconnects prisma when the app closes", async () => {
-    // The shutdown path SIGTERM relies on: app.close() must run the onClose hook.
-    // (The signal wiring itself can't be exercised on win32, which has no POSIX signals.)
-    const client = stubClient({});
-    const app = buildWithPrisma(client);
+  it("refuses a token that is not signed by this server", async () => {
+    const app = buildWithPrisma(stubClient({}));
+    const response = await app.inject({
+      method: "GET",
+      url: "/accounts",
+      headers: { authorization: "Bearer not.a.real.token" },
+    });
+
+    expect(response.statusCode).toBe(401);
+    await app.close();
+  });
+
+  it("refuses a valid token whose account has since been deactivated", async () => {
+    // The account is re-read on every request rather than trusted from the
+    // token: suspending someone has to take effect now, not in fifteen minutes.
+    const app = buildWithPrisma(
+      stubClient({ account: { findUnique: async () => ({ ...ADMIN, isActive: false }) } })
+    );
     await app.ready();
 
-    await app.close();
-
-    expect(client.$disconnect).toHaveBeenCalledOnce();
-  });
-
-  it("returns 404 when a member does not exist", async () => {
-    const app = buildWithPrisma(
-      stubClient({ member: { findUnique: vi.fn().mockResolvedValue(null) } })
-    );
-
-    const response = await app.inject({ method: "GET", url: "/members/nope" });
-
-    // Regression guard: this used to serialize `null` as a 200 response.
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({
-      statusCode: 404,
-      error: "Not Found",
-      message: "Member not found",
+    const response = await app.inject({
+      method: "GET",
+      url: "/accounts",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
     });
 
+    expect(response.statusCode).toBe(401);
     await app.close();
   });
 
-  it("lists only active members", async () => {
-    const findMany = vi.fn().mockResolvedValue([]);
-    const app = buildWithPrisma(stubClient({ member: { findMany } }));
+  it("lets an authorized account through", async () => {
+    const app = buildWithPrisma(
+      stubClient({
+        account: {
+          findUnique: async () => ADMIN,
+          findMany: async () => [],
+          count: async () => 0,
+        },
+        ...authorizedStubs(),
+      })
+    );
+    await app.ready();
 
-    const response = await app.inject({ method: "GET", url: "/members" });
+    const response = await app.inject({
+      method: "GET",
+      url: "/accounts",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
+    });
 
     expect(response.statusCode).toBe(200);
-    expect(findMany).toHaveBeenCalledWith({ where: { archivedAt: null } });
-
+    expect(response.json()).toMatchObject({ page: 1, pageSize: 25, total: 0, totalPages: 1 });
     await app.close();
   });
 
-  it("archives a member without deleting their history", async () => {
-    const update = vi.fn().mockResolvedValue({});
-    const app = buildWithPrisma(stubClient({ member: { update } }));
+  it("returns 403, not 401, when the account is known but unauthorized", async () => {
+    const app = buildWithPrisma(
+      stubClient({
+        account: { findUnique: async () => ({ ...ADMIN, roles: [] }) },
+        ...authorizedStubs({ rolePermission: { findMany: async () => [] } }),
+      })
+    );
+    await app.ready();
 
     const response = await app.inject({
-      method: "DELETE",
-      url: "/members/seed-member-student-1",
+      method: "GET",
+      url: "/accounts",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
     });
 
-    expect(response.statusCode).toBe(204);
-    expect(update).toHaveBeenCalledWith({
-      where: { id: "seed-member-student-1" },
-      data: { archivedAt: expect.any(Date) },
-    });
-
+    expect(response.statusCode).toBe(403);
     await app.close();
   });
+});
 
-  it("maps a Prisma P2025 on delete to 404", async () => {
-    const notFound = new Prisma.PrismaClientKnownRequestError(
-      "An operation failed because it depends on one or more records that were required but not found.",
-      { code: "P2025", clientVersion: "7.9.1" }
-    );
-    const app = buildWithPrisma(
-      stubClient({ member: { update: vi.fn().mockRejectedValue(notFound) } })
-    );
-
-    const response = await app.inject({ method: "DELETE", url: "/members/nope" });
-
-    expect(response.statusCode).toBe(404);
-    expect(response.json()).toMatchObject({ statusCode: 404, error: "Not Found" });
-
-    await app.close();
-  });
-
-  it("maps a Prisma P2002 unique violation to 409", async () => {
-    const duplicate = new Prisma.PrismaClientKnownRequestError(
-      "Unique constraint failed on the fields: (`email`)",
-      { code: "P2002", clientVersion: "7.9.1" }
-    );
-    const app = buildWithPrisma(
-      stubClient({ member: { create: vi.fn().mockRejectedValue(duplicate) } })
-    );
-
+describe("validation", () => {
+  it("turns a Zod failure into a 400 carrying the issues", async () => {
+    const app = buildWithPrisma(stubClient({}));
     const response = await app.inject({
       method: "POST",
-      url: "/members",
-      payload: { name: "Ada Lovelace", email: "ada@example.com" },
+      url: "/auth/login",
+      payload: { email: "not-an-email", password: "" },
+    });
+
+    expect(response.statusCode).toBe(400);
+    const body = response.json();
+    expect(body.message).toBe("Invalid request");
+    expect(body.issues.length).toBeGreaterThan(0);
+    await app.close();
+  });
+
+  it("rejects a page size past the cap instead of returning the whole table", async () => {
+    const app = buildWithPrisma(
+      stubClient({ account: { findUnique: async () => ADMIN }, ...authorizedStubs() })
+    );
+    await app.ready();
+
+    const response = await app.inject({
+      method: "GET",
+      url: "/accounts?pageSize=5000",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
+    });
+
+    expect(response.statusCode).toBe(400);
+    await app.close();
+  });
+});
+
+describe("error handling", () => {
+  it("maps a Prisma missing-record error to 404", async () => {
+    const app = buildWithPrisma(
+      stubClient({
+        account: {
+          findUnique: async () => ADMIN,
+          update: async () => {
+            throw new Prisma.PrismaClientKnownRequestError("not found", {
+              code: "P2025",
+              clientVersion: "7.9.1",
+            });
+          },
+        },
+        ...authorizedStubs(),
+      })
+    );
+    await app.ready();
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/accounts/missing",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
+      payload: { fullName: "Yeni Ad" },
+    });
+
+    expect(response.statusCode).toBe(404);
+    await app.close();
+  });
+
+  it("maps a unique-constraint violation to 409", async () => {
+    const app = buildWithPrisma(
+      stubClient({
+        account: {
+          findUnique: async () => ADMIN,
+          update: async () => {
+            throw new Prisma.PrismaClientKnownRequestError("duplicate", {
+              code: "P2002",
+              clientVersion: "7.9.1",
+            });
+          },
+        },
+        ...authorizedStubs(),
+      })
+    );
+    await app.ready();
+
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/accounts/account-2",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
+      payload: { email: "taken@breakpoint.test" },
     });
 
     expect(response.statusCode).toBe(409);
-
     await app.close();
   });
 
-  it("does not leak internal error details in a 500 response", async () => {
-    const leaky = new Error(
-      "Invalid `prisma.member.findMany()` invocation in C:\\Users\\secret\\path\\app.js"
-    );
+  it("tells the client nothing about an unexpected failure", async () => {
     const app = buildWithPrisma(
-      stubClient({ member: { findMany: vi.fn().mockRejectedValue(leaky) } })
+      stubClient({
+        account: {
+          findUnique: async () => ADMIN,
+          update: async () => {
+            throw new Error("connect ECONNREFUSED /var/run/postgres/.s.PGSQL.5432");
+          },
+        },
+        ...authorizedStubs(),
+      })
     );
-    // The handler logs the real error; keep it out of the test output.
+    await app.ready();
     vi.spyOn(app.log, "error").mockImplementation(() => app.log);
 
-    const response = await app.inject({ method: "GET", url: "/members" });
+    const response = await app.inject({
+      method: "PATCH",
+      url: "/accounts/account-2",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` },
+      payload: { fullName: "Yeni Ad" },
+    });
 
     expect(response.statusCode).toBe(500);
+    // The body must not carry the path, the driver, or the original message.
+    expect(response.body).not.toMatch(/PGSQL|ECONNREFUSED|var\/run/);
     expect(response.json()).toEqual({
       statusCode: 500,
       error: "Internal Server Error",
       message: "Internal Server Error",
     });
-    // The actual regression guard for the disclosure bug.
-    expect(response.body).not.toContain("prisma.member");
-    expect(response.body).not.toContain("C:\\");
-
     await app.close();
   });
 });

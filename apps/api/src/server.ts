@@ -10,6 +10,19 @@ if (!process.env.DATABASE_URL) {
   process.exit(1);
 }
 
+// Checked here for the same reason: plugins/auth has to stay registrable
+// without an .env so the test suite can build the app, and it falls back to a
+// random per-process secret when this is unset. That fallback must never be
+// what a real deployment runs on -- tokens would silently stop working on every
+// restart -- so the server refuses to start instead.
+if (!process.env.JWT_SECRET) {
+  console.error(
+    "JWT_SECRET is not set. Generate one with `openssl rand -hex 32` and add it " +
+      "to .env before starting the server."
+  );
+  process.exit(1);
+}
+
 const app = buildApp();
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {

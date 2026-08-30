@@ -1,8 +1,603 @@
+/*
+ * One stylesheet, no framework. Everything below is either a design token or a
+ * class small enough to read in one go.
+ *
+ * The palette is anchored to #0f172a and #ef4444, which the PWA chrome already
+ * uses (manifest.ts, offline.html, generate-icons.mjs). Picking different
+ * colours here would make the installed app's splash screen and the app itself
+ * look like two products.
+ */
+
 :root {
   color-scheme: light dark;
+
+  --bg: #ffffff;
+  --surface: #f8fafc;
+  --surface-2: #f1f5f9;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --accent: #ef4444;
+  --accent-text: #ffffff;
+
+  --ok-bg: #dcfce7;
+  --ok-text: #166534;
+  --warn-bg: #fef3c7;
+  --warn-text: #92400e;
+  --off-bg: #f1f5f9;
+  --off-text: #64748b;
+  --danger-bg: #fee2e2;
+  --danger-text: #991b1b;
+
+  --space: 8px;
+  --radius: 6px;
+  --sidebar-width: 220px;
+
+  /* --- chart -------------------------------------------------------------
+   * Recharts takes its colours from JS props, not CSS, which would have put
+   * hex values back inside components -- the exact thing the note above
+   * forbids. SVG fill/stroke accept var(), so the charts are written against
+   * these roles and dark mode stays this one block.
+   *
+   * income/expense are slots 1 and 2 of a categorical palette validated for
+   * colour-vision deficiency against this surface (worst pair dE 24.7 under
+   * protanopia). The four status colours are a reserved status palette and
+   * are deliberately NOT colourblind-separable on their own -- red and green
+   * measure dE 4.1 under deuteranopia -- so every Gantt row prints its status
+   * label beside the bar. The colour is a second reading of something already
+   * written down, never the only one.
+   */
+  --chart-income: #2a78d6;
+  --chart-expense: #eb6834;
+  --chart-ok: #0ca30c;
+  --chart-warn: #fab219;
+  --chart-danger: #d03b3b;
+  --chart-off: #898781;
+  --chart-grid: #e2e8f0;
+  --chart-axis: #64748b;
+}
+
+/*
+ * The same tokens, restated. Only the values change -- no rule below this point
+ * mentions a colour directly, so dark mode is this block and nothing else.
+ */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f172a;
+    --surface: #1e293b;
+    --surface-2: #334155;
+    --text: #e2e8f0;
+    --muted: #94a3b8;
+    --border: #334155;
+
+    --ok-bg: #14532d;
+    --ok-text: #bbf7d0;
+    --warn-bg: #78350f;
+    --warn-text: #fde68a;
+    --off-bg: #334155;
+    --off-text: #cbd5e1;
+    --danger-bg: #7f1d1d;
+    --danger-text: #fecaca;
+
+    /* The status colours are the same four hexes in both themes on purpose: a
+       "blocked" bar that changes hue with the OS theme stops being a shared
+       vocabulary. Only the two categorical slots are re-stepped for the dark
+       surface, and revalidated against it. */
+    --chart-income: #3987e5;
+    --chart-expense: #d95926;
+    --chart-grid: #334155;
+    --chart-axis: #94a3b8;
+  }
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
   font-family: system-ui, sans-serif;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg);
+  color: var(--text);
+}
+
+h1 {
+  font-size: 20px;
+  margin: 0 0 calc(var(--space) * 2);
+}
+
+h2 {
+  font-size: 15px;
+  margin: 0 0 var(--space);
+}
+
+a {
+  color: inherit;
+}
+
+/* --- layout ------------------------------------------------------------- */
+
+.app-shell {
+  display: grid;
+  grid-template-columns: var(--sidebar-width) 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  padding: calc(var(--space) * 2);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 2);
+}
+
+.sidebar nav ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.content {
+  padding: calc(var(--space) * 3);
+  max-width: 1100px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  font-weight: 600;
+}
+
+.brand-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+/* On a phone the sidebar becomes a scrolling strip above the content -- the
+   nav is short enough that it does not need a drawer. */
+@media (max-width: 720px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .sidebar {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .sidebar nav ul {
+    flex-direction: row;
+    overflow-x: auto;
+  }
+
+  .content {
+    padding: calc(var(--space) * 2);
+  }
+}
+
+/* --- nav ---------------------------------------------------------------- */
+
+.nav-link {
+  display: block;
+  padding: 6px var(--space);
+  border-radius: var(--radius);
+  text-decoration: none;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.nav-link:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.nav-link[aria-current="page"] {
+  background: var(--surface-2);
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* --- cards and tables --------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: calc(var(--space) * 2);
+}
+
+.card-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin: 0 0 var(--space);
+}
+
+.stat {
+  font-size: 24px;
+  font-weight: 600;
+}
+
+.table-wrap {
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  overflow-x: auto;
+}
+
+.table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.table th,
+.table td {
+  text-align: left;
+  padding: var(--space) calc(var(--space) * 1.5);
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+
+.table th {
+  background: var(--surface);
+  font-weight: 600;
+  color: var(--muted);
+  white-space: nowrap;
+}
+
+.table tr:last-child td {
+  border-bottom: none;
+}
+
+.table td.numeric,
+.table th.numeric {
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- badges ------------------------------------------------------------- */
+
+.badge {
+  display: inline-block;
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  background: var(--off-bg);
+  color: var(--off-text);
+  white-space: nowrap;
+}
+
+.badge-ok {
+  background: var(--ok-bg);
+  color: var(--ok-text);
+}
+
+.badge-warn {
+  background: var(--warn-bg);
+  color: var(--warn-text);
+}
+
+.badge-danger {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+}
+
+/* --- controls ----------------------------------------------------------- */
+
+.btn {
+  font: inherit;
+  padding: 6px calc(var(--space) * 1.5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  background: var(--surface-2);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-text);
+}
+
+.btn-primary:hover:not(:disabled) {
+  filter: brightness(0.94);
+  background: var(--accent);
+}
+
+.btn-sm {
+  padding: 2px var(--space);
+  font-size: 12px;
+}
+
+select,
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="date"],
+textarea {
+  font: inherit;
+  padding: 6px var(--space);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--bg);
+  color: var(--text);
+  max-width: 100%;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.field label {
+  font-size: 13px;
+  color: var(--muted);
+}
+
+.field-error {
+  color: var(--danger-text);
+  font-size: 13px;
+}
+
+/* --- helpers ------------------------------------------------------------ */
+
+.stack {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 2);
+}
+
+.stack-sm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space);
+}
+
+.row {
+  display: flex;
+  gap: var(--space);
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.grid {
+  display: grid;
+  gap: calc(var(--space) * 2);
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.muted {
+  color: var(--muted);
+}
+
+.small {
+  font-size: 12px;
+}
+
+.empty,
+.loading {
+  color: var(--muted);
+  padding: calc(var(--space) * 3);
+  text-align: center;
+}
+
+.error-box {
+  background: var(--danger-bg);
+  color: var(--danger-text);
+  border-radius: var(--radius);
+  padding: calc(var(--space) * 1.5);
+}
+
+.error-box ul {
+  margin: var(--space) 0 0;
+  padding-left: calc(var(--space) * 2);
+}
+
+/* --- login -------------------------------------------------------------- */
+
+.login-shell {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: calc(var(--space) * 2);
+}
+
+.login-card {
+  width: 100%;
+  max-width: 360px;
+}
+
+/* --- role hierarchy ----------------------------------------------------- */
+
+/* An indented list rather than a drawn graph: the tree is five levels deep at
+   most, and indentation says "inherits from" without a layout library. */
+.tree {
+  list-style: none;
+  margin: 0;
+  padding-left: calc(var(--space) * 2);
+  border-left: 1px solid var(--border);
+}
+
+.tree > li {
+  padding: 2px 0;
+}
+
+/* --- gantt -------------------------------------------------------------- */
+
+/* The bars themselves are drawn by Recharts, so there is no .gantt-bar here
+   any more -- only the frame around the chart. GanttTask still stores ordering
+   and nothing else: every date on the timeline is read off the task. */
+.gantt-chart {
+  margin-top: var(--space);
+}
+
+/* One heading per department when the board list is not filtered to one. */
+.gantt-group {
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+  border-bottom: 1px solid var(--border);
+  padding-bottom: 4px;
+  margin: calc(var(--space) * 2) 0 var(--space);
+}
+
+/* The status key. The bar colour repeats what each row already spells out
+   next to the task name -- red and green are indistinguishable to a
+   deuteranope, so neither reading may stand alone. */
+.chart-key {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space);
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.chart-key > span {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.chart-key i {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+/* Recharts renders its tooltip as plain HTML, so it is styled here with the
+   same tokens as everything else rather than through inline styles. */
+.chart-tooltip {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: var(--space);
+  font-size: 12px;
+  line-height: 1.5;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+}
+
+.chart-tooltip strong {
+  display: block;
+  color: var(--text);
+}
+
+/* --- calendar ----------------------------------------------------------- */
+
+/* A month is a layout, not a data visualisation: seven columns of dates is a
+   grid, and drawing it with a chart library would buy nothing. */
+.calendar-head,
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+}
+
+.calendar-head {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-align: center;
+  padding-bottom: 4px;
+}
+
+.calendar-day {
+  min-height: 92px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  overflow: hidden;
+}
+
+.calendar-date {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+/* Days from the neighbouring months keep their place in the grid but recede:
+   a month that stopped mid-row would read as a broken layout. */
+.calendar-day.is-outside {
+  opacity: 0.45;
+}
+
+/* Outside the season there is nothing to plan, and saying so quietly beats
+   leaving the cell looking like an ordinary empty day. */
+.calendar-day.is-off-season {
+  background: var(--surface-2);
+}
+
+.calendar-day.is-today {
+  border-color: var(--accent);
+}
+
+.calendar-day.is-today .calendar-date {
+  color: var(--accent);
+}
+
+.calendar-season {
+  font-size: 11px;
+  color: var(--muted);
+}
+
+.calendar-event {
+  display: block;
+  font-size: 11px;
+  line-height: 1.3;
+  padding: 2px 4px;
+  border-radius: 3px;
+  border-left: 3px solid var(--border);
+  background: var(--surface-2);
+  color: var(--text);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-event:hover {
+  text-decoration: underline;
+}
+
+/* The stripe carries the kind; the title in front of it carries the same
+   thing in words, so the colour is never the only signal. */
+.calendar-event.kind-meeting {
+  border-left-color: var(--chart-income);
+}
+
+.calendar-event.kind-task-start {
+  border-left-color: var(--chart-off);
+}
+
+.calendar-event.kind-task-due {
+  border-left-color: var(--chart-expense);
 }

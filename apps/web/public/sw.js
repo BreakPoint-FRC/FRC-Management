@@ -134,6 +134,23 @@ self.addEventListener("activate", (event) => {
   );
 });
 
+// Sent by the app when someone signs out.
+//
+// Every API response this worker caches is keyed by URL alone — the Cache API
+// does not include request headers in the key, so the `Authorization` header
+// that made the response specific to one account is not part of it. Two people
+// sharing a laptop therefore share a cache, and the next one to sign in could
+// be served the previous one's data whenever the network is slow enough to hit
+// the API timeout.
+//
+// Signing out is the one moment we know that data must become unreachable, so
+// the runtime cache is dropped whole. The shell cache is left alone: it holds
+// the offline page and icons, which belong to nobody.
+self.addEventListener("message", (event) => {
+  if (event.data?.type !== "purge") return;
+  event.waitUntil(caches.delete(RUNTIME_CACHE));
+});
+
 self.addEventListener("fetch", (event) => {
   const { request } = event;
 
