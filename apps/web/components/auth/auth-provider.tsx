@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from "react";
 
-import { apiClient, setAccessToken } from "@/lib/api-client";
+import { apiClient, refreshSession, setAccessToken } from "@/lib/api-client";
 import type { PermissionMap } from "@/lib/permissions";
 
 export interface SessionAccount {
@@ -53,21 +53,6 @@ interface AuthValue extends Partial<Profile> {
 
 const AuthContext = createContext<AuthValue | null>(null);
 
-/**
- * Tells the service worker to drop its cached API responses.
- *
- * The worker caches every 200 it sees from the API, and the Cache API keys
- * entries by URL alone -- the Authorization header is not part of the key. On a
- * shared pit laptop that means the next person to sign in could be served the
- * previous one's data from cache the moment the network is slow enough to hit
- * the 5s timeout. Signing out is the one moment we can be sure that data should
- * be unreachable, so that is where it goes.
- */
-function purgeApiCache(): void {
-  if (typeof navigator === "undefined") return;
-  navigator.serviceWorker?.controller?.postMessage({ type: "purge" });
-}
-
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [profile, setProfile] = useState<Profile | null>(null);
   const [status, setStatus] = useState<AuthValue["status"]>("loading");
@@ -87,12 +72,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     (async () => {
       try {
-        const { accessToken } = await apiClient.post<{ accessToken: string }>("/auth/refresh");
+        // Shared with the retry a 401 would start, so the first page load
+        // cannot rotate the refresh cookie twice and revoke its own session.
+        const token = await refreshSession();
         if (cancelled) return;
 
-        setAccessToken(accessToken);
+        if (token === null) {
+          setStatus("anonymous");
+          return;
+        }
+
         await loadProfile();
       } catch {
+        // Network trouble rather than a refusal -- refreshSession only clears
+        // the token when the server actually says no. Either way this page
+        // load has concluded that nobody is signed in, and saying so is what
+        // drops the API cache the last person to use this browser left behind.
         if (!cancelled) {
           setAccessToken(null);
           setStatus("anonymous");
@@ -122,11 +117,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await apiClient.post("/auth/logout");
     } finally {
       // Local state is cleared even if the call failed. The server may still
-      // think the session is alive, but this browser must not.
+      // think the session is alive, but this browser must not -- and clearing
+      // the token is also what drops the worker's cached API responses, since
+      // the account it holds them for is no longer signed in here.
       setAccessToken(null);
       setProfile(null);
       setStatus("anonymous");
-      purgeApiCache();
     }
   }, []);
 

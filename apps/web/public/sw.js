@@ -8,9 +8,11 @@
 // The API origin is passed in at registration time (/sw.js?api=...) because a
 // static file in public/ cannot read NEXT_PUBLIC_API_URL at build time.
 
-const VERSION = "v1";
+const VERSION = "v2";
 const SHELL_CACHE = `breakpoint-shell-${VERSION}`;
 const RUNTIME_CACHE = `breakpoint-runtime-${VERSION}`;
+// API responses live in one cache per account -- see apiCacheName below.
+const API_CACHE_PREFIX = `breakpoint-api-${VERSION}-`;
 const CURRENT_CACHES = [SHELL_CACHE, RUNTIME_CACHE];
 
 const OFFLINE_URL = "/offline.html";
@@ -34,6 +36,33 @@ function isApiRequest(url) {
   return API_BASE !== "" && url.href.startsWith(API_BASE);
 }
 
+/**
+ * Which cache an API response belongs in.
+ *
+ * The Cache API keys entries by URL alone -- request headers are not part of
+ * the key -- so one cache shared by two accounts hands the second one the
+ * first one's data at the first slow request. Putting the account in the cache
+ * *name* separates them at the storage layer instead, which no timing can get
+ * around: signing in does not have to race a purge message to be safe.
+ *
+ * The JWT is not verified here, and does not need to be: this is a partition
+ * key, and a forged one only partitions differently. The token itself never
+ * becomes part of a cache name -- one we cannot read goes to a shared bucket
+ * rather than leaving a credential in CacheStorage.
+ */
+function apiCacheName(request) {
+  const auth = request.headers.get("Authorization");
+  if (!auth) return `${API_CACHE_PREFIX}anon`;
+
+  try {
+    const payload = auth.slice("Bearer ".length).split(".")[1];
+    const { sub } = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
+    return `${API_CACHE_PREFIX}${sub ?? "unknown"}`;
+  } catch {
+    return `${API_CACHE_PREFIX}unknown`;
+  }
+}
+
 function isRscRequest(request, url) {
   // Next.js client navigations fetch RSC payloads from the same URL as the
   // document. Caching those under the same key would serve a payload where a
@@ -54,7 +83,7 @@ async function fetchWithTimeout(request, timeoutMs) {
 // --- strategies -------------------------------------------------------------
 
 async function apiNetworkFirst(request) {
-  const cache = await caches.open(RUNTIME_CACHE);
+  const cache = await caches.open(apiCacheName(request));
   try {
     const response = await fetchWithTimeout(request, API_TIMEOUT_MS);
     if (isCacheable(response)) await cache.put(request, response.clone());
@@ -126,7 +155,12 @@ self.addEventListener("activate", (event) => {
       .then((keys) =>
         Promise.all(
           keys
-            .filter((key) => key.startsWith("breakpoint-") && !CURRENT_CACHES.includes(key))
+            .filter(
+              (key) =>
+                key.startsWith("breakpoint-") &&
+                !CURRENT_CACHES.includes(key) &&
+                !key.startsWith(API_CACHE_PREFIX)
+            )
             .map((key) => caches.delete(key))
         )
       )
@@ -134,21 +168,27 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Sent by the app when someone signs out.
+// Sent by the app whenever the signed-in account changes: signing in, signing
+// out, a refresh the server refused, a session revoked from another device.
 //
-// Every API response this worker caches is keyed by URL alone — the Cache API
-// does not include request headers in the key, so the `Authorization` header
-// that made the response specific to one account is not part of it. Two people
-// sharing a laptop therefore share a cache, and the next one to sign in could
-// be served the previous one's data whenever the network is slow enough to hit
-// the API timeout.
+// Per-account cache names already keep one person from reading another's data,
+// so this is not what makes the app safe -- it is what keeps a season's
+// finances from sitting in CacheStorage on a shared pit laptop after the
+// person who loaded them has gone. Every account's API cache goes.
 //
-// Signing out is the one moment we know that data must become unreachable, so
-// the runtime cache is dropped whole. The shell cache is left alone: it holds
-// the offline page and icons, which belong to nobody.
+// The shell and navigation caches stay: they hold the offline page, icons and
+// page shells, which belong to nobody. Pages here render on the client and
+// fetch their data from the API, so a cached document carries no account data.
+async function purgeApiCaches() {
+  const keys = await caches.keys();
+  await Promise.all(
+    keys.filter((key) => key.startsWith(API_CACHE_PREFIX)).map((key) => caches.delete(key))
+  );
+}
+
 self.addEventListener("message", (event) => {
   if (event.data?.type !== "purge") return;
-  event.waitUntil(caches.delete(RUNTIME_CACHE));
+  event.waitUntil(purgeApiCaches());
 });
 
 self.addEventListener("fetch", (event) => {

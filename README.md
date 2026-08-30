@@ -79,7 +79,10 @@ replays the request.
 
 Refresh tokens rotate: using one revokes it and issues another. Presenting a
 token that has already been used revokes **every** session for that account,
-because there is no way to tell the thief from the owner.
+because there is no way to tell the thief from the owner. That makes a second
+concurrent refresh indistinguishable from theft, so the client funnels all of
+them — the session restore on boot and every 401 retry — through one shared
+in-flight call: a page firing five requests at once rotates the token once.
 
 Passwords are hashed with argon2id. Who may do what is decided entirely on the
 server — see [docs/authorization.md](docs/authorization.md).
@@ -99,14 +102,24 @@ still require the network.
   dependencies). Run `node scripts/generate-icons.mjs` from `apps/web` after
   changing the colours, or just replace the PNGs with your own.
 
-Signing out clears the worker's cached API responses. That is not tidiness:
-the Cache API keys entries by URL alone, so the `Authorization` header that made
-a response specific to one account is not part of the key. On a shared pit
-laptop the next person to sign in would otherwise be served the previous one's
-data whenever the network is slow enough to hit the 5s API timeout. The app
-posts `{ type: "purge" }` to the worker on sign-out and the worker drops
-`breakpoint-runtime-v1`; the shell cache stays, because the offline page and
-icons belong to nobody.
+Cached API responses are split by account: the worker reads the account id out
+of the request's `Authorization` header and stores the response in
+`breakpoint-api-v2-<accountId>`. That is not tidiness. The Cache API keys
+entries by URL alone, so a single cache would hand the next person to sign in
+on a shared pit laptop the previous one's data whenever the network is slow
+enough to hit the 5s API timeout. Separating the caches by name means no
+timing — signing in does not have to win a race against a cleanup message —
+can produce that. The id is only a partition key and is never verified here;
+the token itself never becomes part of a cache name.
+
+The app also drops every account's API cache whenever the signed-in account
+changes: signing out, signing in, a refresh the server refused, a session
+revoked from another device. All of those pass through `setAccessToken`, which
+posts `{ type: "purge" }` to the worker; a token rotating for the same account
+is not a change, so ordinary refreshes leave the offline reads alone. The shell
+and navigation caches survive a purge, because the offline page, icons and page
+shells belong to nobody: pages render on the client and fetch their data from
+the API.
 
 The service worker registers in production builds only — in dev it would serve
 stale chunks and fight hot reload. Because `NEXT_PUBLIC_API_URL` is baked in at
