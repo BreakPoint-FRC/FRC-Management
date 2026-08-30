@@ -12,10 +12,32 @@ CREATE TYPE "SponsorshipStatus" AS ENUM ('CANDIDATE', 'CONTACTED', 'NEGOTIATING'
 -- RenameTable
 ALTER TABLE "Transaction" RENAME TO "FinanceTransaction";
 ALTER INDEX "Transaction_pkey" RENAME TO "FinanceTransaction_pkey";
-ALTER TABLE "FinanceTransaction" RENAME CONSTRAINT "Transaction_id_not_null" TO "FinanceTransaction_id_not_null";
-ALTER TABLE "FinanceTransaction" RENAME CONSTRAINT "Transaction_type_not_null" TO "FinanceTransaction_type_not_null";
-ALTER TABLE "FinanceTransaction" RENAME CONSTRAINT "Transaction_amount_not_null" TO "FinanceTransaction_amount_not_null";
-ALTER TABLE "FinanceTransaction" RENAME CONSTRAINT "Transaction_createdAt_not_null" TO "FinanceTransaction_createdAt_not_null";
+-- Conditional for the same reason as the constraint renames in
+-- 20260829090000_rename_member_to_account_and_add_credentials: these names only
+-- exist on PostgreSQL 18.
+DO $$
+DECLARE
+  rename RECORD;
+BEGIN
+  FOR rename IN
+    SELECT * FROM (VALUES
+      ('Transaction_id_not_null', 'FinanceTransaction_id_not_null'),
+      ('Transaction_type_not_null', 'FinanceTransaction_type_not_null'),
+      ('Transaction_amount_not_null', 'FinanceTransaction_amount_not_null'),
+      ('Transaction_createdAt_not_null', 'FinanceTransaction_createdAt_not_null')
+    ) AS names(old_name, new_name)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = '"FinanceTransaction"'::regclass AND conname = rename.old_name
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE "FinanceTransaction" RENAME CONSTRAINT %I TO %I',
+        rename.old_name, rename.new_name
+      );
+    END IF;
+  END LOOP;
+END $$;
 
 -- RenameColumn
 -- counterparty ("from who / to who") is free text about the other side of the

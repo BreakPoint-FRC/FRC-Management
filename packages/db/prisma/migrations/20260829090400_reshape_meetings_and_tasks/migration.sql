@@ -16,7 +16,19 @@ CREATE TYPE "AttendanceStatus" AS ENUM ('PRESENT', 'ABSENT', 'LATE', 'EXCUSED');
 -- RenameColumn
 ALTER TABLE "Meeting" RENAME COLUMN "scheduledAt" TO "meetingDate";
 ALTER TABLE "Meeting" RENAME COLUMN "report" TO "body";
-ALTER TABLE "Meeting" RENAME CONSTRAINT "Meeting_scheduledAt_not_null" TO "Meeting_meetingDate_not_null";
+-- Conditional for the same reason as the constraint renames in
+-- 20260829090000_rename_member_to_account_and_add_credentials: these names only
+-- exist on PostgreSQL 18.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = '"Meeting"'::regclass AND conname = 'Meeting_scheduledAt_not_null'
+  ) THEN
+    ALTER TABLE "Meeting"
+      RENAME CONSTRAINT "Meeting_scheduledAt_not_null" TO "Meeting_meetingDate_not_null";
+  END IF;
+END $$;
 
 -- AlterTable
 -- groupId is nullable: a team-wide meeting belongs to no single department, and
@@ -44,7 +56,16 @@ ALTER TABLE "Meeting" ALTER COLUMN "createdById" SET NOT NULL;
 -- RenameColumn
 ALTER TABLE "Task" RENAME COLUMN "title" TO "name";
 ALTER TABLE "Task" RENAME COLUMN "dueAt" TO "dueDate";
-ALTER TABLE "Task" RENAME CONSTRAINT "Task_title_not_null" TO "Task_name_not_null";
+-- Conditional, as above: PostgreSQL 18 only.
+DO $$
+BEGIN
+  IF EXISTS (
+    SELECT 1 FROM pg_constraint
+    WHERE conrelid = '"Task"'::regclass AND conname = 'Task_title_not_null'
+  ) THEN
+    ALTER TABLE "Task" RENAME CONSTRAINT "Task_title_not_null" TO "Task_name_not_null";
+  END IF;
+END $$;
 
 -- AlterTable
 ALTER TABLE "Task" ADD COLUMN "startDate" TIMESTAMP(3);

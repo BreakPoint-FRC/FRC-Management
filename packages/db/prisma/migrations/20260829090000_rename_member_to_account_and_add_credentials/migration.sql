@@ -22,10 +22,40 @@ ALTER INDEX "Member_pkey" RENAME TO "Account_pkey";
 ALTER INDEX "Member_email_key" RENAME TO "Account_email_key";
 
 -- RenameConstraint
-ALTER TABLE "Account" RENAME CONSTRAINT "Member_id_not_null" TO "Account_id_not_null";
-ALTER TABLE "Account" RENAME CONSTRAINT "Member_name_not_null" TO "Account_fullName_not_null";
-ALTER TABLE "Account" RENAME CONSTRAINT "Member_email_not_null" TO "Account_email_not_null";
-ALTER TABLE "Account" RENAME CONSTRAINT "Member_createdAt_not_null" TO "Account_createdAt_not_null";
+--
+-- PostgreSQL 18 gives every NOT NULL its own named catalog entry, so renaming
+-- the table leaves constraints called "Member_id_not_null" behind on "Account".
+-- On 16 and 17 a NOT NULL is a column attribute with no constraint to rename,
+-- and naming one is error 42704.
+--
+-- Renaming them unconditionally therefore worked on an 18 development machine
+-- and failed on the postgres:16 in CI, against a database built from scratch.
+-- This loop renames whatever is actually there and skips what is not, so the
+-- chain applies identically on every server the project supports. On 16 and 17
+-- it is a no-op, and correctly so: there are no names left to be wrong.
+DO $$
+DECLARE
+  rename RECORD;
+BEGIN
+  FOR rename IN
+    SELECT * FROM (VALUES
+      ('Member_id_not_null', 'Account_id_not_null'),
+      ('Member_name_not_null', 'Account_fullName_not_null'),
+      ('Member_email_not_null', 'Account_email_not_null'),
+      ('Member_createdAt_not_null', 'Account_createdAt_not_null')
+    ) AS names(old_name, new_name)
+  LOOP
+    IF EXISTS (
+      SELECT 1 FROM pg_constraint
+      WHERE conrelid = '"Account"'::regclass AND conname = rename.old_name
+    ) THEN
+      EXECUTE format(
+        'ALTER TABLE "Account" RENAME CONSTRAINT %I TO %I',
+        rename.old_name, rename.new_name
+      );
+    END IF;
+  END LOOP;
+END $$;
 
 -- AlterTable
 -- isActive gates authentication; archivedAt (already present) records that
