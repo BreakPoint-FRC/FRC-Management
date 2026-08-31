@@ -3,9 +3,9 @@
  * class small enough to read in one go.
  *
  * The palette is anchored to #0f172a and #ef4444, which the PWA chrome already
- * uses (manifest.ts, offline.html, generate-icons.mjs). Picking different
- * colours here would make the installed app's splash screen and the app itself
- * look like two products.
+ * uses (manifest.ts and generate-icons.mjs). Picking different colours here
+ * would make the installed app's splash screen and the app itself look like
+ * two products.
  */
 
 :root {

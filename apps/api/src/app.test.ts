@@ -147,6 +147,98 @@ describe("authentication", () => {
   });
 });
 
+describe("refresh tokens travel in the body", () => {
+  // They used to be an httpOnly cookie. The web app now stores nothing on the
+  // device at all, so the token is handed back in the response and held in
+  // memory -- which means these routes must neither read nor set a cookie.
+
+  /** A live, unexpired, unrevoked token row belonging to ADMIN. */
+  function storedToken() {
+    return {
+      id: "rt-1",
+      accountId: ADMIN.id,
+      expiresAt: new Date(Date.now() + 60_000),
+      revokedAt: null,
+    };
+  }
+
+  function refreshStubs(overrides: Record<string, unknown> = {}) {
+    return stubClient({
+      account: { findUnique: async () => ADMIN },
+      refreshToken: {
+        findUnique: async () => storedToken(),
+        update: async () => storedToken(),
+        create: async () => storedToken(),
+        updateMany: async () => ({ count: 1 }),
+        ...overrides,
+      },
+    });
+  }
+
+  it("rotates a token read from the body and answers with the new one", async () => {
+    const app = buildWithPrisma(refreshStubs());
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken: "whatever-the-client-held" },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(typeof body.accessToken).toBe("string");
+    // The rotated token has to come back in the body, or the client has no way
+    // to reach it and the next refresh replays a token the server just revoked.
+    expect(typeof body.refreshToken).toBe("string");
+    expect(body.refreshToken).not.toBe("whatever-the-client-held");
+    expect(response.headers["set-cookie"]).toBeUndefined();
+    await app.close();
+  });
+
+  it("refuses a refresh with nothing to spend", async () => {
+    // The old route read a cookie the browser attached on its own, so a missing
+    // one was invisible. Now an empty body is a request the client got wrong.
+    const app = buildWithPrisma(refreshStubs());
+    await app.ready();
+
+    const response = await app.inject({ method: "POST", url: "/auth/refresh", payload: {} });
+
+    expect(response.statusCode).toBe(400);
+    await app.close();
+  });
+
+  it("revokes the token a logout carries", async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const app = buildWithPrisma(refreshStubs({ updateMany }));
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/logout",
+      payload: { refreshToken: "the-one-in-memory" },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(updateMany).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  it("still returns 204 when a logout has no token to send", async () => {
+    // A tab that was reloaded has already lost its token. It still wanted the
+    // session gone, and reporting that as an error would be noise.
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const app = buildWithPrisma(refreshStubs({ updateMany }));
+    await app.ready();
+
+    const response = await app.inject({ method: "POST", url: "/auth/logout", payload: {} });
+
+    expect(response.statusCode).toBe(204);
+    expect(updateMany).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
 describe("validation", () => {
   it("turns a Zod failure into a 400 carrying the issues", async () => {
     const app = buildWithPrisma(stubClient({}));

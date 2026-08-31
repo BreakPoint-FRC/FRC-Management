@@ -10,7 +10,14 @@ import {
   type ReactNode,
 } from "react";
 
-import { apiClient, refreshSession, setAccessToken } from "@/lib/api-client";
+import {
+  apiClient,
+  clearSession,
+  getRefreshToken,
+  refreshSession,
+  setAccessToken,
+  setRefreshToken,
+} from "@/lib/api-client";
 import type { PermissionMap } from "@/lib/permissions";
 
 export interface SessionAccount {
@@ -63,10 +70,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setStatus("authenticated");
   }, []);
 
-  // Restoring a session on first load. The access token lives in memory, so a
-  // reload always starts without one -- but the refresh cookie survives, and
-  // exchanging it is exactly what it is for. A failure here is the ordinary
-  // signed-out case, not an error worth showing.
+  // A page load has nothing to restore. Both tokens live in memory and nothing
+  // is written to the device, so `refreshSession` finds no token and answers
+  // null without touching the network -- the ordinary path here, not a failure.
+  //
+  // The effect still has to run: it is what moves `status` off "loading" so the
+  // login screen can render. It asks for a refresh rather than assuming the
+  // answer, so a remount that does happen to hold a live session is restored
+  // instead of being signed out.
   useEffect(() => {
     let cancelled = false;
 
@@ -85,9 +96,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await loadProfile();
       } catch {
         // Network trouble rather than a refusal -- refreshSession only clears
-        // the token when the server actually says no. Either way this page
-        // load has concluded that nobody is signed in, and saying so is what
-        // drops the API cache the last person to use this browser left behind.
+        // the tokens when the server actually says no. Either way this page
+        // load has concluded that nobody is signed in.
         if (!cancelled) {
           setAccessToken(null);
           setStatus("anonymous");
@@ -102,11 +112,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(
     async (email: string, password: string) => {
-      const { accessToken } = await apiClient.post<{ accessToken: string }>("/auth/login", {
-        email,
-        password,
-      });
-      setAccessToken(accessToken);
+      const session = await apiClient.post<{ accessToken: string; refreshToken: string }>(
+        "/auth/login",
+        { email, password }
+      );
+      // The refresh token is what keeps this session alive past the access
+      // token's fifteen minutes, for as long as the tab stays open.
+      setRefreshToken(session.refreshToken);
+      setAccessToken(session.accessToken);
       await loadProfile();
     },
     [loadProfile]
@@ -114,13 +127,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signOut = useCallback(async () => {
     try {
-      await apiClient.post("/auth/logout");
+      // Sent so the server can revoke the refresh token rather than leave it
+      // valid until it expires on its own.
+      await apiClient.post("/auth/logout", { refreshToken: getRefreshToken() });
     } finally {
-      // Local state is cleared even if the call failed. The server may still
-      // think the session is alive, but this browser must not -- and clearing
-      // the token is also what drops the worker's cached API responses, since
-      // the account it holds them for is no longer signed in here.
-      setAccessToken(null);
+      // Local state is cleared even if the call failed -- offline included.
+      // The server may still think the session is alive, but this browser must
+      // not, and nothing survives here for it to be wrong about for long.
+      clearSession();
       setProfile(null);
       setStatus("anonymous");
     }

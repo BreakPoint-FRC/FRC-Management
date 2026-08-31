@@ -14,13 +14,14 @@ wrong is an incomplete PR.
 | Changed the schema | Follow [migrations.md](migrations.md); extend the seed if you added a model |
 | Made a decision a reader could reverse by accident | Write down *why*, in a comment at the code or a section in the README |
 
-That last row is the one that matters most. The README's PWA section says
-offline **reads** work and writes still need the network — that is not a
-description of the code, it is a deliberate choice, and without it written down
-someone will "fix" the missing offline writes and break the sync story. The same
-goes for comments already in the tree: why `base.json` is not named
-`tsconfig.base.json`, why the error handler hides 500 details, why the service
-worker only registers in production. Keep writing those.
+That last row is the one that matters most. The README's PWA section says the
+app stores nothing on the device — that is not a description of the code, it is
+a deliberate choice about a laptop shared around a pit, and without it written
+down someone will "fix" the missing offline support and quietly put a season's
+finances back on the disk. The same goes for comments already in the tree: why
+`base.json` is not named `tsconfig.base.json`, why the error handler hides 500
+details, why both auth tokens live in memory rather than in a cookie. Keep
+writing those.
 
 ## Where things live
 

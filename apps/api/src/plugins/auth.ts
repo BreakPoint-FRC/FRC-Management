@@ -1,17 +1,10 @@
 import { randomBytes } from "node:crypto";
 
-import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
 import { UnauthorizedError } from "../lib/http-errors";
-
-/**
- * Name of the refresh cookie. Short and unremarkable on purpose -- it says
- * nothing about the stack behind it.
- */
-export const REFRESH_COOKIE = "bp_rt";
 
 /** The account attached to an authenticated request. */
 export interface AuthenticatedAccount {
@@ -29,7 +22,6 @@ export default fp(async (app: FastifyInstance) => {
   // first.
   const secret = process.env.JWT_SECRET ?? randomBytes(32).toString("hex");
 
-  await app.register(cookie);
   await app.register(jwt, {
     secret,
     sign: { expiresIn: process.env.JWT_ACCESS_TTL ?? "15m" },

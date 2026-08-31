@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { ApiError, apiClient, getAccessToken, setAccessToken } from "./api-client";
+import {
+  ApiError,
+  apiClient,
+  clearSession,
+  getAccessToken,
+  getRefreshToken,
+  setAccessToken,
+  setRefreshToken,
+} from "./api-client";
 
 const json = (status: number, body: unknown) =>
   new Response(JSON.stringify(body), {
@@ -27,7 +35,8 @@ function deferred<T>() {
  * them reaches the mock first is exactly the thing under test.
  */
 function fetchServing(token: string, options: { refresh?: () => Response | Promise<Response> } = {}) {
-  const refresh = options.refresh ?? (async () => json(200, { accessToken: token }));
+  const refresh =
+    options.refresh ?? (async () => json(200, { accessToken: token, refreshToken: "rt-next" }));
 
   return vi.fn(async (url: string, init: any) => {
     if (url === REFRESH_URL) return refresh();
@@ -37,10 +46,16 @@ function fetchServing(token: string, options: { refresh?: () => Response | Promi
   });
 }
 
+/** A signed-in session. Both tokens are needed: a refresh spends the second. */
+function signedIn(access: string, refresh = "rt-1") {
+  setAccessToken(access);
+  setRefreshToken(refresh);
+}
+
 describe("apiClient", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
-    setAccessToken(null);
+    clearSession();
   });
 
   it("handles successful responses without a body", async () => {
@@ -56,7 +71,7 @@ describe("apiClient", () => {
     );
   });
 
-  it("sends the access token and the refresh cookie", async () => {
+  it("sends the access token and no credentials", async () => {
     const fetchMock = vi.fn().mockResolvedValue(json(200, { items: [] }));
     vi.stubGlobal("fetch", fetchMock);
     setAccessToken("token-abc");
@@ -65,9 +80,9 @@ describe("apiClient", () => {
 
     const init = fetchMock.mock.calls[0][1];
     expect(init.headers.Authorization).toBe("Bearer token-abc");
-    // Without this the browser withholds the httpOnly refresh cookie, because
-    // the API is on a different origin.
-    expect(init.credentials).toBe("include");
+    // Nothing rides on a cookie any more, so the request must not ask the
+    // browser to attach one. Both tokens live in memory and travel explicitly.
+    expect(init.credentials).toBeUndefined();
   });
 
   it("omits the header entirely when signed out", async () => {
@@ -122,10 +137,10 @@ describe("apiClient", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(json(401, { message: "Oturum acmaniz gerekiyor" }))
-      .mockResolvedValueOnce(json(200, { accessToken: "fresh-token" }))
+      .mockResolvedValueOnce(json(200, { accessToken: "fresh-token", refreshToken: "rt-2" }))
       .mockResolvedValueOnce(json(200, { items: [1] }));
     vi.stubGlobal("fetch", fetchMock);
-    setAccessToken("stale-token");
+    signedIn("stale-token");
 
     await expect(apiClient.get("/tasks")).resolves.toEqual({ items: [1] });
 
@@ -142,7 +157,7 @@ describe("apiClient", () => {
       .mockResolvedValueOnce(json(401, { message: "Oturum acmaniz gerekiyor" }))
       .mockResolvedValueOnce(json(401, { message: "Oturum suresi doldu" }));
     vi.stubGlobal("fetch", fetchMock);
-    setAccessToken("stale-token");
+    signedIn("stale-token");
 
     await expect(apiClient.get("/tasks")).rejects.toMatchObject({ status: 401 });
     expect(getAccessToken()).toBeNull();
@@ -150,13 +165,12 @@ describe("apiClient", () => {
 
   it("omits the JSON content-type when there is no body", async () => {
     // Fastify refuses a request that announces JSON and sends nothing, so a
-    // bodyless POST that set the header would 400. /auth/refresh and
-    // /auth/logout are both bodyless, which makes this the difference between
-    // a session that survives a reload and one that does not.
+    // bodyless POST that set the header would 400. Activating a season and
+    // adding a role hierarchy edge both take no body at all.
     const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
     vi.stubGlobal("fetch", fetchMock);
 
-    await apiClient.post("/auth/logout");
+    await apiClient.post("/seasons/season-1/activate");
 
     const init = fetchMock.mock.calls[0][1];
     expect(init.body).toBeUndefined();
@@ -191,6 +205,61 @@ describe("apiClient", () => {
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
+  describe("a session that lives only in memory", () => {
+    it("sends the refresh token in the body and keeps the rotated one", async () => {
+      // The server revokes a refresh token as it spends it, so dropping the
+      // replacement would make the next refresh look like a stolen token being
+      // replayed -- which revokes every session the account has.
+      const fetchMock = vi
+        .fn()
+        .mockResolvedValueOnce(json(401, { message: "Oturum acmaniz gerekiyor" }))
+        .mockResolvedValueOnce(json(200, { accessToken: "fresh-token", refreshToken: "rt-2" }))
+        .mockResolvedValueOnce(json(200, { items: [] }));
+      vi.stubGlobal("fetch", fetchMock);
+      signedIn("stale-token", "rt-1");
+
+      await apiClient.get("/tasks");
+
+      expect(JSON.parse(fetchMock.mock.calls[1][1].body)).toEqual({ refreshToken: "rt-1" });
+      expect(getRefreshToken()).toBe("rt-2");
+    });
+
+    it("does not reach the network with no refresh token to spend", async () => {
+      // What a reload looks like: the tab that held the tokens is gone and
+      // nothing was written to the disk, so there is nothing to restore. The
+      // 401 stands on its own rather than starting a pointless round trip.
+      const fetchMock = vi.fn().mockResolvedValue(json(401, { message: "Oturum acmaniz gerekiyor" }));
+      vi.stubGlobal("fetch", fetchMock);
+      setAccessToken("stale-token");
+
+      await expect(apiClient.get("/tasks")).rejects.toMatchObject({ status: 401 });
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock.mock.calls.filter(([url]: any[]) => url === REFRESH_URL)).toHaveLength(0);
+    });
+  });
+
+  describe("no connection", () => {
+    it("reports a dead connection as such rather than as an unknown failure", async () => {
+      // There is no offline mode here at all, so this is the one message that
+      // tells the user the app is fine and the venue wifi is not.
+      vi.stubGlobal("fetch", vi.fn().mockRejectedValue(new TypeError("Failed to fetch")));
+
+      await expect(apiClient.get("/tasks")).rejects.toMatchObject({
+        status: 0,
+        message: "Internet baglantisi yok",
+      });
+    });
+
+    it("still reports what the server said when there is a server to answer", async () => {
+      // A 500 is not a connection problem, and calling it one would send
+      // someone to look at the wifi while the API is down.
+      vi.stubGlobal("fetch", vi.fn().mockResolvedValue(json(500, { message: "Sunucu hatasi" })));
+
+      await expect(apiClient.get("/tasks")).rejects.toMatchObject({ status: 500 });
+    });
+  });
+
   describe("concurrent refreshes", () => {
     // Refresh tokens rotate, and the API treats a second use of one as theft:
     // it revokes every session for the account. A page firing several requests
@@ -199,7 +268,7 @@ describe("apiClient", () => {
     it("collapses a burst of 401s into a single refresh", async () => {
       const fetchMock = fetchServing(jwt("acc-a", "2"));
       vi.stubGlobal("fetch", fetchMock);
-      setAccessToken(jwt("acc-a", "1"));
+      signedIn(jwt("acc-a", "1"));
 
       const results = await Promise.all([
         apiClient.get("/tasks"),
@@ -225,7 +294,7 @@ describe("apiClient", () => {
     it("lets a later 401 refresh again once the first one has settled", async () => {
       const fetchMock = fetchServing(jwt("acc-a", "2"));
       vi.stubGlobal("fetch", fetchMock);
-      setAccessToken(jwt("acc-a", "1"));
+      signedIn(jwt("acc-a", "1"));
 
       await apiClient.get("/tasks");
       // The token expires again; the shared promise must not have latched.
@@ -243,7 +312,7 @@ describe("apiClient", () => {
       const late = deferred<Response>();
 
       const fetchMock = vi.fn(async (url: string, init: any) => {
-        if (url === REFRESH_URL) return json(200, { accessToken: fresh });
+        if (url === REFRESH_URL) return json(200, { accessToken: fresh, refreshToken: "rt-2" });
         if (url.endsWith("/members") && init.headers.Authorization !== `Bearer ${fresh}`) {
           return late.promise;
         }
@@ -252,7 +321,7 @@ describe("apiClient", () => {
           : json(401, { message: "Oturum acmaniz gerekiyor" });
       });
       vi.stubGlobal("fetch", fetchMock);
-      setAccessToken(jwt("acc-a", "1"));
+      signedIn(jwt("acc-a", "1"));
 
       const members = apiClient.get("/members");
       await apiClient.get("/tasks");
@@ -262,90 +331,36 @@ describe("apiClient", () => {
       expect(fetchMock.mock.calls.filter(([url]) => url === REFRESH_URL)).toHaveLength(1);
     });
 
-    it("rejects the whole burst and clears the token when the refresh is refused", async () => {
+    it("rejects the whole burst and clears the session when the refresh is refused", async () => {
       const fetchMock = fetchServing(jwt("acc-a", "2"), {
         refresh: () => json(401, { message: "Oturum guvenlik nedeniyle sonlandirildi" }),
       });
       vi.stubGlobal("fetch", fetchMock);
-      setAccessToken(jwt("acc-a", "1"));
+      signedIn(jwt("acc-a", "1"));
 
       const results = await Promise.allSettled([apiClient.get("/tasks"), apiClient.get("/members")]);
 
       expect(results.map((r) => r.status)).toEqual(["rejected", "rejected"]);
       expect(fetchMock.mock.calls.filter(([url]) => url === REFRESH_URL)).toHaveLength(1);
       expect(getAccessToken()).toBeNull();
+      // The refresh token goes too, or the next request would spend one the
+      // server has already refused.
+      expect(getRefreshToken()).toBeNull();
     });
 
     it("leaves the session alone when the refresh cannot reach the network", async () => {
-      // Losing wifi in a pit is not the server saying no. Clearing the token
-      // here would turn a dead spot into a forced sign-in.
+      // Losing wifi in a pit is not the server saying no. Clearing the tokens
+      // here would turn a dead spot into a forced sign-in -- and with nothing
+      // stored on the device, that sign-in could not be undone by a reload.
       const fetchMock = fetchServing(jwt("acc-a", "2"), {
         refresh: () => Promise.reject(new TypeError("Failed to fetch")),
       });
       vi.stubGlobal("fetch", fetchMock);
-      setAccessToken(jwt("acc-a", "1"));
+      signedIn(jwt("acc-a", "1"));
 
-      await expect(apiClient.get("/tasks")).rejects.toThrow("Failed to fetch");
+      await expect(apiClient.get("/tasks")).rejects.toThrow("Internet baglantisi yok");
       expect(getAccessToken()).toBe(jwt("acc-a", "1"));
-    });
-  });
-
-  describe("cached API responses", () => {
-    function stubWorker() {
-      const postMessage = vi.fn();
-      vi.stubGlobal("navigator", { serviceWorker: { controller: { postMessage } } });
-      return postMessage;
-    }
-
-    it("tells the worker to drop cached responses when the account changes", async () => {
-      const postMessage = stubWorker();
-
-      setAccessToken(jwt("acc-a"));
-      expect(postMessage).toHaveBeenCalledWith({ type: "purge" });
-
-      // Signing out, then someone else signing in on the same laptop.
-      setAccessToken(null);
-      setAccessToken(jwt("acc-b"));
-      expect(postMessage).toHaveBeenCalledTimes(3);
-    });
-
-    it("keeps the cache across a rotation for the same account", async () => {
-      setAccessToken(jwt("acc-a", "1"));
-      const postMessage = stubWorker();
-
-      setAccessToken(jwt("acc-a", "2"));
-
-      // Otherwise every fifteen minutes would throw away the offline reads the
-      // user is still depending on.
-      expect(postMessage).not.toHaveBeenCalled();
-    });
-
-    it("purges when a page load concludes that nobody is signed in", async () => {
-      // A fresh module, because the distinction being tested is between "no
-      // session yet on this page load" and "signed out": the first outcome of
-      // a session restore is a change either way, and the cache the last
-      // person to use this browser left behind must not survive it.
-      vi.resetModules();
-      const postMessage = vi.fn();
-      vi.stubGlobal("navigator", { serviceWorker: { controller: { postMessage } } });
-
-      const fresh = await import("./api-client");
-      fresh.setAccessToken(null);
-
-      expect(postMessage).toHaveBeenCalledWith({ type: "purge" });
-    });
-
-    it("purges when a refused refresh ends the session", async () => {
-      setAccessToken(jwt("acc-a"));
-      const postMessage = stubWorker();
-      vi.stubGlobal(
-        "fetch",
-        fetchServing(jwt("acc-a", "2"), { refresh: () => json(401, { message: "Oturum suresi doldu" }) })
-      );
-
-      await expect(apiClient.get("/tasks")).rejects.toMatchObject({ status: 401 });
-
-      expect(postMessage).toHaveBeenCalledWith({ type: "purge" });
+      expect(getRefreshToken()).toBe("rt-1");
     });
   });
 });

@@ -1,58 +1,43 @@
-import { purgeApiCache } from "./api-cache";
-
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 /**
- * The access token lives in memory, not localStorage.
+ * Both tokens live in memory. Nothing about a session touches the disk.
  *
- * A token in localStorage survives a tab close, which sounds convenient and is
- * the reason an XSS bug turns into a stolen session. Losing it on reload costs
- * one silent POST /auth/refresh -- the refresh token is an httpOnly cookie that
- * JavaScript, including anything injected into the page, cannot read at all.
+ * The access token is short-lived and the refresh token is what buys the next
+ * one, so between them they are a session -- and keeping them in module scope
+ * means closing the tab ends it. There is no cookie, no localStorage and no
+ * cached response anywhere: a shared pit laptop keeps nothing after the person
+ * using it walks away, which is the whole reason this app stores nothing.
+ *
+ * The cost is a sign-in on every page load, because a reload starts a new
+ * module with both variables null. That is deliberate. Putting either token in
+ * localStorage would survive the reload and would also hand it to any injected
+ * script; an httpOnly cookie would survive it without that risk but would put a
+ * live session back on the disk. Do not "fix" the sign-in by adding either.
  */
 let accessToken: string | null = null;
-
-/**
- * Which account the current token belongs to.
- *
- * `undefined` means no session has been seen yet on this page load, which is
- * not the same as signed out: whatever the first session restore turns up is
- * itself a change, and the cache left behind by whoever used this browser last
- * must not survive it.
- */
-let subject: string | null | undefined = undefined;
-
-function subjectOf(token: string | null): string | null {
-  if (token === null) return null;
-
-  try {
-    const payload = token.split(".")[1];
-    const { sub } = JSON.parse(atob(payload.replace(/-/g, "+").replace(/_/g, "/")));
-    return typeof sub === "string" ? sub : token;
-  } catch {
-    // Not a JWT we can read. Falling back to the token itself over-purges --
-    // every rotation looks like a new account -- which is the safe direction.
-    return token;
-  }
-}
+let refreshToken: string | null = null;
 
 export function setAccessToken(token: string | null): void {
-  const next = subjectOf(token);
-
-  // Every way the session can change passes through here: signing in, signing
-  // out, a refresh the server refused, a session revoked from another device.
-  // Comparing accounts rather than tokens keeps an ordinary rotation from
-  // throwing away the offline cache the current user is still reading from.
-  if (next !== subject) {
-    subject = next;
-    purgeApiCache();
-  }
-
   accessToken = token;
 }
 
 export function getAccessToken(): string | null {
   return accessToken;
+}
+
+export function setRefreshToken(token: string | null): void {
+  refreshToken = token;
+}
+
+export function getRefreshToken(): string | null {
+  return refreshToken;
+}
+
+/** Drops the whole session locally, whatever the server thinks. */
+export function clearSession(): void {
+  accessToken = null;
+  refreshToken = null;
 }
 
 /**
@@ -75,6 +60,15 @@ export class ApiError extends Error {
   }
 }
 
+/**
+ * Status 0 is "the request never reached a server", which is not something the
+ * API can ever answer with. Saying so plainly matters here: this app has no
+ * offline mode at all, so a dead connection is the difference between "the
+ * wifi in this venue is saturated" and "something is broken", and those two
+ * ask the user for completely different things.
+ */
+const OFFLINE_MESSAGE = "Internet baglantisi yok";
+
 async function toApiError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
@@ -85,52 +79,79 @@ async function toApiError(res: Response): Promise<ApiError> {
   }
 }
 
+/**
+ * `fetch`, with a dead connection turned into an ApiError.
+ *
+ * fetch only rejects when the request never got an answer -- DNS, a refused
+ * connection, a dropped link. Every HTTP status, 500 included, resolves. So a
+ * rejection here is exactly the offline case and nothing else.
+ */
+async function netFetch(url: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(url, init);
+  } catch {
+    throw new ApiError(0, OFFLINE_MESSAGE);
+  }
+}
+
 async function send(path: string, init?: RequestInit): Promise<Response> {
-  return fetch(`${API_BASE_URL}${path}`, {
+  return netFetch(`${API_BASE_URL}${path}`, {
     ...init,
     headers: {
       // Only when there is something to describe. Fastify rejects a request
       // that announces JSON and then sends nothing -- "Body cannot be empty
       // when content-type is set to application/json" -- and several endpoints
-      // here take no body at all: /auth/refresh, /auth/logout, activating a
-      // season, adding a role hierarchy edge.
+      // here take no body at all: activating a season, adding a role hierarchy
+      // edge.
       ...(init?.body === undefined ? {} : { "Content-Type": "application/json" }),
       ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...init?.headers,
     },
-    // The API is on a different origin, so the refresh cookie only travels when
-    // both sides opt in: this, and `credentials: true` in the API CORS plugin.
-    credentials: "include",
   });
 }
 
 let refreshInFlight: Promise<string | null> | null = null;
 
 async function runRefresh(): Promise<string | null> {
-  const res = await fetch(`${API_BASE_URL}/auth/refresh`, {
-    method: "POST",
-    credentials: "include",
-  });
-
-  // Only an answer from the server ends the session. A network error is a
-  // different thing entirely and is left to reject below: a lift ride through a
-  // dead spot must not sign anyone out.
-  if (!res.ok) {
-    setAccessToken(null);
+  // Nothing to present. This is the ordinary first-load case rather than a
+  // failure -- the last session's tokens died with the tab that held them --
+  // so it answers "no session" without troubling the network.
+  if (refreshToken === null) {
+    clearSession();
     return null;
   }
 
-  setAccessToken(((await res.json()) as { accessToken: string }).accessToken);
+  const res = await netFetch(`${API_BASE_URL}/auth/refresh`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ refreshToken }),
+  });
+
+  // Only an answer from the server ends the session. A dead connection threw
+  // out of netFetch above and is left to reject: a lift ride through a dead
+  // spot must not sign anyone out.
+  if (!res.ok) {
+    clearSession();
+    return null;
+  }
+
+  const body = (await res.json()) as { accessToken: string; refreshToken: string };
+
+  // The server rotates on every use, so the token just spent is already dead
+  // and the replacement has to be kept or the next refresh looks like theft.
+  setRefreshToken(body.refreshToken);
+  setAccessToken(body.accessToken);
   return accessToken;
 }
 
 /**
- * Exchanges the refresh cookie for a new access token, at most once at a time.
+ * Exchanges the stored refresh token for a new access token, at most once at a
+ * time.
  *
  * The server rotates refresh tokens: using one revokes it and issues another,
  * and presenting an already-used one is treated as theft, which revokes every
  * session for the account. A page that fires five requests at once and meets
- * five 401s would otherwise start five rotations off the same cookie and lock
+ * five 401s would otherwise start five rotations off the same token and lock
  * the user out of every device they own. Everyone shares one call instead --
  * including the session restore on boot, which is why this is exported.
  */
