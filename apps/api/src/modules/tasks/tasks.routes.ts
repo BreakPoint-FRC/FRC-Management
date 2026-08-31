@@ -2,6 +2,8 @@ import type { FastifyInstance } from "fastify";
 import { paginationSchema } from "@breakpoint/types";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
+import type { AuthenticatedAccount } from "../../plugins/auth";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createTaskSchema,
@@ -41,15 +43,15 @@ export async function tasksRoutes(app: FastifyInstance) {
 
   /** Loads the task and authorizes the action against the group it belongs to. */
   const authorizeExisting = async (
-    accountId: string,
+    account: AuthenticatedAccount,
     taskId: string,
     action: "read" | "update" | "delete"
   ) => {
-    const task = await service.groupOf(taskId);
+    const task = await service.groupOf(requireTeam(account), taskId);
     if (!task) throw new NotFoundError("Gorev bulunamadi");
 
     await authorize(app.prisma, {
-      accountId,
+      accountId: account.id,
       tool: "TASKS",
       action,
       groupId: task.groupId,
@@ -69,15 +71,15 @@ export async function tasksRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "read");
+    await authorizeExisting(req.account, id, "read");
 
-    const task = await service.getById(id);
+    const task = await service.getById(requireTeam(req.account), id);
     if (!task) throw new NotFoundError("Gorev bulunamadi");
     return task;
   });
@@ -85,7 +87,7 @@ export async function tasksRoutes(app: FastifyInstance) {
   // -> 200 | 401 | 403 | 404
   app.get("/:id/activity", async (req) => {
     const { id } = req.params as { id: string };
-    const task = await service.groupOf(id);
+    const task = await service.groupOf(requireTeam(req.account), id);
     if (!task) throw new NotFoundError("Gorev bulunamadi");
 
     // The history is its own tool: seeing a task is not the same permission as
@@ -97,7 +99,7 @@ export async function tasksRoutes(app: FastifyInstance) {
       groupId: task.groupId,
     });
 
-    return service.activity(id, paginationSchema.parse(req.query));
+    return service.activity(requireTeam(req.account), id, paginationSchema.parse(req.query));
   });
 
   // -> 201 | 400 | 401 | 403 | 409
@@ -112,7 +114,7 @@ export async function tasksRoutes(app: FastifyInstance) {
       groupId: input.groupId,
     });
 
-    const task = await service.create(input, req.account.id);
+    const task = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(task);
   });
 
@@ -121,7 +123,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = updateTaskSchema.parse(req.body);
 
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
     // Moving a task into a different group needs permission over the
     // destination too, or this would be a way to push work into a department
@@ -135,15 +137,16 @@ export async function tasksRoutes(app: FastifyInstance) {
       });
     }
 
-    return service.update(id, input, req.account.id);
+    return service.update(requireTeam(req.account), id, input, req.account.id);
   });
 
   // -> 200 | 400 | 401 | 403 | 404
   app.put("/:id/assignees", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
     return service.replaceAssignees(
+      requireTeam(req.account),
       id,
       replaceAssigneesSchema.parse(req.body),
       req.account.id
@@ -153,9 +156,9 @@ export async function tasksRoutes(app: FastifyInstance) {
   // -> 204 | 401 | 403 | 404
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "delete");
+    await authorizeExisting(req.account, id, "delete");
 
-    await service.remove(id);
+    await service.remove(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }

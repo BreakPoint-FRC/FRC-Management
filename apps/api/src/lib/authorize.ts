@@ -2,13 +2,16 @@ import type { PrismaClient } from "@breakpoint/db";
 import {
   EMPTY_PERMISSIONS,
   PERMISSION_FLAG,
+  expandGroupSubtrees,
+  groupAncestorPath,
   mergePermissions,
   type PermissionAction,
   type PermissionSet,
+  type RolePlacement,
   type ToolKey,
 } from "@breakpoint/types";
 
-import { ForbiddenError, UnauthorizedError } from "./http-errors";
+import { ForbiddenError, NotFoundError, UnauthorizedError } from "./http-errors";
 
 export interface AuthorizationRequest {
   accountId: string;
@@ -18,11 +21,187 @@ export interface AuthorizationRequest {
    * The department the request is about.
    *
    * Omitted or null means the request is not scoped to one -- an administrative
-   * action, or a cross-group record such as a task with no group. Only a GLOBAL
-   * role can authorize those, because there is no membership or GroupTool row
-   * to consult.
+   * action, or a record that belongs to no department such as a cross-group
+   * task or a team-wide meeting. Only a TEAM_WIDE or EXTERNAL role can
+   * authorize those: every other placement takes its authority from a group,
+   * and there is no group here to take it from.
    */
   groupId?: string | null;
+}
+
+type GroupNode = { id: string; parentId: string | null };
+
+/**
+ * Everything a permission decision needs, loaded once.
+ *
+ * `authorize` and `resolvePermissionMatrix` both build one of these and then
+ * apply the same rules to it. They used to duplicate the rules and carry a
+ * comment telling the next person to change both; sharing the resolution is
+ * what makes that comment unnecessary.
+ */
+interface AccessContext {
+  /** null for a platform system admin, who belongs to no team. */
+  teamId: string | null;
+  /** The groups of that team, for expanding scopes and inheriting tools. */
+  groups: GroupNode[];
+  /** parentRoleId -> childRoleIds. */
+  childrenOfRole: Map<string, string[]>;
+  /**
+   * Roles that authorize a request with no group: TEAM_WIDE and EXTERNAL.
+   *
+   * They are the bypass. A team admin is not a member of every department and
+   * must not have to be; neither is a mentor who reads everything. It is
+   * deliberately the only bypass in the system -- there is no hard-coded
+   * "if admin" anywhere else.
+   */
+  teamWideRoleIds: Set<string>;
+  /** groupId -> the roles that carry authority over it, membership included. */
+  roleIdsByGroup: Map<string, Set<string>>;
+  /** "groupId:toolId" -> isEnabled, as stored. Inheritance is resolved on read. */
+  groupToolRows: Map<string, boolean>;
+}
+
+/**
+ * Loads the account, its team, and everything the two of them can reach.
+ *
+ * Throws the 401 -- an account that is gone, suspended or archived is an
+ * identity problem, and it is the only 401 in this file. Everything after it is
+ * a 403, which tells a client something different: the credential is fine and
+ * the answer is still no.
+ */
+async function loadContext(prisma: PrismaClient, accountId: string): Promise<AccessContext> {
+  const account = await prisma.account.findUnique({
+    where: { id: accountId },
+    select: {
+      teamId: true,
+      isActive: true,
+      archivedAt: true,
+      team: { select: { isActive: true } },
+      roles: {
+        where: { isActive: true },
+        select: {
+          groupId: true,
+          role: {
+            select: {
+              id: true,
+              placement: true,
+              groupScopes: { select: { groupId: true } },
+            },
+          },
+        },
+      },
+      memberships: { where: { isActive: true }, select: { groupId: true } },
+    },
+  });
+
+  if (
+    !account ||
+    !account.isActive ||
+    account.archivedAt !== null ||
+    (account.team !== null && !account.team.isActive)
+  ) {
+    throw new UnauthorizedError("Hesap aktif degil");
+  }
+
+  const [groups, edges, groupTools] = await Promise.all([
+    // A platform admin has no team, and therefore no groups to scope anything
+    // to. Only its TEAM_WIDE role matters, and that one never consults a group.
+    account.teamId === null
+      ? Promise.resolve([] as GroupNode[])
+      : prisma.group.findMany({
+          where: { teamId: account.teamId },
+          select: { id: true, parentId: true },
+        }),
+    // One row per "is above" relationship -- dozens at most -- loaded whole and
+    // walked in memory. The walk needs arbitrary depth, so this beats a
+    // recursive CTE or a query per level on every authorized request.
+    prisma.roleHierarchy.findMany({ select: { parentRoleId: true, childRoleId: true } }),
+    account.teamId === null
+      ? Promise.resolve([])
+      : prisma.groupTool.findMany({
+          where: { group: { teamId: account.teamId } },
+          select: { groupId: true, toolId: true, isEnabled: true },
+        }),
+  ]);
+
+  const childrenOfRole = new Map<string, string[]>();
+  for (const edge of edges) {
+    const children = childrenOfRole.get(edge.parentRoleId);
+    if (children) children.push(edge.childRoleId);
+    else childrenOfRole.set(edge.parentRoleId, [edge.childRoleId]);
+  }
+
+  const memberOf = new Set(account.memberships.map((row) => row.groupId));
+  const teamWideRoleIds = new Set<string>();
+  const roleIdsByGroup = new Map<string, Set<string>>();
+
+  const cover = (groupId: string, roleId: string) => {
+    const held = roleIdsByGroup.get(groupId);
+    if (held) held.add(roleId);
+    else roleIdsByGroup.set(groupId, new Set([roleId]));
+  };
+
+  for (const entry of account.roles) {
+    const placement = entry.role.placement as RolePlacement;
+
+    if (placement === "TEAM_WIDE" || placement === "EXTERNAL") {
+      teamWideRoleIds.add(entry.role.id);
+      if (placement === "TEAM_WIDE") {
+        // TEAM_WIDE covers every group of the team as well as the group-less
+        // records. EXTERNAL deliberately covers none: a mentor is attached to
+        // the team, not to its structure.
+        for (const group of groups) cover(group.id, entry.role.id);
+      }
+      continue;
+    }
+
+    if (placement === "IN_GROUP") {
+      // The only placement still scoped by the assignment, and the only one
+      // that needs a membership row. Without that check a freshly removed
+      // member would keep working through a role nobody thought to revoke.
+      if (entry.groupId !== null && memberOf.has(entry.groupId)) {
+        cover(entry.groupId, entry.role.id);
+      }
+      continue;
+    }
+
+    // MANAGES_GROUP and ABOVE_GROUPS carry their own coverage, so no membership
+    // is required. RoleGroupScope stores the roots; the subtree under each is
+    // resolved here, which is why scoping a director to Teknik also reaches
+    // Tasarim three levels down without anyone writing that row.
+    const roots = entry.role.groupScopes.map((scope) => scope.groupId);
+    for (const groupId of expandGroupSubtrees(roots, groups)) cover(groupId, entry.role.id);
+  }
+
+  return {
+    teamId: account.teamId,
+    groups,
+    childrenOfRole,
+    teamWideRoleIds,
+    roleIdsByGroup,
+    groupToolRows: new Map(
+      groupTools.map((row) => [`${row.groupId}:${row.toolId}`, row.isEnabled])
+    ),
+  };
+}
+
+/**
+ * Whether a department may use a tool, inheriting the answer from its parents.
+ *
+ * The nearest group up the chain that states an answer wins, so enabling
+ * MEETINGS on Teknik switches it on for Mekanik and Tasarim underneath, and
+ * Tasarim can still write its own row to turn it back off.
+ *
+ * No row anywhere up the chain is a no. Enabling a tool stays an explicit act:
+ * absence is the safe reading, and a group created tomorrow does not silently
+ * acquire Finance because someone once enabled it on an ancestor.
+ */
+function groupToolEnabled(context: AccessContext, groupId: string, toolId: string): boolean {
+  for (const ancestor of groupAncestorPath(groupId, context.groups)) {
+    const stated = context.groupToolRows.get(`${ancestor}:${toolId}`);
+    if (stated !== undefined) return stated;
+  }
+  return false;
 }
 
 /**
@@ -37,7 +216,8 @@ export interface AuthorizationRequest {
  * service can layer an ownership rule ("update your own task, not everyone
  * else's") on top of a granted `canUpdate`. See docs/authorization.md.
  *
- * Throws UnauthorizedError (401) when the identity is the problem and
+ * Throws UnauthorizedError (401) when the identity is the problem,
+ * NotFoundError (404) when the target belongs to another team, and
  * ForbiddenError (403) when the permission is.
  */
 export async function authorize(
@@ -47,112 +227,69 @@ export async function authorize(
   const { accountId, tool: toolKey, action, groupId } = request;
   const flag = PERMISSION_FLAG[action];
 
-  // --- 1. Is the account real, active, and still on the team? ---------------
-  // Cheapest check, and the only one that is a 401: re-authenticating cannot
-  // fix any of the later failures.
-  const account = await prisma.account.findUnique({
-    where: { id: accountId },
-    select: {
-      isActive: true,
-      archivedAt: true,
-      roles: {
-        where: { isActive: true },
-        select: { groupId: true, role: { select: { id: true, scope: true } } },
-      },
-    },
-  });
-
-  if (!account || !account.isActive || account.archivedAt !== null) {
-    throw new UnauthorizedError("Hesap aktif degil");
-  }
+  const context = await loadContext(prisma, accountId);
 
   const tool = await prisma.tool.findUnique({
     where: { key: toolKey },
     select: { id: true, isActive: true },
   });
 
-  // A tool switched off system-wide is off for everyone, including
-  // SYSTEM_ADMIN. That is safe rather than a lockout: turning it back on is the
-  // TOOLS tool, not this one.
+  // A tool switched off system-wide is off for everyone, including a system
+  // admin. That is safe rather than a lockout: turning it back on is the TOOLS
+  // tool, not this one.
   if (!tool || !tool.isActive) {
     throw new ForbiddenError("Bu modul kullanimda degil");
   }
 
-  // Loaded once and walked in memory for both the global and the group pass.
-  // The table holds one row per "is above" relationship -- dozens at most --
-  // and the walk needs arbitrary depth, so this beats a recursive CTE or a
-  // query per level on every authorized request.
-  const childrenOf = await loadHierarchy(prisma);
+  // A group from another team is not a permission problem, it is a record the
+  // caller has no business knowing exists. 403 would confirm the id; 404 says
+  // the same thing to a member of the right team asking about a deleted group.
+  if (groupId && !context.groups.some((group) => group.id === groupId)) {
+    throw new NotFoundError("Grup bulunamadi");
+  }
 
-  // --- 2. Does a GLOBAL role already allow it? ------------------------------
-  // Before the group checks on purpose. A SYSTEM_ADMIN is not a member of every
-  // department and must not have to be; neither is a mentor who reads
-  // everything. This is the bypass the spec asks for, and it is deliberately
-  // the only one.
-  const globalRoleIds = new Set(
-    account.roles
-      .filter((entry) => entry.role.scope === "GLOBAL")
-      .map((entry) => entry.role.id)
-  );
-
-  const globalPermissions = await permissionsFor(
+  const teamWidePermissions = await permissionsFor(
     prisma,
-    expandDescendants(globalRoleIds, childrenOf),
+    expandDescendants(context.teamWideRoleIds, context.childrenOfRole),
     tool.id
   );
 
-  if (globalPermissions[flag]) return globalPermissions;
+  // The bypass, and it runs before the group checks on purpose. A team admin is
+  // not a member of every department and must not have to be. It also skips the
+  // GroupTool gate below, which is the difference between TEAM_WIDE and a
+  // director scoped over several departments.
+  if (teamWidePermissions[flag]) return teamWidePermissions;
 
-  // --- 3. With no group, there is nothing further to consult ----------------
   if (!groupId) {
     throw new ForbiddenError("Bu islem icin takim genelinde yetkiniz yok");
   }
 
-  // --- 4. Is the account actually in that department? -----------------------
-  const membership = await prisma.groupMembership.findUnique({
-    where: { accountId_groupId: { accountId, groupId } },
-    select: { isActive: true },
-  });
-
-  if (!membership || !membership.isActive) {
-    throw new ForbiddenError("Bu grubun uyesi degilsiniz");
+  // Every role that reaches this group: the ones scoped over it or a group
+  // above it, plus the in-group roles held by an active member of it.
+  const roleIds = context.roleIdsByGroup.get(groupId);
+  if (!roleIds || roleIds.size === 0) {
+    throw new ForbiddenError("Bu grup icin yetkiniz yok");
   }
 
-  // --- 5. Does the department use this tool at all? -------------------------
-  // A missing row means no. Enabling a tool for a group is an explicit act, so
-  // absence is the safe reading -- a group created tomorrow does not silently
-  // acquire Finance.
-  const groupTool = await prisma.groupTool.findUnique({
-    where: { groupId_toolId: { groupId, toolId: tool.id } },
-    select: { isEnabled: true },
-  });
-
-  if (!groupTool || !groupTool.isEnabled) {
+  // Why a Yazilim lead cannot open Finance even though they run a department:
+  // FINANCE is not enabled for Yazilim, so the request stops before their role
+  // is read. A team-wide role has already returned above; this gate is for
+  // everyone whose authority comes from a group.
+  if (!groupToolEnabled(context, groupId, tool.id)) {
     throw new ForbiddenError("Bu modul bu grup icin kapali");
   }
 
-  // --- 6. Do the roles held *in that group* allow it? -----------------------
-  // Only roles assigned in this group count. Being Programming Lead says
-  // nothing about what you may do in Business, which is the whole reason
-  // AccountRole carries a groupId.
-  const groupRoleIds = new Set(
-    account.roles
-      .filter((entry) => entry.role.scope === "GROUP" && entry.groupId === groupId)
-      .map((entry) => entry.role.id)
-  );
-
   const groupPermissions = await permissionsFor(
     prisma,
-    expandDescendants(groupRoleIds, childrenOf),
+    expandDescendants(roleIds, context.childrenOfRole),
     tool.id
   );
 
-  // Merged with the global set: a mentor's team-wide read plus a member's
+  // Merged with the team-wide set: a mentor's team-wide read plus a member's
   // in-group write is one permission set, and holding two roles must never
   // subtract from either.
-  const effective = mergePermissions([globalPermissions, groupPermissions]);
+  const effective = mergePermissions([teamWidePermissions, groupPermissions]);
 
-  // --- 7. Decide -----------------------------------------------------------
   if (!effective[flag]) {
     throw new ForbiddenError("Bu islem icin yetkiniz yok");
   }
@@ -162,7 +299,8 @@ export async function authorize(
 
 /**
  * The permission set without the throw, for endpoints that shape a response
- * rather than gate it -- GET /auth/me listing what the UI may show.
+ * rather than gate it -- the calendar filling only the sources an account could
+ * have read directly.
  */
 export async function canPerform(
   prisma: PrismaClient,
@@ -183,10 +321,14 @@ export async function canPerform(
  * gate -- every request behind a rendered button still goes through
  * `authorize()`. A client that lies to itself about this map gets a 403.
  *
- * Applies the same rules as steps 2, 4, 5 and 6 above and shares their helpers;
- * it exists separately because it answers "what can they do" for every tool at
- * once, where `authorize` answers "may they do this one" and has to say why
- * not. **Change one and check the other.**
+ * It answers "what can they do" for every tool at once where `authorize`
+ * answers "may they do this one" and has to say why not, but both read the same
+ * AccessContext and apply the same two rules to it, so there is no second copy
+ * of the resolution order to keep in step.
+ *
+ * `byGroup` covers every group the account has authority over, not only the
+ * ones it is a member of. A director scoped above Teknik is a member of nothing
+ * and still has to see Mekanik in the sidebar.
  */
 export async function resolvePermissionMatrix(
   prisma: PrismaClient,
@@ -195,96 +337,55 @@ export async function resolvePermissionMatrix(
   global: Record<string, PermissionSet>;
   byGroup: Record<string, Record<string, PermissionSet>>;
 }> {
-  const [account, tools, childrenOf, memberships, groupTools] = await Promise.all([
-    prisma.account.findUnique({
-      where: { id: accountId },
-      select: {
-        roles: {
-          where: { isActive: true },
-          select: { groupId: true, role: { select: { id: true, scope: true } } },
-        },
-      },
-    }),
+  const [context, tools] = await Promise.all([
+    loadContext(prisma, accountId),
     prisma.tool.findMany({ where: { isActive: true }, select: { id: true, key: true } }),
-    loadHierarchy(prisma),
-    prisma.groupMembership.findMany({
-      where: { accountId, isActive: true },
-      select: { groupId: true },
-    }),
-    prisma.groupTool.findMany({
-      where: { isEnabled: true },
-      select: { groupId: true, toolId: true },
-    }),
   ]);
 
   const global: Record<string, PermissionSet> = {};
   const byGroup: Record<string, Record<string, PermissionSet>> = {};
-  if (!account) return { global, byGroup };
 
-  const globalRoleIds = expandDescendants(
-    new Set(
-      account.roles
-        .filter((entry) => entry.role.scope === "GLOBAL")
-        .map((entry) => entry.role.id)
-    ),
-    childrenOf
-  );
-
+  const teamWideRoleIds = expandDescendants(context.teamWideRoleIds, context.childrenOfRole);
   for (const tool of tools) {
-    global[tool.key] = await permissionsFor(prisma, globalRoleIds, tool.id);
+    global[tool.key] = await permissionsFor(prisma, teamWideRoleIds, tool.id);
   }
 
-  const enabled = new Set(groupTools.map((row) => `${row.groupId}:${row.toolId}`));
-
-  for (const { groupId } of memberships) {
-    const groupRoleIds = expandDescendants(
-      new Set(
-        account.roles
-          .filter((entry) => entry.role.scope === "GROUP" && entry.groupId === groupId)
-          .map((entry) => entry.role.id)
-      ),
-      childrenOf
-    );
-
+  for (const [groupId, held] of context.roleIdsByGroup) {
+    const roleIds = expandDescendants(held, context.childrenOfRole);
     const perTool: Record<string, PermissionSet> = {};
+
     for (const tool of tools) {
+      const teamWide = global[tool.key] as PermissionSet;
       // A tool the department does not use contributes nothing, exactly as in
-      // step 5. The global set still stands on its own -- that is the bypass.
-      perTool[tool.key] = enabled.has(`${groupId}:${tool.id}`)
-        ? mergePermissions([
-            global[tool.key] as PermissionSet,
-            await permissionsFor(prisma, groupRoleIds, tool.id),
-          ])
-        : (global[tool.key] as PermissionSet);
+      // authorize: once the tool is off for the group, the only thing that can
+      // still grant is the team-wide set, which returned before the gate.
+      //
+      // Do not shortcut this on "holds a TEAM_WIDE role". That role is also in
+      // roleIdsByGroup for every group, so skipping the gate would merge its
+      // group-path permissions in and answer yes where authorize answers 403.
+      perTool[tool.key] = groupToolEnabled(context, groupId, tool.id)
+        ? mergePermissions([teamWide, await permissionsFor(prisma, roleIds, tool.id)])
+        : teamWide;
     }
+
     byGroup[groupId] = perTool;
   }
 
   return { global, byGroup };
 }
 
-/** parentRoleId -> childRoleIds. */
-async function loadHierarchy(prisma: PrismaClient): Promise<Map<string, string[]>> {
-  const edges = await prisma.roleHierarchy.findMany({
-    select: { parentRoleId: true, childRoleId: true },
-  });
-
-  const childrenOf = new Map<string, string[]>();
-  for (const edge of edges) {
-    const children = childrenOf.get(edge.parentRoleId);
-    if (children) children.push(edge.childRoleId);
-    else childrenOf.set(edge.parentRoleId, [edge.childRoleId]);
-  }
-  return childrenOf;
-}
-
 /**
  * A role plus everything below it.
  *
  * The edge direction is "parent is above child", and inheritance runs downward:
- * a parent gets the union of its descendants' permissions. So Team Lead ends up
- * with everything Lead has, which has everything Member has -- and adding a
- * permission to Member reaches all three without a data migration.
+ * a parent gets the union of the permissions of its descendants. So a team lead
+ * ends up with everything a lead has, which has everything a member has -- and
+ * adding a permission to the member role reaches all three without a data
+ * migration.
+ *
+ * This is also what makes the hierarchy transitive with nothing stored: an edge
+ * 1->2 and an edge 2->3 put 1 above 3 because the walk does not stop at the
+ * first hop. It is the reason there is no rank number on Role.
  */
 function expandDescendants(
   roleIds: ReadonlySet<string>,

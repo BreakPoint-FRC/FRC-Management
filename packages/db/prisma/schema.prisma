@@ -9,6 +9,70 @@ datasource db {
 }
 
 // ---------------------------------------------------------------------------
+// Tenancy
+//
+// One database, many teams. Every row that describes the world of a team
+// carries a teamId, and authorize() refuses to read across the boundary -- see
+// docs/authorization.md for why a cross-team hit is a 404 and not a 403.
+//
+// Two things deliberately do NOT carry a teamId:
+//   Tool          -- the module list is a closed enum in code
+//                    (packages/types/src/tools.ts), not team data. What a team
+//                    does with a tool is GroupTool and RolePermission, and both
+//                    reach a team through Group / Role.
+//   Account.email -- unique globally, not per team. One address is one person is
+//                    one team. Scoping it per team would force the login screen
+//                    to ask which team you meant before it could find you.
+// ---------------------------------------------------------------------------
+
+// Where a team is in its first-run setup. The wizard writes each step as it is
+// completed, so a team admin who closes the tab resumes where they stopped
+// rather than starting over.
+//
+// The order is the order of the screens, and it matters: you cannot scope a
+// role to a group that does not exist yet, nor grant a permission on a tool the
+// group does not use.
+enum TeamSetupStage {
+  GROUPS
+  ROLES
+  TOOLS
+  PERMISSIONS
+  NAMING
+  ACCOUNTS
+  DONE
+}
+
+// An FRC team. Created by a system admin with a draft name -- the real name is
+// written at the NAMING step of the wizard, because the groups created in step
+// one already need a teamId to hang from.
+model Team {
+  id               String         @id @default(cuid())
+  name             String
+  slug             String         @unique
+  isActive         Boolean        @default(true)
+  setupStage       TeamSetupStage @default(GROUPS)
+  setupCompletedAt DateTime?
+  createdById      String?
+  createdAt        DateTime       @default(now())
+  updatedAt        DateTime       @updatedAt
+
+  createdBy     Account?             @relation("TeamCreator", fields: [createdById], references: [id], onDelete: SetNull)
+  accounts      Account[]            @relation("TeamAccounts")
+  groups        Group[]
+  roles         Role[]
+  seasons       Season[]
+  meetings      Meeting[]
+  tasks         Task[]
+  ganttBoards   GanttBoard[]
+  transactions  FinanceTransaction[]
+  organizations Organization[]
+  sponsorships  Sponsorship[]
+
+  @@index([isActive])
+  @@index([createdById])
+}
+
+// ---------------------------------------------------------------------------
 // Identity and access
 //
 // The shape here is: an Account holds Roles, a Role holds Permissions per Tool,
@@ -17,12 +81,31 @@ datasource db {
 // order and why it is in that order.
 // ---------------------------------------------------------------------------
 
-// Where a role applies. GLOBAL roles are team-wide and are the only ones that
-// may skip the group-membership check; GROUP roles mean nothing without the
-// group they were assigned in.
-enum RoleScope {
-  GLOBAL
-  GROUP
+// Where a role sits relative to the groups it has authority over. This replaces
+// the old GLOBAL/GROUP pair, which could only say "this one group" or "every
+// group" -- there was no way to write "the Technical Director runs Mechanical,
+// Software and Electrical but has no business in Media".
+//
+// The covered set for the group-facing values comes from RoleGroupScope,
+// expanded down the group tree: scoping a role to Technical also covers
+// Mechanical under it and Design under that.
+enum RolePlacement {
+  // Inside the group, as a member. The only placement that still requires a
+  // GroupMembership row, and the only one scoped by AccountRole.groupId.
+  IN_GROUP
+  // Runs the covered groups. Carries its own authority, so no membership needed.
+  MANAGES_GROUP
+  // Above the covered groups without running them day to day -- a director over
+  // several departments.
+  ABOVE_GROUPS
+  // The whole team, every group, plus the group-less team-wide records. This is
+  // what SYSTEM_ADMIN and TEAM_ADMIN hold, and the only placement that skips
+  // the GroupTool check.
+  TEAM_WIDE
+  // Attached to the team but outside its group structure: mentors, sponsors,
+  // alumni. Covers no group at all and can only authorize team-wide requests,
+  // for the tools explicitly granted to it.
+  EXTERNAL
 }
 
 // A person who can sign in. This is the single person entity: task assignees,
@@ -32,16 +115,27 @@ enum RoleScope {
 // isActive   -- may they authenticate right now (suspension, offboarding)
 // archivedAt -- have they left the team (roster history, set by DELETE)
 // An archived account is also inactive, but a suspended account is not archived.
+//
+// teamId is null for platform-level system admins. They belong to no team by
+// design: a SYSTEM_ADMIN sitting inside one team would be a back door into it.
 model Account {
-  id           String    @id @default(cuid())
-  email        String    @unique
-  passwordHash String
-  fullName     String
-  isActive     Boolean   @default(true)
-  createdAt    DateTime  @default(now())
-  updatedAt    DateTime  @updatedAt
-  archivedAt   DateTime?
+  id                 String    @id @default(cuid())
+  teamId             String?
+  email              String    @unique
+  passwordHash       String
+  fullName           String
+  isActive           Boolean   @default(true)
+  // Set when an admin hands out a generated password. The account may sign in
+  // and do nothing else until it is cleared -- there is no mail sending in this
+  // project, so a temporary password is read off a screen and must not stay
+  // valid a day longer than it takes to type a new one.
+  mustChangePassword Boolean   @default(false)
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+  archivedAt         DateTime?
 
+  team            Team?                @relation("TeamAccounts", fields: [teamId], references: [id], onDelete: Restrict)
+  createdTeams    Team[]               @relation("TeamCreator")
   roles           AccountRole[]        @relation("AccountRoleHolder")
   assignedRoles   AccountRole[]        @relation("AccountRoleAssigner")
   memberships     GroupMembership[]
@@ -54,6 +148,7 @@ model Account {
   transactions    FinanceTransaction[] @relation("TransactionAuthor")
   sponsorships    Sponsorship[]        @relation("SponsorshipOwner")
 
+  @@index([teamId])
   @@index([isActive])
   @@index([archivedAt])
 }
@@ -76,27 +171,40 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
-// A department: Programming, Mechanical, Electrical, Business, Media, Strategy.
-// This replaces the old fixed Subteam enum -- the two axes from docs/roles.md
-// survive, they are just both rows now: "Yazilim Lead" is Role(Lead, GROUP)
-// assigned in Group(Programming).
+// A department, and now a tree of them: Technical > Mechanical > Design. The
+// depth is not fixed, because how finely a team subdivides itself is a decision
+// for that team and not for this file.
+//
+// parentId cannot be enforced acyclic by the database -- Prisma can express
+// neither a CHECK nor a recursive assertion -- so groups.service walks the
+// ancestors before writing, exactly as roles.service does for RoleHierarchy.
+// See docs/migrations.md for why a hand-written constraint is not an option.
 model Group {
   id          String   @id @default(cuid())
-  name        String   @unique
+  teamId      String
+  parentId    String?
+  name        String
   description String?
   isActive    Boolean  @default(true)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  team         Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  parent       Group?               @relation("GroupTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children     Group[]              @relation("GroupTree")
   memberships  GroupMembership[]
   accountRoles AccountRole[]
+  roleScopes   RoleGroupScope[]
   tools        GroupTool[]
   meetings     Meeting[]
   tasks        Task[]
   ganttBoards  GanttBoard[]
   transactions FinanceTransaction[]
 
-  @@index([isActive])
+  // Unique per team, not globally: two teams may both have a "Yazilim".
+  @@unique([teamId, name])
+  @@index([teamId, isActive])
+  @@index([parentId])
 }
 
 // Account N:N Group. Membership is soft-ended with isActive rather than
@@ -118,43 +226,76 @@ model GroupMembership {
 }
 
 // A position on the team. Rows, not an enum, so leads can add "Media Lead"
-// without a migration.
+// without a migration -- and now rows per team, so one team renaming its
+// positions does not touch another.
 //
-// hierarchyLevel is a DISPLAY ordering only -- the equivalent of the old
-// ROLE_RANK map. Authorization never reads it: who inherits whose permissions
-// is the RoleHierarchy graph and only that. Two sources of truth for "who
-// outranks whom" would eventually disagree, and the graph is the one with
-// edges to walk.
+// teamId is null only for platform roles (SYSTEM_ADMIN), which exist above every
+// team and are seeded by migration.
+//
+// There is deliberately no hierarchyLevel column. Who outranks whom is the
+// RoleHierarchy graph and only that; a number beside it would be a second
+// source of truth and the two would eventually disagree. Display order is
+// derived by walking the edges -- see sortRolesByHierarchy in
+// packages/types/src/roles.ts.
 model Role {
-  id             String    @id @default(cuid())
-  key            String    @unique
-  name           String
-  description    String?
-  scope          RoleScope
-  hierarchyLevel Int       @default(100)
-  isSystemRole   Boolean   @default(false)
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id           String        @id @default(cuid())
+  teamId       String?
+  key          String
+  name         String
+  description  String?
+  placement    RolePlacement
+  isSystemRole Boolean       @default(false)
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
 
+  team         Team?            @relation(fields: [teamId], references: [id], onDelete: Cascade)
   accountRoles AccountRole[]
   permissions  RolePermission[]
+  groupScopes  RoleGroupScope[]
   children     RoleHierarchy[]  @relation("RoleChildEdges")
   parents      RoleHierarchy[]  @relation("RoleParentEdges")
 
-  @@index([scope])
-  @@index([hierarchyLevel])
+  @@unique([teamId, key])
+  @@index([teamId, placement])
+}
+
+// Which groups a role has authority over. Required for MANAGES_GROUP and
+// ABOVE_GROUPS, forbidden for TEAM_WIDE and EXTERNAL, optional for IN_GROUP
+// (empty there means the role is assignable in any group).
+//
+// That is a conditional constraint keyed off a column in another table, so
+// Prisma cannot hold it and roles.service enforces it on the write path.
+//
+// The stored set is the roots of the authority, not its closure: scoping to
+// Technical covers Design three levels down, resolved at request time by
+// walking the group tree. Storing the closure would mean rewriting every role
+// whenever someone adds a subgroup.
+model RoleGroupScope {
+  roleId    String
+  groupId   String
+  createdAt DateTime @default(now())
+
+  role  Role  @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  group Group @relation(fields: [groupId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, groupId])
+  @@index([groupId])
 }
 
 // Role N:N Role. An edge means "parent is above child", and permission
-// resolution reads it as: a parent inherits the union of its descendants
-// permissions. Team Lead therefore gets everything Programming Lead has, which
+// resolution reads it as: a parent inherits the union of the permissions of its
+// descendants. Team Lead therefore gets everything Programming Lead has, which
 // in turn gets everything Programming Member has.
 //
-// Two rules the database cannot state and the service enforces instead
-// (roles.service.ts): parentRoleId != childRoleId, and no cycles. A Postgres
-// CHECK would cover the first, but Prisma cannot express it and hand-adding it
-// puts the database permanently out of sync with this file -- see
-// docs/migrations.md.
+// This is also what makes the hierarchy transitive without storing it: if 1 is
+// above 2 and 2 above 3, then 1 is above 3, because the walk does not stop at
+// the first hop. It is the reason there is no rank number anywhere.
+//
+// Three rules the database cannot state and the service enforces instead
+// (roles.service.ts): parentRoleId != childRoleId, no cycles, and both roles in
+// the same team. A Postgres CHECK would cover the first, but Prisma cannot
+// express it and hand-adding it puts the database permanently out of sync with
+// this file -- see docs/migrations.md.
 model RoleHierarchy {
   parentRoleId String
   childRoleId  String
@@ -170,11 +311,13 @@ model RoleHierarchy {
 // Account N:N Role, optionally scoped to a group. This is the table that makes
 // "Programming Lead in Programming, Strategy Member in Strategy" expressible.
 //
-// groupId is required when the role scope is GROUP and must be null when it is
-// GLOBAL. That is a conditional CHECK constraint, which Prisma cannot write, so
-// accounts.service enforces it by reading Role.scope before writing. Roles are
-// only ever replaced as a whole set through PUT /accounts/:id/roles -- anyone
-// adding a second write path has to re-check this.
+// groupId is required when the role placement is IN_GROUP and must be null for
+// every other placement -- the others carry their own coverage in
+// RoleGroupScope. That is a conditional CHECK constraint, which Prisma cannot
+// write, so accounts.service enforces it by reading Role.placement before
+// writing. Roles are only ever replaced as a whole set through
+// PUT /accounts/:id/roles -- anyone adding a second write path has to re-check
+// this.
 model AccountRole {
   id           String   @id @default(cuid())
   accountId    String
@@ -190,7 +333,7 @@ model AccountRole {
   assignedBy Account? @relation("AccountRoleAssigner", fields: [assignedById], references: [id], onDelete: SetNull)
 
   // Postgres treats NULLs as distinct, so this does not stop a second
-  // (account, SYSTEM_ADMIN, null) row -- the same gap docs/roles.md documented
+  // (account, TEAM_ADMIN, null) row -- the same gap docs/roles.md documented
   // for MemberRole. Closed on the write path by the whole-set replacement.
   @@unique([accountId, roleId, groupId])
   @@index([accountId, isActive])
@@ -201,6 +344,9 @@ model AccountRole {
 
 // A module of the system. Permissions are granted per tool, so this is the
 // vocabulary the whole authorization layer is written against.
+//
+// Not team-scoped: the list of modules is a closed enum in code and identical
+// for everyone. Which of them a given department uses is GroupTool.
 model Tool {
   id          String   @id @default(cuid())
   key         String   @unique
@@ -217,8 +363,12 @@ model Tool {
 }
 
 // Group N:N Tool: which modules a department actually uses. Business has
-// Sponsors and Finance on; Programming has Tasks and Gantt on. A disabled tool
-// blocks the request before any role is even looked at.
+// Sponsors and Finance on; Programming has Tasks and Gantt on.
+//
+// Rows are inherited down the group tree: a row on Technical applies to Design
+// underneath it unless Design writes its own row, which overrides. No row
+// anywhere up the chain still means off -- enabling a tool stays an explicit
+// act, so a group created tomorrow acquires nothing by accident.
 model GroupTool {
   groupId   String
   toolId    String
@@ -252,30 +402,39 @@ model RolePermission {
 
 // ---------------------------------------------------------------------------
 // Seasons and operational data
+//
+// Every model below carries teamId even though it could be reached through
+// season or group. That redundancy is deliberate: the alternative is a join on
+// every list query in the app just to prove a row belongs to the caller, and a
+// filter that is one index lookup away is a filter nobody is tempted to skip.
+// The services set it from the parent season, never from the request body.
 // ---------------------------------------------------------------------------
 
 // An FRC season. Operational data hangs off it so last season records stay
 // readable and are never mixed into this season totals.
 //
-// At most one season is active at a time; seasons.service deactivates the
-// others inside the same transaction rather than a constraint doing it,
+// At most one season per team is active at a time; seasons.service deactivates
+// the others inside the same transaction rather than a constraint doing it,
 // because "the current season" is a workflow decision, not a data shape.
 model Season {
   id        String   @id @default(cuid())
-  name      String   @unique
+  teamId    String
+  name      String
   startDate DateTime
   endDate   DateTime
   isActive  Boolean  @default(false)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  team         Team                 @relation(fields: [teamId], references: [id], onDelete: Cascade)
   meetings     Meeting[]
   tasks        Task[]
   transactions FinanceTransaction[]
   sponsorships Sponsorship[]
   ganttBoards  GanttBoard[]
 
-  @@index([isActive])
+  @@unique([teamId, name])
+  @@index([teamId, isActive])
   @@index([startDate])
 }
 
@@ -289,9 +448,10 @@ enum AttendanceStatus {
 // groupId is nullable on purpose: a team-wide meeting belongs to no single
 // department. The roadmap has both ("team-meeting roll call" and "group meeting
 // reports"), and a null group is what makes the authorization check fall back
-// to the GLOBAL path.
+// to the team-wide path -- only a TEAM_WIDE or EXTERNAL role can reach it.
 model Meeting {
   id          String   @id @default(cuid())
+  teamId      String
   seasonId    String
   groupId     String?
   title       String
@@ -301,11 +461,13 @@ model Meeting {
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
+  team       Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season     Season              @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   group      Group?              @relation(fields: [groupId], references: [id], onDelete: Restrict)
   createdBy  Account             @relation("MeetingAuthor", fields: [createdById], references: [id], onDelete: Restrict)
   attendance MeetingAttendance[]
 
+  @@index([teamId])
   @@index([seasonId, meetingDate])
   @@index([groupId])
   @@index([createdById])
@@ -353,10 +515,11 @@ enum TaskPriority {
 // GanttBoard.
 //
 // groupId is nullable to keep cross-group tasks, which are in the V1 scope
-// (docs/product/roadmap.md). A task with no group is authorized on the GLOBAL
-// path.
+// (docs/product/roadmap.md). A task with no group is authorized on the
+// team-wide path.
 model Task {
   id          String       @id @default(cuid())
+  teamId      String
   seasonId    String
   groupId     String?
   name        String
@@ -369,6 +532,7 @@ model Task {
   createdAt   DateTime     @default(now())
   updatedAt   DateTime     @updatedAt
 
+  team         Team           @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season       Season         @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   group        Group?         @relation(fields: [groupId], references: [id], onDelete: Restrict)
   createdBy    Account        @relation("TaskAuthor", fields: [createdById], references: [id], onDelete: Restrict)
@@ -376,6 +540,7 @@ model Task {
   activity     TaskActivity[]
   ganttEntries GanttTask[]
 
+  @@index([teamId])
   @@index([seasonId, groupId, status])
   @@index([status])
   @@index([dueDate])
@@ -416,6 +581,8 @@ enum TaskActivityAction {
 //
 // actorId is nullable and SetNull rather than Restrict: the log outlives the
 // account, and "who" matters less than "what happened" once someone is gone.
+//
+// No teamId here: this table is only ever read through its task, which has one.
 model TaskActivity {
   id        String             @id @default(cuid())
   taskId    String
@@ -437,17 +604,20 @@ model TaskActivity {
 // through the join, so a Gantt board can never drift from the task it draws.
 model GanttBoard {
   id        String   @id @default(cuid())
+  teamId    String
   seasonId  String
   groupId   String?
   name      String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  team   Team        @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season Season      @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   group  Group?      @relation(fields: [groupId], references: [id], onDelete: Restrict)
   tasks  GanttTask[]
 
   @@unique([seasonId, groupId, name])
+  @@index([teamId])
   @@index([seasonId])
   @@index([groupId])
 }
@@ -475,6 +645,7 @@ enum TransactionType {
 // JSON numbers are IEEE doubles and would undo that on the way out.
 model FinanceTransaction {
   id              String          @id @default(cuid())
+  teamId          String
   seasonId        String
   groupId         String?
   type            TransactionType
@@ -486,10 +657,12 @@ model FinanceTransaction {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
 
+  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
   season    Season  @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   group     Group?  @relation(fields: [groupId], references: [id], onDelete: Restrict)
   createdBy Account @relation("TransactionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
 
+  @@index([teamId])
   @@index([seasonId, transactionDate])
   @@index([seasonId, type])
   @@index([groupId])
@@ -507,9 +680,13 @@ enum SponsorshipStatus {
 
 // The company itself, separate from any season. Its name, website and contact
 // details do not change when the season does -- only the relationship does.
+//
+// Team-scoped: two teams courting the same firm each keep their own contact
+// notes, and neither can read the notes of the other.
 model Organization {
   id        String   @id @default(cuid())
-  name      String   @unique
+  teamId    String
+  name      String
   website   String?
   email     String?
   phone     String?
@@ -517,13 +694,18 @@ model Organization {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
+  team         Team          @relation(fields: [teamId], references: [id], onDelete: Cascade)
   sponsorships Sponsorship[]
+
+  @@unique([teamId, name])
+  @@index([teamId])
 }
 
 // One company relationship with the team for one season. This is what lets a
 // firm be CANDIDATE in 2026 and SPONSOR in 2027 without rewriting history.
 model Sponsorship {
   id             String            @id @default(cuid())
+  teamId         String
   organizationId String
   seasonId       String
   status         SponsorshipStatus @default(CANDIDATE)
@@ -533,6 +715,7 @@ model Sponsorship {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
+  team         Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
   season       Season       @relation(fields: [seasonId], references: [id], onDelete: Restrict)
   assignedTo   Account?     @relation("SponsorshipOwner", fields: [assignedToId], references: [id], onDelete: SetNull)
@@ -540,6 +723,7 @@ model Sponsorship {
   // One relationship row per company per season. Without this a firm could be
   // both NEGOTIATING and REJECTED in 2026 and neither would be wrong.
   @@unique([organizationId, seasonId])
+  @@index([teamId])
   @@index([seasonId, status])
   @@index([organizationId])
   @@index([assignedToId])

@@ -22,14 +22,20 @@ function buildWithPrisma(stub: unknown) {
   return buildApp({ prisma: stub as PrismaClient });
 }
 
-/** An account that is signed in, active, and holds one all-powerful global role. */
+const TEAM = "team-1";
+
+/** An account that is signed in, active, and holds the team admin role. */
 const ADMIN = {
   id: "account-1",
+  teamId: TEAM,
   email: "ada@breakpoint.test",
   fullName: "Ada Yilmaz",
   isActive: true,
+  mustChangePassword: false,
   archivedAt: null,
-  roles: [{ groupId: null, role: { id: "role-admin", scope: "GLOBAL" } }],
+  team: { isActive: true },
+  roles: [{ groupId: null, role: { id: "role-admin", placement: "TEAM_WIDE", groupScopes: [] } }],
+  memberships: [],
 };
 
 const FULL_PERMISSION = {
@@ -39,10 +45,19 @@ const FULL_PERMISSION = {
   canDelete: true,
 };
 
-/** The stub rows every authorized request walks through. */
+/**
+ * The stub rows every authorized request walks through.
+ *
+ * `group` and `groupTool` are here because authorize() loads the tree of the
+ * team on every call: scoped placements expand down it and tool state is
+ * inherited up it. A TEAM_WIDE role never consults either, but the load happens
+ * before the placement is known.
+ */
 function authorizedStubs(extra: Record<string, unknown> = {}) {
   return {
     tool: { findUnique: async () => ({ id: "tool-accounts", isActive: true }) },
+    group: { findMany: async () => [], count: async () => 0 },
+    groupTool: { findMany: async () => [] },
     roleHierarchy: { findMany: async () => [] },
     rolePermission: { findMany: async () => [FULL_PERMISSION] },
     ...extra,
@@ -108,6 +123,7 @@ describe("authentication", () => {
       stubClient({
         account: {
           findUnique: async () => ADMIN,
+          findFirst: async () => ADMIN,
           findMany: async () => [],
           count: async () => 0,
         },
@@ -278,6 +294,10 @@ describe("error handling", () => {
       stubClient({
         account: {
           findUnique: async () => ADMIN,
+          // The service proves the target is this team's before it writes, so
+          // the stub has to answer that lookup as well as the update.
+          findFirst: async () => ({ id: "missing" }),
+          findUniqueOrThrow: async () => ADMIN,
           update: async () => {
             throw new Prisma.PrismaClientKnownRequestError("not found", {
               code: "P2025",
@@ -285,6 +305,7 @@ describe("error handling", () => {
             });
           },
         },
+        accountRole: { count: async () => 0 },
         ...authorizedStubs(),
       })
     );
@@ -306,6 +327,8 @@ describe("error handling", () => {
       stubClient({
         account: {
           findUnique: async () => ADMIN,
+          findFirst: async () => ({ id: "account-2" }),
+          findUniqueOrThrow: async () => ADMIN,
           update: async () => {
             throw new Prisma.PrismaClientKnownRequestError("duplicate", {
               code: "P2002",
@@ -313,6 +336,7 @@ describe("error handling", () => {
             });
           },
         },
+        accountRole: { count: async () => 0 },
         ...authorizedStubs(),
       })
     );
@@ -334,10 +358,13 @@ describe("error handling", () => {
       stubClient({
         account: {
           findUnique: async () => ADMIN,
+          findFirst: async () => ({ id: "account-2" }),
+          findUniqueOrThrow: async () => ADMIN,
           update: async () => {
             throw new Error("connect ECONNREFUSED /var/run/postgres/.s.PGSQL.5432");
           },
         },
+        accountRole: { count: async () => 0 },
         ...authorizedStubs(),
       })
     );

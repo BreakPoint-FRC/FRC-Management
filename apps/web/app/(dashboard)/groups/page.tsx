@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { TOOL_KEYS, type Paginated, type ToolKey } from "@breakpoint/types";
+import { flattenGroupTree, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import {
@@ -13,7 +13,13 @@ import {
   PageHeader,
   RowActions,
 } from "@/components/ui";
-import { CheckboxField, FormPanel, TextAreaField, TextField } from "@/components/ui/form";
+import { CheckboxField, FormPanel, SelectField, TextAreaField, TextField } from "@/components/ui/form";
+import {
+  ToolStateGrid,
+  toolStatesFrom,
+  toolStatesPayload,
+  type ToolStates,
+} from "@/components/groups/tool-state-grid";
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
@@ -34,8 +40,15 @@ export default function GroupsPage() {
   const mutation = useMutation();
 
   const [panel, setPanel] = useState<Panel>({ kind: "closed" });
-  const [draft, setDraft] = useState({ name: "", description: "", isActive: true });
-  const [tools, setTools] = useState<Set<ToolKey>>(new Set());
+  const [draft, setDraft] = useState({
+    name: "",
+    description: "",
+    parentId: "",
+    isActive: true,
+  });
+  // What this group states for itself. See ToolStates: the third state is the
+  // tool being absent from the map, which lets the parent answer instead.
+  const [tools, setTools] = useState<ToolStates>(new Map());
   const [members, setMembers] = useState<Set<string>>(new Set());
 
   // Only loaded while the members editor is open: the roster of everyone, so
@@ -68,7 +81,7 @@ export default function GroupsPage() {
   }
 
   function openCreate() {
-    setDraft({ name: "", description: "", isActive: true });
+    setDraft({ name: "", description: "", parentId: "", isActive: true });
     setPanel({ kind: "form", id: null });
     mutation.reset();
   }
@@ -77,6 +90,7 @@ export default function GroupsPage() {
     setDraft({
       name: group.name,
       description: group.description ?? "",
+      parentId: group.parentId ?? "",
       isActive: group.isActive,
     });
     setPanel({ kind: "form", id: group.id });
@@ -84,11 +98,10 @@ export default function GroupsPage() {
   }
 
   function openTools(group: GroupRow) {
-    setTools(
-      new Set(
-        group.tools.filter((tool) => tool.isEnabled).map((tool) => tool.tool as ToolKey)
-      )
-    );
+    // Only the rows this group states for itself. An inherited answer is shown
+    // beside the control rather than pre-selected, or saving an untouched form
+    // would turn every inherited value into a local one.
+    setTools(toolStatesFrom(group.tools));
     setPanel({ kind: "tools", group });
     mutation.reset();
   }
@@ -103,6 +116,8 @@ export default function GroupsPage() {
     const body = {
       name: draft.name,
       description: emptyToNull(draft.description),
+      // "" is the root, which the API spells as null.
+      parentId: emptyToNull(draft.parentId),
       isActive: draft.isActive,
     };
     const id = panel.kind === "form" ? panel.id : null;
@@ -116,15 +131,14 @@ export default function GroupsPage() {
     }
   }
 
-  // Whole set: a tool left out of the list is off, which is the same thing a
-  // missing GroupTool row means to authorize().
+  // Whole set, and only what this group states: a tool left out of the list
+  // states nothing and inherits from the parent, which is not the same as
+  // stating "off".
   async function submitTools() {
     if (panel.kind !== "tools") return;
 
     const ok = await mutation.run(() =>
-      apiClient.put(`/groups/${panel.group.id}/tools`, {
-        tools: TOOL_KEYS.map((tool) => ({ tool, isEnabled: tools.has(tool) })),
-      })
+      apiClient.put(`/groups/${panel.group.id}/tools`, { tools: toolStatesPayload(tools) })
     );
     if (ok) {
       close();
@@ -180,6 +194,24 @@ export default function GroupsPage() {
             onChange={(description) => setDraft({ ...draft, description })}
             error={issueFor(mutation.error, "description")}
           />
+          <SelectField
+            label="Ust grup"
+            value={draft.parentId}
+            hint="Bos birakilirsa ana grup olur. Derinlik sinirli degil: Teknik > Mekanik > Tasarim."
+            options={[
+              { value: "", label: "— Ana grup —" },
+              ...flattenGroupTree(groups.data?.items ?? [])
+                // A group cannot be its own parent, and the server refuses a
+                // descendant too -- offering either would be a guaranteed 409.
+                .filter(({ group }) => group.id !== panel.id)
+                .map(({ group, depth }) => ({
+                  value: group.id,
+                  label: `${"  ".repeat(depth)}${group.name}`,
+                })),
+            ]}
+            onChange={(parentId) => setDraft({ ...draft, parentId })}
+            error={issueFor(mutation.error, "parentId")}
+          />
           <CheckboxField
             label="Aktif"
             checked={draft.isActive}
@@ -196,27 +228,11 @@ export default function GroupsPage() {
           onSubmit={submitTools}
           onCancel={close}
         >
-          <p className="small muted" style={{ margin: 0 }}>
-            Isaretlenmeyen modul bu departman icin kapalidir ve istek, rol hic okunmadan
-            reddedilir.
-          </p>
-          <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))" }}>
-            {TOOL_KEYS.map((tool) => (
-              <CheckboxField
-                key={tool}
-                label={tool}
-                checked={tools.has(tool)}
-                onChange={(checked) =>
-                  setTools((current) => {
-                    const next = new Set(current);
-                    if (checked) next.add(tool);
-                    else next.delete(tool);
-                    return next;
-                  })
-                }
-              />
-            ))}
-          </div>
+          <ToolStateGrid
+            value={tools}
+            effective={panel.group.effectiveTools}
+            onChange={setTools}
+          />
         </FormPanel>
       ) : null}
 
@@ -271,11 +287,22 @@ export default function GroupsPage() {
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
       <AsyncSection state={groups}>
-        {(data) => (
+        {(data) => {
+          const byId = new Map(data.items.map((group) => [group.id, group]));
+
+          // Depth-first, so a subgroup is drawn under the group it belongs to
+          // rather than wherever the name happens to sort.
+          return (
           <div className="grid">
-            {data.items.map((group) => (
+            {flattenGroupTree(data.items).map(({ group, depth }) => (
               <Card key={group.id} title={group.name}>
                 <div className="stack-sm">
+                  {group.parentId ? (
+                    <p className="small muted" style={{ margin: 0 }}>
+                      Ust grup: {byId.get(group.parentId)?.name ?? "—"}
+                      {depth > 1 ? ` (${depth}. seviye)` : ""}
+                    </p>
+                  ) : null}
                   <p className="muted small" style={{ margin: 0 }}>
                     {group.description ?? "Aciklama yok."}
                   </p>
@@ -291,13 +318,21 @@ export default function GroupsPage() {
                     <p className="card-title" style={{ marginBottom: 4 }}>
                       Acik moduller
                     </p>
+                    {/* The effective set, not what this group states: a module
+                        inherited from three levels up is just as open, and a
+                        card showing only local rows would read as "none". */}
                     <div className="row">
-                      {group.tools.filter((tool) => tool.isEnabled).length === 0 ? (
+                      {group.effectiveTools.filter((tool) => tool.isEnabled).length === 0 ? (
                         <span className="small muted">Yok</span>
                       ) : (
-                        group.tools
+                        group.effectiveTools
                           .filter((tool) => tool.isEnabled)
-                          .map((tool) => <Badge key={tool.toolId}>{tool.tool}</Badge>)
+                          .map((tool) => (
+                            <Badge key={tool.tool} tone={tool.inheritedFrom ? "off" : undefined}>
+                              {tool.tool}
+                              {tool.inheritedFrom ? " ↑" : ""}
+                            </Badge>
+                          ))
                       )}
                     </div>
                   </div>
@@ -322,7 +357,14 @@ export default function GroupsPage() {
                     ) : null}
                     {mayDelete ? (
                       <ConfirmButton
-                        question={`${group.name} pasife alinsin mi?`}
+                        question={
+                          // Which of the two happens depends on what the
+                          // department has done, and the person pressing it
+                          // should know that before they press it.
+                          `${group.name} ve altindaki tum alt gruplar kaldirilsin mi? ` +
+                          "Gorev, toplanti veya finans kaydi varsa gecmis korunur ve grup pasife alinir; " +
+                          "yoksa tamamen silinir."
+                        }
                         onConfirm={() => void remove(group.id)}
                       >
                         Sil
@@ -333,7 +375,8 @@ export default function GroupsPage() {
               </Card>
             ))}
           </div>
-        )}
+          );
+        }}
       </AsyncSection>
     </>
   );

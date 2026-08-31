@@ -16,6 +16,7 @@ import { canAnywhere } from "@/lib/permissions";
  */
 const NAV_ITEMS: Array<{ href: string; label: string; tool?: ToolKey }> = [
   { href: "/", label: "Genel bakis" },
+  { href: "/teams", label: "Takimlar", tool: "TEAMS" },
   { href: "/tasks", label: "Gorevler", tool: "TASKS" },
   { href: "/meetings", label: "Toplantilar", tool: "MEETINGS" },
   { href: "/calendar", label: "Takvim", tool: "CALENDAR" },
@@ -30,16 +31,43 @@ const NAV_ITEMS: Array<{ href: string; label: string; tool?: ToolKey }> = [
 ];
 
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { status, account, permissions, signOut } = useAuth();
+  const { status, account, team, permissions, signOut } = useAuth();
   const router = useRouter();
 
+  // The whole dashboard waits for setup, not part of it.
+  //
+  // The wizard is self-contained -- groups, roles, modules, permissions and
+  // accounts are all edited on /setup -- so there is nothing here for an
+  // unfinished team to reach. And most of it could not work anyway: tasks,
+  // meetings, finance, sponsors and the Gantt board all hang off a season, and
+  // the season is created at the NAMING step. Landing on one of them early
+  // would fail with "there is no active season", which reads as a bug rather
+  // than as a missing step.
+  const blockedBySetup = !!team && team.setupStage !== "DONE";
+
+  // Two redirects before the dashboard, in the order the server enforces them.
+  //
+  // A temporary password is refused on every route but /auth/me, /auth/password
+  // and /auth/logout, so landing anywhere else would be a page of 403s.
   useEffect(() => {
-    if (status === "anonymous") router.replace("/login");
-  }, [status, router]);
+    if (status === "anonymous") {
+      router.replace("/login");
+      return;
+    }
+    if (status !== "authenticated") return;
+    if (account?.mustChangePassword) {
+      router.replace("/change-password");
+      return;
+    }
+    if (blockedBySetup) router.replace("/setup");
+  }, [status, account?.mustChangePassword, blockedBySetup, router]);
 
   // "loading" is the session restore; "anonymous" is the moment before the
-  // redirect above lands. Neither should flash a half-rendered dashboard.
+  // redirect above lands. Neither should flash a half-rendered dashboard, and
+  // neither should the instant before the two redirects land.
   if (status !== "authenticated") return <Loading />;
+  if (account?.mustChangePassword) return <Loading />;
+  if (blockedBySetup) return <Loading />;
 
   // Hiding a link the account cannot follow is a courtesy, not a control: the
   // route behind it is authorized on the server on every request.
@@ -69,6 +97,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <div className="small">
             <div>{account?.fullName}</div>
             <div className="muted">{account?.email}</div>
+            {/* A platform system admin belongs to no team, which is the whole
+                point of the role -- saying so beats an empty line. */}
+            <div className="muted">{team ? team.name : "Sistem yoneticisi"}</div>
           </div>
           <button className="btn btn-sm" type="button" onClick={() => void signOut()}>
             Cikis yap

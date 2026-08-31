@@ -3,6 +3,9 @@
 // any of these in apps/web is a review blocker; see CONTRIBUTING.md.
 export * from "./pagination";
 
+// Tenancy
+export * from "./teams";
+
 // Identity and access
 export * from "./accounts";
 export * from "./groups";

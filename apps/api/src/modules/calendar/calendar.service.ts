@@ -42,13 +42,16 @@ export function createCalendarService(prisma: PrismaClient) {
      * moved on the task page has already moved on the calendar. The same rule
      * the Gantt board follows, for the same reason.
      */
-    range: async (query: CalendarQuery, sources: CalendarSources) => {
-      const seasonId = await resolveSeasonId(prisma, query.seasonId);
+    range: async (teamId: string, query: CalendarQuery, sources: CalendarSources) => {
+      const seasonId = await resolveSeasonId(prisma, teamId, query.seasonId);
       const window = { gte: query.from, lte: query.to };
 
       // An absent groupId is "every group", not "the team-wide ones": the route
-      // has already established the caller may read across departments.
+      // has already established the caller may read across departments. It is
+      // still one team's every group -- teamId is the outer bound on both
+      // queries below.
       const scope = {
+        teamId,
         seasonId,
         ...(query.groupId ? { groupId: query.groupId } : {}),
       };

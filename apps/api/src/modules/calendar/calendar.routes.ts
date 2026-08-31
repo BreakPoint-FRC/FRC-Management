@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize, canPerform } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
 import { calendarQuerySchema } from "./calendar.schema";
 import { createCalendarService } from "./calendar.service";
 
@@ -65,6 +66,6 @@ export async function calendarRoutes(app: FastifyInstance) {
     // name and two dates that GANTT read already shows on every board row --
     // gating it there would grey out the calendar for almost everyone to
     // protect something already on screen.
-    return service.range(query, { meetings, tasks });
+    return service.range(requireTeam(req.account), query, { meetings, tasks });
   });
 }

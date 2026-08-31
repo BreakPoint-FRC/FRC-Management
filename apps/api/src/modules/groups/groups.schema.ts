@@ -4,6 +4,10 @@ import { paginationSchema, toolKeySchema } from "@breakpoint/types";
 const groupFields = z.object({
   name: z.string().min(1, "Grup adi gerekli").max(80),
   description: z.string().max(500).nullish(),
+  // null makes it a root department. Anything else nests it, to any depth --
+  // Teknik > Mekanik > Tasarim. The service checks that the parent is in the
+  // same team and that the move does not close a loop.
+  parentId: z.string().min(1).nullish(),
   isActive: z.boolean().default(true),
 });
 

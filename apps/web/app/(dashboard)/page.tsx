@@ -40,14 +40,27 @@ function Flags({ set }: { set: PermissionSet | undefined }) {
  * to check the model is behaving.
  */
 export default function OverviewPage() {
-  const { account, roles = [], groups = [], permissions } = useAuth();
-  const season = useApi<SeasonRow>("/seasons/current");
+  const { account, team, roles = [], groups = [], permissions } = useAuth();
+
+  // A platform system admin belongs to no team, so there is no season to ask
+  // for -- /seasons/current answers 403 for an account with no team. Passing
+  // null skips the request rather than rendering an error nobody can act on.
+  const season = useApi<SeasonRow>(team ? "/seasons/current" : null);
+  const platformOnly = team === null;
 
   return (
     <>
       <PageHeader title={`Merhaba, ${account?.fullName ?? ""}`} />
 
       <div className="stack">
+        {platformOnly ? (
+          <p className="muted" style={{ margin: 0 }}>
+            Bu bir platform hesabi. Takimlarin disinda durur: takim acar, arsivler ve her
+            takimin yoneticisini olusturur. Gorevler, toplantilar ve finans bir takimin
+            icindedir, bu yuzden burada yoklar.
+          </p>
+        ) : null}
+
         <div className="grid">
           <Card title="Rollerim">
             {roles.length === 0 ? (
@@ -59,44 +72,53 @@ export default function OverviewPage() {
             )}
           </Card>
 
-          <Card title="Gruplarim">
-            {groups.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>
-                Hicbir gruba uye degilsiniz.
-              </p>
-            ) : (
-              <div className="row">
-                {groups.map((group) => (
-                  <Badge key={group.id}>{group.name}</Badge>
-                ))}
-              </div>
-            )}
-          </Card>
+          {/* Both are about life inside a team, and a platform account has
+              none. Drawing them empty would say "you are in no groups" where
+              the truth is that groups are not a thing this account has. */}
+          {platformOnly ? null : (
+            <>
+              <Card title="Gruplarim">
+                {groups.length === 0 ? (
+                  <p className="muted" style={{ margin: 0 }}>
+                    Hicbir gruba uye degilsiniz.
+                  </p>
+                ) : (
+                  <div className="row">
+                    {groups.map((group) => (
+                      <Badge key={group.id}>{group.name}</Badge>
+                    ))}
+                  </div>
+                )}
+              </Card>
 
-          <Card title="Aktif sezon">
-            <AsyncSection state={season} empty="Aktif sezon yok.">
-              {(data) => (
-                <div>
-                  <div className="stat">{data.name}</div>
-                  <div className="small muted">
-                    {formatDate(data.startDate)} — {formatDate(data.endDate)}
-                  </div>
-                  <div className="small muted" style={{ marginTop: 4 }}>
-                    {data._count.tasks} gorev · {data._count.meetings} toplanti ·{" "}
-                    {data._count.transactions} finans kaydi · {data._count.sponsorships} sponsorluk
-                  </div>
-                </div>
-              )}
-            </AsyncSection>
-          </Card>
+              <Card title="Aktif sezon">
+                <AsyncSection state={season} empty="Aktif sezon yok.">
+                  {(data) => (
+                    <div>
+                      <div className="stat">{data.name}</div>
+                      <div className="small muted">
+                        {formatDate(data.startDate)} — {formatDate(data.endDate)}
+                      </div>
+                      <div className="small muted" style={{ marginTop: 4 }}>
+                        {data._count.tasks} gorev · {data._count.meetings} toplanti ·{" "}
+                        {data._count.transactions} finans kaydi ·{" "}
+                        {data._count.sponsorships} sponsorluk
+                      </div>
+                    </div>
+                  )}
+                </AsyncSection>
+              </Card>
+            </>
+          )}
         </div>
 
         <div>
           <h2>Yetkilerim</h2>
           <p className="small muted" style={{ marginTop: 0 }}>
-            Takim geneli yetkiler her yerde gecerlidir. Grup sutunlari yalnizca uye oldugunuz
-            departmanlar icin, ve o departmanda o modul acikken gecerlidir. Bu tablo neyin
-            gosterilecegine karar verir; istegi kabul veya reddeden sunucudur.
+            {platformOnly
+              ? "Platform hesabinin tek modulu budur. Diger moduller bir takimin icindedir ve bu hesap hicbir takima ait degildir."
+              : "Takim geneli yetkiler her yerde gecerlidir. Grup sutunlari yalnizca uye oldugunuz departmanlar icin, ve o departmanda o modul acikken gecerlidir."}{" "}
+            Bu tablo neyin gosterilecegine karar verir; istegi kabul veya reddeden sunucudur.
           </p>
 
           <div className="table-wrap">
@@ -125,7 +147,16 @@ export default function OverviewPage() {
                 </tr>
               </thead>
               <tbody>
-                {TOOL_KEYS.map((tool) => (
+                {/* A team account sees every module, because "you cannot do
+                    this" is half of what the table is for. A platform account
+                    sees only what it holds: the other fourteen rows would be
+                    fourteen dots explaining an absence it already knows. */}
+                {(platformOnly
+                  ? TOOL_KEYS.filter((tool) =>
+                      ACTIONS.some((action) => permissions?.global[tool]?.[action.key])
+                    )
+                  : TOOL_KEYS
+                ).map((tool) => (
                   <tr key={tool}>
                     <td>{tool}</td>
                     <Flags set={permissions?.global[tool]} />

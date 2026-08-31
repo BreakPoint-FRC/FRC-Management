@@ -1,6 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 
 import type { PrismaClient } from "@breakpoint/db";
+import { roleDepths } from "@breakpoint/types";
 
 import { UnauthorizedError } from "../../lib/http-errors";
 import { hashPassword, verifyPassword } from "../../lib/password";
@@ -61,6 +62,7 @@ export function createAuthService(prisma: PrismaClient) {
           passwordHash: true,
           isActive: true,
           archivedAt: true,
+          team: { select: { isActive: true } },
         },
       });
 
@@ -71,7 +73,13 @@ export function createAuthService(prisma: PrismaClient) {
         ? await verifyPassword(account.passwordHash, password)
         : await verifyPassword("!no-password-set", password);
 
-      if (!account || !passwordMatches || !account.isActive || account.archivedAt) {
+      if (
+        !account ||
+        !passwordMatches ||
+        !account.isActive ||
+        account.archivedAt ||
+        (account.team !== null && !account.team.isActive)
+      ) {
         throw new UnauthorizedError("E-posta veya sifre hatali");
       }
 
@@ -108,10 +116,22 @@ export function createAuthService(prisma: PrismaClient) {
 
       const account = await prisma.account.findUnique({
         where: { id: stored.accountId },
-        select: { id: true, email: true, fullName: true, isActive: true, archivedAt: true },
+        select: {
+          id: true,
+          email: true,
+          fullName: true,
+          isActive: true,
+          archivedAt: true,
+          team: { select: { isActive: true } },
+        },
       });
 
-      if (!account || !account.isActive || account.archivedAt) {
+      if (
+        !account ||
+        !account.isActive ||
+        account.archivedAt ||
+        (account.team !== null && !account.team.isActive)
+      ) {
         throw new UnauthorizedError("Hesap aktif degil");
       }
 
@@ -164,7 +184,12 @@ export function createAuthService(prisma: PrismaClient) {
       await prisma.$transaction([
         prisma.account.update({
           where: { id: accountId },
-          data: { passwordHash: await hashPassword(input.newPassword) },
+          data: {
+            passwordHash: await hashPassword(input.newPassword),
+            // Clearing this is the whole point of the flag: the account is now
+            // on a password only its owner has typed.
+            mustChangePassword: false,
+          },
         }),
         prisma.refreshToken.updateMany({
           where: { accountId, revokedAt: null },
@@ -173,7 +198,14 @@ export function createAuthService(prisma: PrismaClient) {
       ]);
     },
 
-    /** Account, roles, departments and the permission map the UI renders from. */
+    /**
+     * Account, team, roles, departments and the permission map the UI renders
+     * from.
+     *
+     * The team block carries setupStage, which is what sends a team admin into
+     * the setup wizard instead of the dashboard on their first sign-in. It is
+     * null for a platform system admin, who has no team and no wizard.
+     */
     profile: async (accountId: string) => {
       const account = await prisma.account.findUnique({
         where: { id: accountId },
@@ -182,20 +214,23 @@ export function createAuthService(prisma: PrismaClient) {
           email: true,
           fullName: true,
           isActive: true,
+          mustChangePassword: true,
           archivedAt: true,
+          team: {
+            select: {
+              id: true,
+              name: true,
+              slug: true,
+              isActive: true,
+              setupStage: true,
+              setupCompletedAt: true,
+            },
+          },
           roles: {
             where: { isActive: true },
             select: {
               groupId: true,
-              role: {
-                select: {
-                  id: true,
-                  key: true,
-                  name: true,
-                  scope: true,
-                  hierarchyLevel: true,
-                },
-              },
+              role: { select: { id: true, key: true, name: true, placement: true } },
               group: { select: { name: true } },
             },
           },
@@ -206,7 +241,27 @@ export function createAuthService(prisma: PrismaClient) {
         },
       });
 
-      if (!account) throw new UnauthorizedError("Hesap bulunamadi");
+      if (
+        !account ||
+        !account.isActive ||
+        account.archivedAt !== null ||
+        (account.team !== null && !account.team.isActive)
+      ) {
+        throw new UnauthorizedError("Hesap aktif degil");
+      }
+
+      // Depth comes from the RoleHierarchy edges, computed here rather than
+      // stored. It is only for display order, which is why a cheap pass over
+      // the roles this account holds is enough.
+      const roleIds = account.roles.map((entry) => entry.role.id);
+      const edges =
+        roleIds.length === 0
+          ? []
+          : await prisma.roleHierarchy.findMany({
+              where: { parentRoleId: { in: roleIds }, childRoleId: { in: roleIds } },
+              select: { parentRoleId: true, childRoleId: true },
+            });
+      const depths = roleDepths(roleIds, edges);
 
       const permissions = await resolvePermissionMatrix(prisma, accountId);
 
@@ -216,14 +271,17 @@ export function createAuthService(prisma: PrismaClient) {
           email: account.email,
           fullName: account.fullName,
           isActive: account.isActive,
+          mustChangePassword: account.mustChangePassword,
+          teamId: account.team?.id ?? null,
           archivedAt: account.archivedAt,
         },
+        team: account.team,
         roles: account.roles.map((entry) => ({
           roleId: entry.role.id,
           roleKey: entry.role.key,
           roleName: entry.role.name,
-          scope: entry.role.scope,
-          hierarchyLevel: entry.role.hierarchyLevel,
+          placement: entry.role.placement,
+          depth: depths.get(entry.role.id) ?? 0,
           groupId: entry.groupId,
           groupName: entry.group?.name ?? null,
         })),

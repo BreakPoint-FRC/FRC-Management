@@ -19,24 +19,26 @@ import {
   setRefreshToken,
 } from "@/lib/api-client";
 import type { PermissionMap } from "@/lib/permissions";
+import type { AccountRoleRow, TeamRow } from "@/lib/api-types";
 
 export interface SessionAccount {
   id: string;
   email: string;
   fullName: string;
   isActive: boolean;
+  /**
+   * True while the account is still on a password an admin generated for it.
+   * The API refuses everything but /auth/me, /auth/password and /auth/logout
+   * until it is cleared, so the shell sends the user to the password screen.
+   */
+  mustChangePassword: boolean;
+  /** null for a platform system admin, who belongs to no team. */
+  teamId: string | null;
   archivedAt: string | null;
 }
 
-export interface SessionRole {
-  roleId: string;
-  roleKey: string;
-  roleName: string;
-  scope: "GLOBAL" | "GROUP";
-  hierarchyLevel: number;
-  groupId: string | null;
-  groupName: string | null;
-}
+/** One role the signed-in account holds. Same shape the accounts page reads. */
+export type SessionRole = AccountRoleRow;
 
 export interface SessionGroup {
   id: string;
@@ -44,8 +46,19 @@ export interface SessionGroup {
   description: string | null;
 }
 
+/** The team the account acts inside, or null for a platform system admin. */
+export type SessionTeam = Pick<
+  TeamRow,
+  "id" | "name" | "slug" | "isActive" | "setupStage" | "setupCompletedAt"
+>;
+
 interface Profile {
   account: SessionAccount;
+  /**
+   * Carries setupStage, which is what sends a team admin into the setup wizard
+   * instead of the dashboard on their first sign-in.
+   */
+  team: SessionTeam | null;
   roles: SessionRole[];
   groups: SessionGroup[];
   permissions: PermissionMap;
@@ -56,6 +69,14 @@ interface AuthValue extends Partial<Profile> {
   status: "loading" | "authenticated" | "anonymous";
   signIn: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /**
+   * Re-reads /auth/me.
+   *
+   * Needed by the setup wizard after it moves `team.setupStage`. Password
+   * changes revoke the session and sign out locally instead of re-reading this
+   * profile with the old access token.
+   */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthValue | null>(null);
@@ -141,8 +162,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const value = useMemo<AuthValue>(
-    () => ({ status, ...profile, signIn, signOut }),
-    [status, profile, signIn, signOut]
+    () => ({ status, ...profile, signIn, signOut, refresh: loadProfile }),
+    [status, profile, signIn, signOut, loadProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

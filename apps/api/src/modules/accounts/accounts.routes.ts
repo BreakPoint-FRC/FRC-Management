@@ -3,6 +3,7 @@ import { passwordSchema } from "@breakpoint/types";
 import { z } from "zod";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import {
   createAccountSchema,
@@ -49,7 +50,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
@@ -61,7 +62,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       action: "read",
     });
 
-    const account = await service.getById(id);
+    const account = await service.getById(requireTeam(req.account), id);
     if (!account) throw new NotFoundError("Hesap bulunamadi");
     return account;
   });
@@ -75,7 +76,7 @@ export async function accountsRoutes(app: FastifyInstance) {
     });
 
     const input = createAccountSchema.parse(req.body);
-    const account = await service.create(input, req.account.id);
+    const account = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(account);
   });
 
@@ -88,7 +89,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       action: "update",
     });
 
-    return service.update(id, updateAccountSchema.parse(req.body));
+    return service.update(requireTeam(req.account), id, updateAccountSchema.parse(req.body));
   });
 
   // -> 200 | 400 | 401 | 403 | 404 | 409
@@ -103,7 +104,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       action: "update",
     });
 
-    return service.replaceRoles(id, replaceRolesSchema.parse(req.body), req.account.id);
+    return service.replaceRoles(requireTeam(req.account), id, replaceRolesSchema.parse(req.body), req.account.id);
   });
 
   // -> 204 | 400 | 401 | 403 | 404
@@ -116,7 +117,7 @@ export async function accountsRoutes(app: FastifyInstance) {
     });
 
     const { password } = resetPasswordSchema.parse(req.body);
-    await service.resetPassword(id, password);
+    await service.resetPassword(requireTeam(req.account), id, password);
     reply.code(204).send();
   });
 
@@ -135,7 +136,7 @@ export async function accountsRoutes(app: FastifyInstance) {
       throw new ConflictError("Kendi hesabinizi arsivleyemezsiniz");
     }
 
-    await service.archive(id);
+    await service.archive(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }

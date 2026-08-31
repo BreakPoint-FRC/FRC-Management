@@ -26,13 +26,19 @@ pnpm install                   # also runs `prisma generate` via db postinstall
 docker compose up -d           # starts local Postgres
 pnpm --filter @breakpoint/db db:migrate
 pnpm --filter @breakpoint/db db:seed   # sample data, so the pages aren't empty
+pnpm --filter @breakpoint/db db:bootstrap  # the platform system admin
 pnpm dev                       # builds packages, then runs api + web
 ```
 
 Then open http://localhost:3000, which redirects to the sign-in page.
 
+`db:bootstrap` reads `SYSTEM_ADMIN_EMAIL` and `SYSTEM_ADMIN_PASSWORD` from
+`.env` and creates the **platform** administrator: the account that opens teams
+and creates the administrator who runs each one. It belongs to no team, which is
+the point of it — see [docs/teams.md](docs/teams.md).
+
 Every seeded account uses the password **`Breakpoint2026!`**. Sign in as
-`ada@breakpoint.test` for a `SYSTEM_ADMIN`, `kerem@breakpoint.test` for a
+`ada@breakpoint.test` for a `TEAM_ADMIN`, `kerem@breakpoint.test` for a
 department lead, or `emre@breakpoint.test` for a plain member. The three see
 noticeably different things — the admin gets eleven nav items, the lead six, the
 member four — which is the quickest way to check the permission model is
@@ -95,6 +101,14 @@ once rotates the token once.
 Passwords are hashed with argon2id. Who may do what is decided entirely on the
 server — see [docs/authorization.md](docs/authorization.md).
 
+An account created by an administrator gets a generated password, returned once
+by the call that made it and stored nowhere. Until it is changed, the API refuses
+every route but `/auth/me`, `/auth/password` and `/auth/logout`: a temporary
+password is a way in, not a credential.
+
+One database holds many teams, and a record belonging to another team answers
+404 rather than 403 — a 403 would confirm the id exists.
+
 ## PWA
 
 The web app is installable and runs standalone from a home screen, but it is
@@ -132,6 +146,7 @@ call `localhost`.
 | `pnpm --filter @breakpoint/db db:migrate` | Create/apply a migration (local only) |
 | `pnpm --filter @breakpoint/db db:deploy` | Apply pending migrations (CI/production) |
 | `pnpm --filter @breakpoint/db db:seed` | Load idempotent sample data |
+| `pnpm --filter @breakpoint/db db:bootstrap` | Create or reset the platform system admin |
 | `pnpm --filter @breakpoint/db db:studio` | Open Prisma Studio |
 
 Two things to know about the single-app scripts. `pnpm dev` also runs each
@@ -150,6 +165,7 @@ module-not-found error on a freshly cloned repo.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commits, code layout, PR checklist
 - [docs/authorization.md](docs/authorization.md) — who may do what, and how it is checked
+- [docs/teams.md](docs/teams.md) — creating a team, the two kinds of admin, the setup wizard
 - [docs/roles.md](docs/roles.md) — the role model and the rules behind it
 - [docs/migrations.md](docs/migrations.md) — database change rules
 - [docs/documentation.md](docs/documentation.md) — what to document, and where

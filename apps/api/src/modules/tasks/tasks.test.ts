@@ -1,8 +1,13 @@
 import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@breakpoint/db";
 
+import { NotFoundError } from "../../lib/http-errors";
 import { listTasksQuerySchema, updateTaskSchema } from "./tasks.schema";
 import { createTasksService } from "./tasks.service";
+
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
 
 describe("task payload validation", () => {
   it("rejects a due date before the start date", async () => {
@@ -46,9 +51,10 @@ describe("the todo view", () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = createTasksService(stubPrisma(findMany));
 
-    await service.list(listTasksQuerySchema.parse({ open: "true" }));
+    await service.list(TEAM, listTasksQuerySchema.parse({ open: "true" }));
 
     expect(findMany.mock.calls[0]?.[0].where).toEqual({
+      teamId: TEAM,
       status: { in: ["BACKLOG", "TODO", "IN_PROGRESS", "BLOCKED", "IN_REVIEW"] },
     });
   });
@@ -59,18 +65,21 @@ describe("the todo view", () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = createTasksService(stubPrisma(findMany));
 
-    await service.list(listTasksQuerySchema.parse({ open: "true", status: "COMPLETED" }));
+    await service.list(TEAM, listTasksQuerySchema.parse({ open: "true", status: "COMPLETED" }));
 
-    expect(findMany.mock.calls[0]?.[0].where).toEqual({ status: { in: ["COMPLETED"] } });
+    expect(findMany.mock.calls[0]?.[0].where).toEqual({
+      teamId: TEAM,
+      status: { in: ["COMPLETED"] },
+    });
   });
 
   it("lists everything when neither is given", async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = createTasksService(stubPrisma(findMany));
 
-    await service.list(listTasksQuerySchema.parse({}));
+    await service.list(TEAM, listTasksQuerySchema.parse({}));
 
-    expect(findMany.mock.calls[0]?.[0].where).toEqual({});
+    expect(findMany.mock.calls[0]?.[0].where).toEqual({ teamId: TEAM });
   });
 });
 
@@ -93,7 +102,8 @@ describe("activity logging", () => {
       taskActivity: { createMany },
     };
     return {
-      task: { findUnique: async () => before },
+      // findFirst, not findUnique: the team is half the identity now.
+      task: { findFirst: async () => before },
       $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
     } as unknown as PrismaClient;
   }
@@ -102,7 +112,7 @@ describe("activity logging", () => {
     const createMany = vi.fn();
     const service = createTasksService(stubPrisma(createMany, { priority: "CRITICAL" }));
 
-    await service.update("task-1", { priority: "CRITICAL" }, "account-1");
+    await service.update(TEAM, "task-1", { priority: "CRITICAL" }, "account-1");
 
     const entries = createMany.mock.calls[0]?.[0].data;
     expect(entries).toHaveLength(1);
@@ -117,7 +127,7 @@ describe("activity logging", () => {
     const createMany = vi.fn();
     const service = createTasksService(stubPrisma(createMany, { status: "TODO" }));
 
-    await service.update("task-1", { status: "TODO" }, "account-1");
+    await service.update(TEAM, "task-1", { status: "TODO" }, "account-1");
 
     expect(createMany).not.toHaveBeenCalled();
   });
@@ -126,7 +136,7 @@ describe("activity logging", () => {
     const createMany = vi.fn();
     const service = createTasksService(stubPrisma(createMany, { status: "COMPLETED" }));
 
-    await service.update("task-1", { status: "COMPLETED" }, "account-1");
+    await service.update(TEAM, "task-1", { status: "COMPLETED" }, "account-1");
 
     expect(createMany.mock.calls[0]?.[0].data[0]).toMatchObject({ action: "COMPLETED" });
   });
@@ -137,7 +147,7 @@ describe("activity logging", () => {
       stubPrisma(createMany, { name: "Yeni ad", description: "yeni" })
     );
 
-    await service.update("task-1", { name: "Yeni ad", description: "yeni" }, "account-1");
+    await service.update(TEAM, "task-1", { name: "Yeni ad", description: "yeni" }, "account-1");
 
     const entries = createMany.mock.calls[0]?.[0].data;
     expect(entries).toHaveLength(1);
@@ -149,6 +159,32 @@ describe("activity logging", () => {
 });
 
 describe("assignees", () => {
+  it("rejects a cross-team assignee before resolving a season or starting a write", async () => {
+    const seasonLookup = vi.fn();
+    const transaction = vi.fn();
+    const prisma = {
+      account: { count: async () => 1 },
+      season: { findFirst: seasonLookup },
+      $transaction: transaction,
+    } as unknown as PrismaClient;
+
+    await expect(
+      createTasksService(prisma).create(
+        TEAM,
+        {
+          name: "Tenant boundary",
+          status: "TODO",
+          priority: "MEDIUM",
+          assigneeIds: ["local-account", "other-team-account"],
+        },
+        "actor-1"
+      )
+    ).rejects.toBeInstanceOf(NotFoundError);
+
+    expect(seasonLookup).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("logs who was added and who was removed, not just that it changed", async () => {
     const createMany = vi.fn();
     const deleteMany = vi.fn();
@@ -160,11 +196,16 @@ describe("assignees", () => {
       task: { findUniqueOrThrow: async () => ({ assignees: [], group: null }) },
     };
     const prisma = {
+      // The service proves the task and every assignee belong to the team
+      // before it writes anything, so the stub has to answer both counts.
+      task: { count: async () => 1 },
+      account: { count: async () => 2 },
       taskAssignee: { findMany: async () => [{ accountId: "emre" }, { accountId: "kerem" }] },
       $transaction: async (fn: (client: unknown) => unknown) => fn(tx),
     } as unknown as PrismaClient;
 
     await createTasksService(prisma).replaceAssignees(
+      TEAM,
       "task-1",
       { accountIds: ["kerem", "deniz"] },
       "account-1"

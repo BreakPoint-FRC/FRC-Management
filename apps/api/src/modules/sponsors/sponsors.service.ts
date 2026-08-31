@@ -2,8 +2,9 @@ import { Prisma, type PrismaClient } from "@breakpoint/db";
 import { OPEN_SPONSORSHIP_STATUSES } from "@breakpoint/types";
 
 import { resolveSeasonId } from "../../lib/active-season";
-import { ConflictError } from "../../lib/http-errors";
+import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
+import { assertAccountsBelongToTeam } from "../../lib/tenant";
 import type {
   CreateOrganizationInput,
   CreateSponsorshipInput,
@@ -71,10 +72,11 @@ function serializeSponsorship(sponsorship: SponsorshipRow) {
 
 export function createSponsorsService(prisma: PrismaClient) {
   return {
-    listOrganizations: async (query: ListOrganizationsQuery) => {
-      const where: Prisma.OrganizationWhereInput = query.search
-        ? { name: { contains: query.search, mode: "insensitive" } }
-        : {};
+    listOrganizations: async (teamId: string, query: ListOrganizationsQuery) => {
+      const where: Prisma.OrganizationWhereInput = {
+        teamId,
+        ...(query.search ? { name: { contains: query.search, mode: "insensitive" } } : {}),
+      };
 
       const [rows, total] = await prisma.$transaction([
         prisma.organization.findMany({
@@ -89,23 +91,28 @@ export function createSponsorsService(prisma: PrismaClient) {
       return paginated(rows.map(serializeOrganization), total, query);
     },
 
-    getOrganization: async (id: string) => {
-      const organization = await prisma.organization.findUnique({
-        where: { id },
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getOrganization: async (teamId: string, id: string) => {
+      const organization = await prisma.organization.findFirst({
+        where: { id, teamId },
         select: organizationSelect,
       });
       return organization && serializeOrganization(organization);
     },
 
-    createOrganization: async (input: CreateOrganizationInput) => {
+    createOrganization: async (teamId: string, input: CreateOrganizationInput) => {
       const organization = await prisma.organization.create({
-        data: input,
+        data: { ...input, teamId },
         select: organizationSelect,
       });
       return serializeOrganization(organization);
     },
 
-    updateOrganization: async (id: string, input: UpdateOrganizationInput) => {
+    updateOrganization: async (teamId: string, id: string, input: UpdateOrganizationInput) => {
+      const existing = await prisma.organization.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Firma bulunamadi");
+
       const organization = await prisma.organization.update({
         where: { id },
         data: input,
@@ -122,7 +129,10 @@ export function createSponsorsService(prisma: PrismaClient) {
      * the team has stopped dealing with gets an INACTIVE sponsorship, not a
      * deletion.
      */
-    removeOrganization: async (id: string) => {
+    removeOrganization: async (teamId: string, id: string) => {
+      const existing = await prisma.organization.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Firma bulunamadi");
+
       const count = await prisma.sponsorship.count({ where: { organizationId: id } });
       if (count > 0) {
         throw new ConflictError(
@@ -132,8 +142,9 @@ export function createSponsorsService(prisma: PrismaClient) {
       await prisma.organization.delete({ where: { id } });
     },
 
-    listSponsorships: async (query: ListSponsorshipsQuery) => {
+    listSponsorships: async (teamId: string, query: ListSponsorshipsQuery) => {
       const where: Prisma.SponsorshipWhereInput = {
+        teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
         ...(query.assignedToId ? { assignedToId: query.assignedToId } : {}),
         ...(query.status
@@ -156,9 +167,9 @@ export function createSponsorsService(prisma: PrismaClient) {
       return paginated(rows.map(serializeSponsorship), total, query);
     },
 
-    getSponsorship: async (id: string) => {
-      const sponsorship = await prisma.sponsorship.findUnique({
-        where: { id },
+    getSponsorship: async (teamId: string, id: string) => {
+      const sponsorship = await prisma.sponsorship.findFirst({
+        where: { id, teamId },
         select: sponsorshipSelect,
       });
       return sponsorship && serializeSponsorship(sponsorship);
@@ -171,8 +182,22 @@ export function createSponsorsService(prisma: PrismaClient) {
      * value already exists", which does not tell a lead that the firm is
      * already on this season's list and should be edited rather than re-added.
      */
-    createSponsorship: async ({ seasonId, amount, ...rest }: CreateSponsorshipInput) => {
-      const resolvedSeasonId = await resolveSeasonId(prisma, seasonId);
+    createSponsorship: async (
+      teamId: string,
+      { seasonId, amount, ...rest }: CreateSponsorshipInput
+    ) => {
+      const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
+
+      // The company has to be this team's own. The unique index below is on
+      // (organization, season) and would happily accept another team's firm.
+      const organization = await prisma.organization.count({
+        where: { id: rest.organizationId, teamId },
+      });
+      if (organization === 0) throw new NotFoundError("Firma bulunamadi");
+
+      if (rest.assignedToId) {
+        await assertAccountsBelongToTeam(prisma, teamId, [rest.assignedToId]);
+      }
 
       const existing = await prisma.sponsorship.findUnique({
         where: {
@@ -190,6 +215,7 @@ export function createSponsorsService(prisma: PrismaClient) {
       const sponsorship = await prisma.sponsorship.create({
         data: {
           ...rest,
+          teamId,
           seasonId: resolvedSeasonId,
           amount: amount ? new Prisma.Decimal(amount) : null,
         },
@@ -198,7 +224,18 @@ export function createSponsorsService(prisma: PrismaClient) {
       return serializeSponsorship(sponsorship);
     },
 
-    updateSponsorship: async (id: string, { amount, ...rest }: UpdateSponsorshipInput) => {
+    updateSponsorship: async (
+      teamId: string,
+      id: string,
+      { amount, ...rest }: UpdateSponsorshipInput
+    ) => {
+      const existing = await prisma.sponsorship.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+
+      if (rest.assignedToId) {
+        await assertAccountsBelongToTeam(prisma, teamId, [rest.assignedToId]);
+      }
+
       const sponsorship = await prisma.sponsorship.update({
         where: { id },
         data: {
@@ -212,6 +249,10 @@ export function createSponsorsService(prisma: PrismaClient) {
       return serializeSponsorship(sponsorship);
     },
 
-    removeSponsorship: (id: string) => prisma.sponsorship.delete({ where: { id } }),
+    removeSponsorship: async (teamId: string, id: string) => {
+      const existing = await prisma.sponsorship.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+      await prisma.sponsorship.delete({ where: { id } });
+    },
   };
 }

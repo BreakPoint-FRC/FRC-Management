@@ -7,8 +7,9 @@ import {
 } from "@breakpoint/types";
 
 // The role list is validated in two places on purpose. Everything that can be
-// judged from the payload alone is here; the rules that need to know a role's
-// scope -- a GROUP role requires a group, a GLOBAL one forbids it -- need the
+// judged from the payload alone is here; the rules that need the role's
+// placement -- an IN_GROUP role requires a group, every other placement forbids
+// one, because the others carry their coverage on the role itself -- need the
 // stored Role and so live in accounts.service.
 const roleListSchema = z.array(accountRoleInputSchema).superRefine((roles, ctx) => {
   const seen = new Set<string>();

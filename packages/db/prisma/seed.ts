@@ -5,12 +5,16 @@ import { hash } from "@node-rs/argon2";
 
 import { prisma } from "../src/client";
 
-// The seed fills a database with a realistic team. It does *not* create roles,
-// tools, the permission matrix or the departments -- those are system
-// configuration written by
-// 20260829090200_migrate_member_roles_to_account_roles, because without them
-// nobody can be authorized for anything and a deployed database would be inert.
-// This file looks them up and fails loudly if they are missing.
+// The seed fills a database with a realistic team. It does *not* create the
+// team, roles, tools, the permission matrix or the departments -- those are
+// system configuration written by migrations, because without them nobody can
+// be authorized for anything and a deployed database would be inert. This file
+// looks them up and fails loudly if they are missing.
+//
+// Everything it writes belongs to the one team the migrations create. It does
+// not create the platform system admin either: that account is a way into every
+// team, so it comes from `db:bootstrap` and its environment variables rather
+// than from a file with a password printed in it.
 //
 // Everything here is upserted on a natural key (email, name, or a fixed seed-*
 // id) so running it twice updates the same rows instead of piling up
@@ -36,9 +40,11 @@ const SEASON = {
 // to satisfy it too or it is not describing a state the API could produce.
 const ACCOUNTS = [
   {
+    // The administrator of this team, not of the platform. SYSTEM_ADMIN belongs
+    // to no team and is created by db:bootstrap.
     email: "ada@breakpoint.test",
     fullName: "Ada Yilmaz",
-    roles: [{ role: "SYSTEM_ADMIN" }],
+    roles: [{ role: "TEAM_ADMIN" }],
     extraGroups: ["Programming"],
   },
   {
@@ -99,17 +105,34 @@ const ACCOUNTS = [
 ] as const;
 
 async function main() {
+  // The team the migrations created and adopted the existing data into. Looked
+  // up rather than created, for the same reason the roles below are.
+  const team = await prisma.team.findFirst({
+    where: { slug: "varsayilan-takim" },
+    select: { id: true, name: true },
+  });
+  if (!team) {
+    throw new Error(
+      'Team "varsayilan-takim" is missing. Run pnpm --filter @breakpoint/db db:deploy first.'
+    );
+  }
+  const teamId = team.id;
+
   const season = await prisma.season.upsert({
-    where: { name: SEASON.name },
+    where: { teamId_name: { teamId, name: SEASON.name } },
     update: { startDate: SEASON.startDate, endDate: SEASON.endDate, isActive: true },
-    create: { ...SEASON, isActive: true },
+    create: { ...SEASON, teamId, isActive: true },
   });
 
   // Configuration written by the migration. Looked up rather than created, and
   // checked so a missing migration is an error here instead of a confusing
   // foreign key failure twenty lines down.
-  const roles = new Map((await prisma.role.findMany()).map((role) => [role.key, role.id]));
-  const groups = new Map((await prisma.group.findMany()).map((group) => [group.name, group.id]));
+  const roles = new Map(
+    (await prisma.role.findMany({ where: { teamId } })).map((role) => [role.key, role.id])
+  );
+  const groups = new Map(
+    (await prisma.group.findMany({ where: { teamId } })).map((group) => [group.name, group.id])
+  );
 
   const roleId = (key: string) => {
     const id = roles.get(key);
@@ -131,8 +154,8 @@ async function main() {
 
     const account = await prisma.account.upsert({
       where: { email: spec.email },
-      update: { fullName: spec.fullName, passwordHash, isActive: true, archivedAt: null },
-      create: { email: spec.email, fullName: spec.fullName, passwordHash },
+      update: { teamId, fullName: spec.fullName, passwordHash, isActive: true, archivedAt: null },
+      create: { teamId, email: spec.email, fullName: spec.fullName, passwordHash },
     });
     accountIds.set(spec.email, account.id);
 
@@ -148,9 +171,8 @@ async function main() {
       })),
     });
 
-    // Holding a group-scoped role implies membership of that group: without it
-    // step 4 of the authorization check would turn a lead away from their own
-    // department.
+    // Holding an IN_GROUP role implies membership of that group: without it
+    // authorize() would turn a member away from their own department.
     const memberOf = new Set<string>(spec.extraGroups);
     for (const entry of spec.roles) if ("group" in entry) memberOf.add(entry.group);
 
@@ -195,7 +217,7 @@ async function main() {
     await prisma.meeting.upsert({
       where: { id: meeting.id },
       update: { title: meeting.title, body: meeting.body, meetingDate: meeting.meetingDate },
-      create: { ...meeting, seasonId: season.id },
+      create: { ...meeting, teamId, seasonId: season.id },
     });
   }
 
@@ -260,7 +282,7 @@ async function main() {
       description: "Cross-group: needs numbers from finance.",
       status: "COMPLETED" as const,
       priority: "MEDIUM" as const,
-      // No group. A cross-group task is authorized on the GLOBAL path.
+      // No group. A cross-group task is authorized on the team-wide path.
       groupId: null,
       startDate: new Date("2026-08-10T00:00:00.000Z"),
       dueDate: new Date("2026-08-25T00:00:00.000Z"),
@@ -292,7 +314,7 @@ async function main() {
         startDate: task.startDate,
         dueDate: task.dueDate,
       },
-      create: { ...task, seasonId: season.id },
+      create: { ...task, teamId, seasonId: season.id },
     });
 
     // Assignees are a set, replaced whole, exactly like roles.
@@ -333,6 +355,7 @@ async function main() {
     },
     update: {},
     create: {
+      teamId,
       seasonId: season.id,
       groupId: groupId("Programming"),
       name: "Yazilim yol haritasi",
@@ -390,7 +413,7 @@ async function main() {
         amount: transaction.amount,
         description: transaction.description,
       },
-      create: { ...transaction, seasonId: season.id },
+      create: { ...transaction, teamId, seasonId: season.id },
     });
   }
 
@@ -429,9 +452,9 @@ async function main() {
 
   for (const { status, amount, assignedToId, ...organization } of organizations) {
     const record = await prisma.organization.upsert({
-      where: { name: organization.name },
+      where: { teamId_name: { teamId, name: organization.name } },
       update: organization,
-      create: organization,
+      create: { ...organization, teamId },
     });
 
     await prisma.sponsorship.upsert({
@@ -439,13 +462,20 @@ async function main() {
         organizationId_seasonId: { organizationId: record.id, seasonId: season.id },
       },
       update: { status, amount, assignedToId },
-      create: { organizationId: record.id, seasonId: season.id, status, amount, assignedToId },
+      create: {
+        teamId,
+        organizationId: record.id,
+        seasonId: season.id,
+        status,
+        amount,
+        assignedToId,
+      },
     });
   }
 
   console.log(
     [
-      `Seeded ${ACCOUNTS.length} accounts (password: ${DEV_PASSWORD})`,
+      `Seeded team "${team.name}" with ${ACCOUNTS.length} accounts (password: ${DEV_PASSWORD})`,
       `${roles.size} roles, ${groups.size} groups`,
       `${meetings.length} meetings, ${tasks.length} tasks`,
       `${transactions.length} transactions, ${organizations.length} sponsorships`,

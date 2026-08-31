@@ -1,10 +1,12 @@
 import type {
   AttendanceStatus,
   CalendarEntryKind,
+  RolePlacement,
   SponsorshipStatus,
   TaskActivityAction,
   TaskPriority,
   TaskStatus,
+  TeamSetupStage,
   TransactionType,
 } from "@breakpoint/types";
 
@@ -21,43 +23,88 @@ import type {
  * described here.
  */
 
-/** One role an account holds, as the API flattens it. */
+/**
+ * One role an account holds, as the API flattens it.
+ *
+ * `depth` is where the role sits in the RoleHierarchy graph, computed by the
+ * API on every read. It replaced a stored hierarchyLevel column: a derived
+ * number cannot disagree with the graph it came from.
+ */
 export interface AccountRoleRow {
   roleId: string;
   roleKey: string;
   roleName: string;
-  scope: "GLOBAL" | "GROUP";
-  hierarchyLevel: number;
+  placement: RolePlacement;
+  depth: number;
   groupId: string | null;
   groupName: string | null;
 }
 
 export interface AccountRow {
   id: string;
+  teamId: string | null;
   email: string;
   fullName: string;
   isActive: boolean;
+  mustChangePassword: boolean;
   archivedAt: string | null;
   roles: AccountRoleRow[];
   groups: Array<{ id: string; name: string }>;
 }
 
+/** A team, as /teams and /setup send it. */
+export interface TeamRow {
+  id: string;
+  name: string;
+  slug: string;
+  isActive: boolean;
+  setupStage: TeamSetupStage;
+  setupCompletedAt: string | null;
+  createdAt: string;
+  accountCount: number;
+  groupCount: number;
+}
+
+/**
+ * A department.
+ *
+ * `tools` is what this group states for itself; `effectiveTools` is what
+ * actually applies once inheritance from its ancestors is resolved. The screen
+ * needs both -- a row can look locally configured when it is really borrowing
+ * the answer from three levels up.
+ */
 export interface GroupRow {
   id: string;
+  parentId: string | null;
   name: string;
   description: string | null;
   isActive: boolean;
   memberCount: number;
   tools: Array<{ toolId: string; tool: string; isEnabled: boolean }>;
+  effectiveTools: Array<{ tool: string; isEnabled: boolean; inheritedFrom: string | null }>;
+}
+
+/** The tree endpoint, which sends the shape without the tool detail. */
+export interface GroupTreeRow {
+  id: string;
+  parentId: string | null;
+  name: string;
+  description: string | null;
+  isActive: boolean;
 }
 
 export interface RoleRow {
   id: string;
+  teamId: string | null;
   key: string;
   name: string;
   description: string | null;
-  scope: "GLOBAL" | "GROUP";
-  hierarchyLevel: number;
+  placement: RolePlacement;
+  /** Derived from the hierarchy graph on read, never stored. */
+  depth: number;
+  /** The roots of the authority of this role; subgroups are covered too. */
+  groupScopeIds: string[];
+  groupScopes: Array<{ id: string; name: string }>;
   isSystemRole: boolean;
   assignedCount: number;
   permissions: Array<{
@@ -70,6 +117,44 @@ export interface RoleRow {
   }>;
   children: Array<{ id: string; key: string; name: string }>;
   parents: Array<{ id: string; key: string; name: string }>;
+}
+
+/**
+ * The hierarchy as the roles screen draws it.
+ *
+ * `closure` is the transitive part: if a role is above a second and that one is
+ * above a third, the first is above the third as well. Nothing stores it -- the
+ * API walks the edges, which is what keeps the relation from needing a rank
+ * number to maintain.
+ */
+export interface RoleGraphRow {
+  roles: Array<{ id: string; key: string; name: string; placement: RolePlacement; depth: number }>;
+  edges: Array<{ parentRoleId: string; childRoleId: string }>;
+  closure: Array<{ roleId: string; below: string[] }>;
+}
+
+/** GET /setup -- where the team is in its first-run flow. */
+export interface SetupStateRow {
+  team: {
+    id: string;
+    name: string;
+    slug: string;
+    isActive: boolean;
+    setupStage: TeamSetupStage;
+    setupCompletedAt: string | null;
+  };
+  stage: TeamSetupStage;
+  stages: TeamSetupStage[];
+  progress: {
+    groups: number;
+    roles: number;
+    groupTools: number;
+    permissions: number;
+    accounts: number;
+    seasons: number;
+  };
+  /** Why the current step cannot be left yet, or null when it can. */
+  blocker: string | null;
 }
 
 export interface ToolRow {

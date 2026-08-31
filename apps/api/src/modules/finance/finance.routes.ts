@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
+import type { AuthenticatedAccount } from "../../plugins/auth";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createTransactionSchema,
@@ -38,15 +40,15 @@ export async function financeRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
 
   const authorizeExisting = async (
-    accountId: string,
+    account: AuthenticatedAccount,
     transactionId: string,
     action: "read" | "update" | "delete"
   ) => {
-    const transaction = await service.groupOf(transactionId);
+    const transaction = await service.groupOf(requireTeam(account), transactionId);
     if (!transaction) throw new NotFoundError("Kayit bulunamadi");
 
     await authorize(app.prisma, {
-      accountId,
+      accountId: account.id,
       tool: "FINANCE",
       action,
       groupId: transaction.groupId,
@@ -63,7 +65,7 @@ export async function financeRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // Declared before /:id so "summary" is not read as an id.
@@ -76,7 +78,7 @@ export async function financeRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.summary(query);
+    return service.summary(requireTeam(req.account), query);
   });
 
   // Same reason as /summary: declared before /:id so it is not read as an id.
@@ -89,15 +91,15 @@ export async function financeRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.monthly(query);
+    return service.monthly(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "read");
+    await authorizeExisting(req.account, id, "read");
 
-    const transaction = await service.getById(id);
+    const transaction = await service.getById(requireTeam(req.account), id);
     if (!transaction) throw new NotFoundError("Kayit bulunamadi");
     return transaction;
   });
@@ -112,7 +114,7 @@ export async function financeRoutes(app: FastifyInstance) {
       groupId: input.groupId,
     });
 
-    const transaction = await service.create(input, req.account.id);
+    const transaction = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(transaction);
   });
 
@@ -121,7 +123,7 @@ export async function financeRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = updateTransactionSchema.parse(req.body);
 
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
     if (input.groupId !== undefined) {
       await authorize(app.prisma, {
@@ -132,15 +134,15 @@ export async function financeRoutes(app: FastifyInstance) {
       });
     }
 
-    return service.update(id, input);
+    return service.update(requireTeam(req.account), id, input);
   });
 
   // -> 204 | 401 | 403 | 404
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "delete");
+    await authorizeExisting(req.account, id, "delete");
 
-    await service.remove(id);
+    await service.remove(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }
