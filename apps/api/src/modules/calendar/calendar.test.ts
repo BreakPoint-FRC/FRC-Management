@@ -4,6 +4,10 @@ import type { PrismaClient } from "@breakpoint/db";
 import { calendarQuerySchema } from "./calendar.schema";
 import { createCalendarService } from "./calendar.service";
 
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
+
 describe("calendar window validation", () => {
   it("accepts a month", () => {
     const result = calendarQuerySchema.safeParse({ from: "2026-08-01", to: "2026-08-31" });
@@ -77,7 +81,7 @@ describe("assembling the window", () => {
   it("turns a meeting into one entry", async () => {
     const { prisma } = stubPrisma({ meetings: [meeting] });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });
@@ -112,7 +116,7 @@ describe("assembling the window", () => {
       ],
     });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });
@@ -139,7 +143,7 @@ describe("assembling the window", () => {
       ],
     });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });
@@ -162,7 +166,7 @@ describe("assembling the window", () => {
       ],
     });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });
@@ -195,7 +199,7 @@ describe("assembling the window", () => {
       ],
     });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });
@@ -212,7 +216,7 @@ describe("assembling the window", () => {
     // be a side door onto every meeting title on the team.
     const { prisma, meetingFindMany, taskFindMany } = stubPrisma({ meetings: [meeting] });
 
-    const { items } = await createCalendarService(prisma).range(august, {
+    const { items } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: false,
       tasks: true,
     });
@@ -226,15 +230,20 @@ describe("assembling the window", () => {
     const { prisma, meetingFindMany, taskFindMany } = stubPrisma();
 
     await createCalendarService(prisma).range(
+      TEAM,
       calendarQuerySchema.parse({ from: "2026-08-01", to: "2026-08-31", groupId: "g1" }),
       { meetings: true, tasks: true }
     );
 
+    // teamId is pinned alongside the group: an absent groupId means "every
+    // group", and it has to stay every group of one team.
     expect(meetingFindMany.mock.calls[0]?.[0].where).toMatchObject({
+      teamId: TEAM,
       seasonId: "s1",
       groupId: "g1",
     });
     expect(taskFindMany.mock.calls[0]?.[0].where).toMatchObject({
+      teamId: TEAM,
       seasonId: "s1",
       groupId: "g1",
     });
@@ -243,7 +252,7 @@ describe("assembling the window", () => {
   it("returns the season window alongside the entries", async () => {
     const { prisma } = stubPrisma();
 
-    const { season } = await createCalendarService(prisma).range(august, {
+    const { season } = await createCalendarService(prisma).range(TEAM, august, {
       meetings: true,
       tasks: true,
     });

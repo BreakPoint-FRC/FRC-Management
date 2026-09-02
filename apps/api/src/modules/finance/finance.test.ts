@@ -8,6 +8,10 @@ import {
 } from "./finance.schema";
 import { createFinanceService } from "./finance.service";
 
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
+
 describe("transaction payload validation", () => {
   it("accepts an amount as a decimal string", async () => {
     const result = createTransactionSchema.safeParse({
@@ -50,7 +54,8 @@ describe("serialization", () => {
   it("returns a database Decimal as a string, not a number", async () => {
     const prisma = {
       financeTransaction: {
-        findUnique: async () => ({
+        // findFirst, not findUnique: the team is half the identity now.
+        findFirst: async () => ({
           id: "t1",
           seasonId: "s1",
           groupId: null,
@@ -66,7 +71,7 @@ describe("serialization", () => {
       },
     } as unknown as PrismaClient;
 
-    const transaction = await createFinanceService(prisma).getById("t1");
+    const transaction = await createFinanceService(prisma).getById(TEAM, "t1");
 
     expect(transaction?.amount).toBe("25000.00");
     expect(typeof transaction?.amount).toBe("string");
@@ -85,7 +90,7 @@ describe("summary", () => {
       $transaction: async (operations: unknown[]) => Promise.all(operations),
     } as unknown as PrismaClient;
 
-    const summary = await createFinanceService(prisma).summary({});
+    const summary = await createFinanceService(prisma).summary(TEAM, {});
 
     expect(summary).toEqual({ income: "25000.00", expense: "5950.50", net: "19049.50" });
   });
@@ -96,7 +101,7 @@ describe("summary", () => {
       $transaction: async (operations: unknown[]) => Promise.all(operations),
     } as unknown as PrismaClient;
 
-    const summary = await createFinanceService(prisma).summary({ seasonId: "s1" });
+    const summary = await createFinanceService(prisma).summary(TEAM, { seasonId: "s1" });
 
     expect(summary).toEqual({ income: "0.00", expense: "0.00", net: "0.00" });
   });
@@ -108,9 +113,10 @@ describe("summary", () => {
       $transaction: async (operations: unknown[]) => Promise.all(operations),
     } as unknown as PrismaClient;
 
-    await createFinanceService(prisma).summary({ seasonId: "s1", groupId: "g1" });
+    await createFinanceService(prisma).summary(TEAM, { seasonId: "s1", groupId: "g1" });
 
     expect(aggregate.mock.calls[0]?.[0].where).toMatchObject({
+      teamId: TEAM,
       seasonId: "s1",
       groupId: "g1",
       type: "INCOME",
@@ -127,6 +133,7 @@ describe("list filters", () => {
     } as unknown as PrismaClient;
 
     await createFinanceService(prisma).list(
+      TEAM,
       listTransactionsQuerySchema.parse({ from: "2026-01-01", to: "2026-06-30" })
     );
 
@@ -171,7 +178,7 @@ describe("monthly breakdown", () => {
       tx("EXPENSE", "1000.25", "2026-01-31"),
     ]);
 
-    const { items } = await service.monthly({});
+    const { items } = await service.monthly(TEAM, {});
 
     expect(items).toEqual([
       { month: "2026-01", income: "6000.00", expense: "1000.25", net: "4999.75" },
@@ -183,7 +190,7 @@ describe("monthly breakdown", () => {
     // while 4750.50 comes back "4750.5".
     const { service } = serviceOver([tx("INCOME", "25000.00", "2026-02-01")]);
 
-    const { items } = await service.monthly({});
+    const { items } = await service.monthly(TEAM, {});
 
     expect(items[0]?.income).toBe("25000.00");
   });
@@ -196,7 +203,7 @@ describe("monthly breakdown", () => {
       tx("INCOME", "300.00", "2026-05-05"),
     ]);
 
-    const { items } = await service.monthly({});
+    const { items } = await service.monthly(TEAM, {});
 
     expect(items.map((item) => item.month)).toEqual([
       "2026-02",
@@ -215,13 +222,14 @@ describe("monthly breakdown", () => {
   it("returns nothing at all when the ledger is empty", async () => {
     const { service } = serviceOver([]);
 
-    await expect(service.monthly({})).resolves.toEqual({ items: [] });
+    await expect(service.monthly(TEAM, {})).resolves.toEqual({ items: [] });
   });
 
   it("applies the same filters as the list", async () => {
     const { service, findMany } = serviceOver([]);
 
     await service.monthly(
+      TEAM,
       monthlyQuerySchema.parse({
         groupId: "g1",
         seasonId: "s1",
@@ -231,6 +239,7 @@ describe("monthly breakdown", () => {
     );
 
     expect(findMany.mock.calls[0]?.[0].where).toEqual({
+      teamId: TEAM,
       seasonId: "s1",
       groupId: "g1",
       transactionDate: { gte: new Date("2026-01-01"), lte: new Date("2026-06-30") },
@@ -249,7 +258,7 @@ describe("monthly breakdown", () => {
     ];
     const { service } = serviceOver(rows);
 
-    const [{ items }, summary] = await Promise.all([service.monthly({}), service.summary({})]);
+    const [{ items }, summary] = await Promise.all([service.monthly(TEAM, {}), service.summary(TEAM, {})]);
 
     const net = items.reduce(
       (total, item) => total.plus(new Prisma.Decimal(item.net)),

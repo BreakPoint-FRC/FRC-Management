@@ -13,17 +13,17 @@ import {
   RowActions,
 } from "@/components/ui";
 import { CheckboxField, FormPanel, TextField } from "@/components/ui/form";
+import {
+  RoleAssignmentRows,
+  roleAssignmentPayload,
+  type RoleAssignmentDraft,
+} from "@/components/accounts/role-assignment-rows";
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
-import type { AccountRow, GroupRow, RoleRow } from "@/lib/api-types";
+import type { AccountRow, GroupTreeRow, RoleRow } from "@/lib/api-types";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
-
-interface RoleDraft {
-  roleId: string;
-  groupId: string;
-}
 
 type Panel =
   | { kind: "closed" }
@@ -41,14 +41,14 @@ export default function AccountsPage() {
 
   const [panel, setPanel] = useState<Panel>({ kind: "closed" });
   const [draft, setDraft] = useState({ email: "", fullName: "", password: "", isActive: true });
-  const [roleDrafts, setRoleDrafts] = useState<RoleDraft[]>([]);
+  const [roleDrafts, setRoleDrafts] = useState<RoleAssignmentDraft[]>([]);
   const [password, setPassword] = useState("");
 
   // Assigning a role needs every role and every group, not just the ones the
   // signed-in account belongs to.
   const needsCatalog = panel.kind === "roles";
   const roles = useApi<Paginated<RoleRow>>(needsCatalog ? "/roles?pageSize=100" : null);
-  const allGroups = useApi<Paginated<GroupRow>>(needsCatalog ? "/groups?pageSize=100" : null);
+  const allGroups = useApi<GroupTreeRow[]>(needsCatalog ? "/groups/tree" : null);
 
   const mayCreate = can(permissions, "ACCOUNTS", "create");
   const mayUpdate = can(permissions, "ACCOUNTS", "update");
@@ -116,10 +116,7 @@ export default function AccountsPage() {
 
     const ok = await mutation.run(() =>
       apiClient.put(`/accounts/${panel.account.id}/roles`, {
-        roles: roleDrafts.map((entry) => ({
-          roleId: entry.roleId,
-          groupId: entry.groupId === "" ? null : entry.groupId,
-        })),
+        roles: roleAssignmentPayload(roleDrafts),
       })
     );
     if (ok) {
@@ -237,92 +234,14 @@ export default function AccountsPage() {
           <AsyncSection state={roles}>
             {(roleList) => (
               <AsyncSection state={allGroups}>
-                {(groupList) => (
-                  <div className="stack-sm">
-                    {roleDrafts.map((entry, index) => {
-                      const role = roleList.items.find((item) => item.id === entry.roleId);
-                      // Mirrors the server rule so a guaranteed 409 never gets
-                      // sent: a GROUP role needs a group, a GLOBAL one refuses
-                      // to have one.
-                      const needsGroup = role?.scope === "GROUP";
-
-                      return (
-                        <div key={index} className="row">
-                          <select
-                            value={entry.roleId}
-                            onChange={(event) => {
-                              const roleId = event.target.value;
-                              const next = roleList.items.find((item) => item.id === roleId);
-                              setRoleDrafts((current) =>
-                                current.map((item, at) =>
-                                  at === index
-                                    ? {
-                                        roleId,
-                                        groupId: next?.scope === "GROUP" ? item.groupId : "",
-                                      }
-                                    : item
-                                )
-                              );
-                            }}
-                          >
-                            <option value="">Rol sec...</option>
-                            {roleList.items.map((item) => (
-                              <option key={item.id} value={item.id}>
-                                {item.name} ({item.scope === "GLOBAL" ? "takim geneli" : "grup ici"})
-                              </option>
-                            ))}
-                          </select>
-
-                          <select
-                            value={entry.groupId}
-                            disabled={!needsGroup}
-                            onChange={(event) =>
-                              setRoleDrafts((current) =>
-                                current.map((item, at) =>
-                                  at === index ? { ...item, groupId: event.target.value } : item
-                                )
-                              )
-                            }
-                          >
-                            <option value="">
-                              {needsGroup ? "Grup sec..." : "Grup yok"}
-                            </option>
-                            {groupList.items.map((group) => (
-                              <option key={group.id} value={group.id}>
-                                {group.name}
-                              </option>
-                            ))}
-                          </select>
-
-                          <button
-                            className="btn btn-sm"
-                            type="button"
-                            onClick={() =>
-                              setRoleDrafts((current) => current.filter((_, at) => at !== index))
-                            }
-                          >
-                            Cikar
-                          </button>
-
-                          {issueFor(mutation.error, "roles", index) ? (
-                            <span className="field-error">
-                              {issueFor(mutation.error, "roles", index)}
-                            </span>
-                          ) : null}
-                        </div>
-                      );
-                    })}
-
-                    <button
-                      className="btn btn-sm"
-                      type="button"
-                      onClick={() =>
-                        setRoleDrafts((current) => [...current, { roleId: "", groupId: "" }])
-                      }
-                    >
-                      + Rol ekle
-                    </button>
-                  </div>
+                {(groupTree) => (
+                  <RoleAssignmentRows
+                    value={roleDrafts}
+                    onChange={setRoleDrafts}
+                    roles={roleList.items}
+                    groups={groupTree}
+                    error={mutation.error}
+                  />
                 )}
               </AsyncSection>
             )}

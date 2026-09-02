@@ -1,7 +1,7 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 
 import { resolveSeasonId } from "../../lib/active-season";
-import { ConflictError } from "../../lib/http-errors";
+import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
   CreateBoardInput,
@@ -59,8 +59,9 @@ function serialize(board: BoardRow) {
 
 export function createGanttService(prisma: PrismaClient) {
   return {
-    list: async (query: ListBoardsQuery) => {
+    list: async (teamId: string, query: ListBoardsQuery) => {
       const where: Prisma.GanttBoardWhereInput = {
+        teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
         ...(query.groupId ? { groupId: query.groupId } : {}),
       };
@@ -78,24 +79,34 @@ export function createGanttService(prisma: PrismaClient) {
       return paginated(rows.map(serialize), total, query);
     },
 
-    getById: async (id: string) => {
-      const board = await prisma.ganttBoard.findUnique({ where: { id }, select: boardSelect });
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getById: async (teamId: string, id: string) => {
+      const board = await prisma.ganttBoard.findFirst({
+        where: { id, teamId },
+        select: boardSelect,
+      });
       return board && serialize(board);
     },
 
-    groupOf: (id: string) =>
-      prisma.ganttBoard.findUnique({ where: { id }, select: { id: true, groupId: true } }),
+    // Scoped to the team as well, so a route that reads the group off a stored
+    // record cannot be handed another team's id and authorize against it.
+    groupOf: (teamId: string, id: string) =>
+      prisma.ganttBoard.findFirst({ where: { id, teamId }, select: { id: true, groupId: true } }),
 
-    create: async ({ seasonId, ...rest }: CreateBoardInput) => {
-      const resolvedSeasonId = await resolveSeasonId(prisma, seasonId);
+    create: async (teamId: string, { seasonId, ...rest }: CreateBoardInput) => {
+      const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
       const board = await prisma.ganttBoard.create({
-        data: { ...rest, seasonId: resolvedSeasonId },
+        data: { ...rest, teamId, seasonId: resolvedSeasonId },
         select: boardSelect,
       });
       return serialize(board);
     },
 
-    update: async (id: string, input: UpdateBoardInput) => {
+    update: async (teamId: string, id: string, input: UpdateBoardInput) => {
+      const existing = await prisma.ganttBoard.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Pano bulunamadi");
+
       const board = await prisma.ganttBoard.update({
         where: { id },
         data: input,
@@ -115,15 +126,18 @@ export function createGanttService(prisma: PrismaClient) {
      * and quietly drawing last year's work onto it would make the timeline
      * wrong in a way that looks fine.
      */
-    replaceTasks: async (boardId: string, input: ReplaceBoardTasksInput) => {
-      const board = await prisma.ganttBoard.findUniqueOrThrow({
-        where: { id: boardId },
+    replaceTasks: async (teamId: string, boardId: string, input: ReplaceBoardTasksInput) => {
+      const board = await prisma.ganttBoard.findFirst({
+        where: { id: boardId, teamId },
         select: { seasonId: true },
       });
+      if (!board) throw new NotFoundError("Pano bulunamadi");
 
       if (input.taskIds.length > 0) {
+        // The season check already implies the team -- a season belongs to one
+        // -- but naming both says so at the point someone reads it.
         const valid = await prisma.task.count({
-          where: { id: { in: input.taskIds }, seasonId: board.seasonId },
+          where: { id: { in: input.taskIds }, teamId, seasonId: board.seasonId },
         });
         if (valid !== input.taskIds.length) {
           throw new ConflictError("Gorevlerin hepsi bu sezona ait degil");
@@ -148,6 +162,10 @@ export function createGanttService(prisma: PrismaClient) {
     },
 
     /** Deletes the board and its ordering. The tasks themselves are untouched. */
-    remove: (id: string) => prisma.ganttBoard.delete({ where: { id } }),
+    remove: async (teamId: string, id: string) => {
+      const existing = await prisma.ganttBoard.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Pano bulunamadi");
+      await prisma.ganttBoard.delete({ where: { id } });
+    },
   };
 }

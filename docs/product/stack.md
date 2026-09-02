@@ -7,5 +7,5 @@ choice; see the README for how the workspaces are wired together.
 | --- | --- |
 | Backend | TypeScript (Fastify) |
 | Frontend | Next.js (App Router) |
-| PWA | Next.js manifest + a hand-written service worker |
+| PWA | Next.js manifest only — installable, but online only |
 | Database | PostgreSQL (via Prisma) |

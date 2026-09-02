@@ -25,6 +25,7 @@ export const TOOL_KEYS = [
   "TOOLS",
   "PERMISSIONS",
   "SEASONS",
+  "TEAMS",
 ] as const;
 
 export const toolKeySchema = z.enum(TOOL_KEYS);

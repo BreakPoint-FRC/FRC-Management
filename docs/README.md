@@ -1,6 +1,7 @@
 # BreakPoint docs
 
 - [migrations.md](migrations.md) — how to change the database safely
+- [teams.md](teams.md) — how a team is created, and the two kinds of administrator
 - [roles.md](roles.md) — how roles are modelled, and the rules they follow
 - [authorization.md](authorization.md) — who may do what, and the order it is decided in
 - [documentation.md](documentation.md) — what has to be documented, and where

@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createSeasonSchema,
@@ -33,7 +34,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
   app.get("/", async (req) => {
     const query = listSeasonsQuerySchema.parse(req.query);
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "read" });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // Declared before /:id so "current" is not read as an id.
@@ -41,7 +42,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
   app.get("/current", async (req) => {
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "read" });
 
-    const season = await service.current();
+    const season = await service.current(requireTeam(req.account));
     if (!season) throw new NotFoundError("Aktif sezon yok");
     return season;
   });
@@ -51,7 +52,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "read" });
 
-    const season = await service.getById(id);
+    const season = await service.getById(requireTeam(req.account), id);
     if (!season) throw new NotFoundError("Sezon bulunamadi");
     return season;
   });
@@ -60,7 +61,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
   app.post("/", async (req, reply) => {
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "create" });
 
-    const season = await service.create(createSeasonSchema.parse(req.body));
+    const season = await service.create(requireTeam(req.account), createSeasonSchema.parse(req.body));
     reply.code(201).send(season);
   });
 
@@ -69,7 +70,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "update" });
 
-    return service.update(id, updateSeasonSchema.parse(req.body));
+    return service.update(requireTeam(req.account), id, updateSeasonSchema.parse(req.body));
   });
 
   // -> 200 | 401 | 403 | 404
@@ -77,7 +78,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "update" });
 
-    return service.activate(id);
+    return service.activate(requireTeam(req.account), id);
   });
 
   // -> 204 | 401 | 403 | 404 | 409
@@ -85,7 +86,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "delete" });
 
-    await service.remove(id);
+    await service.remove(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }

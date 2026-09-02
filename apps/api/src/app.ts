@@ -14,6 +14,8 @@ import {
 } from "./lib/http-errors";
 
 import { authRoutes } from "./modules/auth/auth.routes";
+import { teamsRoutes } from "./modules/teams/teams.routes";
+import { setupRoutes } from "./modules/setup/setup.routes";
 import { accountsRoutes } from "./modules/accounts/accounts.routes";
 import { groupsRoutes } from "./modules/groups/groups.routes";
 import { rolesRoutes } from "./modules/roles/roles.routes";
@@ -142,6 +144,13 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.get("/health", async () => ({ status: "ok" }));
 
   app.register(authRoutes, { prefix: "/auth" });
+
+  // Platform level: opening teams and their administrators. Gated on TEAMS,
+  // which only the platform SYSTEM_ADMIN role holds.
+  app.register(teamsRoutes, { prefix: "/teams" });
+  // The first-run wizard a team admin lands in. Owns the order of the steps and
+  // nothing else -- the writes go through the modules below.
+  app.register(setupRoutes, { prefix: "/setup" });
 
   // Identity and access.
   app.register(accountsRoutes, { prefix: "/accounts" });

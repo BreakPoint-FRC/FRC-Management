@@ -1,24 +1,36 @@
 import { randomBytes } from "node:crypto";
 
-import cookie from "@fastify/cookie";
 import jwt from "@fastify/jwt";
 import fp from "fastify-plugin";
 import type { FastifyInstance, FastifyReply, FastifyRequest } from "fastify";
 
-import { UnauthorizedError } from "../lib/http-errors";
-
-/**
- * Name of the refresh cookie. Short and unremarkable on purpose -- it says
- * nothing about the stack behind it.
- */
-export const REFRESH_COOKIE = "bp_rt";
+import { ForbiddenError, UnauthorizedError } from "../lib/http-errors";
 
 /** The account attached to an authenticated request. */
 export interface AuthenticatedAccount {
   id: string;
   email: string;
   fullName: string;
+  /**
+   * The team this account acts inside, or null for a platform system admin.
+   *
+   * Every team-scoped service filters on it. It is read from the database on
+   * each request rather than carried in the token, for the same reason
+   * isActive is: a token outlives the fact it describes.
+   */
+  teamId: string | null;
+  mustChangePassword: boolean;
 }
+
+/**
+ * Routes an account still on a generated password may reach.
+ *
+ * Everything else is refused until the password is changed. The list is short
+ * on purpose: read who you are, set a password, or leave. A temporary password
+ * is a way in, not a credential, and an account that never changes it must not
+ * be able to quietly keep working on one.
+ */
+const PASSWORD_CHANGE_ALLOWED = new Set(["/auth/me", "/auth/password", "/auth/logout"]);
 
 export default fp(async (app: FastifyInstance) => {
   // A missing JWT_SECRET is refused at boot in server.ts, next to the
@@ -29,7 +41,6 @@ export default fp(async (app: FastifyInstance) => {
   // first.
   const secret = process.env.JWT_SECRET ?? randomBytes(32).toString("hex");
 
-  await app.register(cookie);
   await app.register(jwt, {
     secret,
     sign: { expiresIn: process.env.JWT_ACCESS_TTL ?? "15m" },
@@ -64,12 +75,20 @@ export default fp(async (app: FastifyInstance) => {
           id: true,
           email: true,
           fullName: true,
+          teamId: true,
+          mustChangePassword: true,
           isActive: true,
           archivedAt: true,
+          team: { select: { isActive: true } },
         },
       });
 
-      if (!account || !account.isActive || account.archivedAt !== null) {
+      if (
+        !account ||
+        !account.isActive ||
+        account.archivedAt !== null ||
+        (account.team !== null && !account.team.isActive)
+      ) {
         throw new UnauthorizedError("Hesap aktif degil");
       }
 
@@ -77,7 +96,16 @@ export default fp(async (app: FastifyInstance) => {
         id: account.id,
         email: account.email,
         fullName: account.fullName,
+        teamId: account.teamId,
+        mustChangePassword: account.mustChangePassword,
       };
+
+      // 403 rather than 401: the credential is valid, which is exactly why the
+      // client must not react by asking for it again. The message is what the
+      // web app matches on to send the user to the password screen.
+      if (account.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(request.routeOptions.url ?? "")) {
+        throw new ForbiddenError("Devam etmek icin sifrenizi degistirmelisiniz");
+      }
     }
   );
 });

@@ -1,9 +1,9 @@
 # Authorization
 
-Who may do what. This file owns the model: the six checks a request goes
-through, what a role hierarchy edge means, and the rules the database cannot
-hold. [roles.md](roles.md) covers what a role *is*; this covers what one lets
-you do.
+Who may do what. This file owns the model: the checks a request goes through,
+what a role hierarchy edge means, and the rules the database cannot hold.
+[roles.md](roles.md) covers what a role *is*; [teams.md](teams.md) covers how a
+team comes into existence; this covers what a role lets you do.
 
 Enum values, keys and code are English. Everything the team reads — role names,
 group names, error messages — is Turkish.
@@ -12,10 +12,12 @@ group names, error messages — is Turkish.
 
 | Table | Answers |
 | --- | --- |
-| `Account` | Can this person sign in at all? |
-| `Group` | Which departments exist? |
+| `Team` | Which teams exist, and has each finished setting itself up? |
+| `Account` | Can this person sign in at all, and to which team? |
+| `Group` | Which departments exist, and which sits under which? |
 | `GroupMembership` | Who is in a department? |
-| `Role` | What positions exist, and is each team-wide or per-department? |
+| `Role` | What positions exist, and where does each sit relative to the groups? |
+| `RoleGroupScope` | Which groups does a role have authority over? |
 | `AccountRole` | Who holds which role, and in which department? |
 | `RoleHierarchy` | Which roles inherit from which? |
 | `Tool` | Which modules exist? |
@@ -26,7 +28,60 @@ group names, error messages — is Turkish.
 authority is reached through `AccountRole`, which is what makes it possible for
 one person to be Programming Lead and a Strategy member at the same time.
 
-## The six checks
+## Tenancy
+
+One database holds many teams. Every row that describes the world of a team
+carries a `teamId`, every service filters on it, and the id comes from the
+authenticated account rather than from the request body — trusting the body
+would let anyone read another team by naming it.
+
+A record from another team answers **404, not 403**. A 403 confirms the id
+exists, which is the one thing a caller from another team must not be able to
+learn.
+
+Two things deliberately carry no `teamId`:
+
+- **`Tool`** — the module list is a closed enum in code, identical for everyone.
+  What a team *does* with a tool is `GroupTool` and `RolePermission`, and both
+  reach a team through `Group` / `Role`.
+- **`Account.email`** — unique across the platform, not per team. One address is
+  one person is one team. Scoping it per team would force the login screen to
+  ask which team you meant before it could find you.
+
+`Account.teamId` and `Role.teamId` are nullable, and null means *above every
+team*: a platform `SYSTEM_ADMIN` and the role it holds. A system admin that sat
+inside one team would be a back door into it.
+
+## Where a role sits: `RolePlacement`
+
+The old `RoleScope` had two values and could only say "this one group" (`GROUP`,
+scoped by `AccountRole.groupId`) or "every group" (`GLOBAL`). There was no way
+to write *the Technical Director runs Mechanical, Software and Electrical but
+has no business in Media*, which is the ordinary case on a team of any size.
+
+| Placement | Covers | Membership needed? | Gated by `GroupTool`? |
+| --- | --- | --- | --- |
+| `IN_GROUP` | the group in `AccountRole.groupId` | **yes** | yes |
+| `MANAGES_GROUP` | its `RoleGroupScope` groups **and their subtrees** | no | yes |
+| `ABOVE_GROUPS` | the same | no | yes |
+| `TEAM_WIDE` | every group of the team, plus the group-less records | no | **no** |
+| `EXTERNAL` | no group; team-wide reach for what it is granted | no | no |
+
+`RoleGroupScope` stores the **roots** of the authority, not its closure. Scoping
+a role to `Teknik` covers `Tasarim` three levels below it, resolved by walking
+the group tree at request time — so a subgroup added tomorrow is covered the day
+it appears, and no role has to be rewritten.
+
+`MANAGES_GROUP` and `ABOVE_GROUPS` are the same to the resolver. They differ in
+what they say to a human reading the roles screen, and keeping them apart is
+cheaper than discovering later that one label was doing two jobs.
+
+`EXTERNAL` is the mentor, the sponsor liaison, the alumnus: attached to the team
+but outside its structure. What it is granted applies team-wide, but it holds
+authority in no group, so it never merges with an in-group role to reach
+something neither grants on its own.
+
+## The checks
 
 Every decision is made by `authorize()` in
 [apps/api/src/lib/authorize.ts](../apps/api/src/lib/authorize.ts). The order is
@@ -35,35 +90,55 @@ not arbitrary — the cheap checks come first, and the graph walk comes last.
 ```
 authorize(prisma, { accountId, tool, action, groupId? })
 
-1. Is the account active and not archived?        no -> 401
-2. Is the tool switched on system-wide?           no -> 403
-3. Does a GLOBAL role already grant the action?   yes -> allow
-4. Was a groupId given?                           no  -> 403
-5. Is the account an active member of it?         no  -> 403
-6. Does the group have this tool enabled?         no  -> 403
-7. Do the roles held *in that group* grant it?    no  -> 403, yes -> allow
+1. Is the account active and not archived?         no -> 401
+2. Is the tool switched on system-wide?            no -> 403
+3. Is the group in the caller's team?              no -> 404
+4. Do TEAM_WIDE / EXTERNAL roles grant it?         yes -> allow
+5. Was a groupId given?                            no  -> 403
+6. Does any held role cover that group?            no  -> 403
+     IN_GROUP counts only with an active membership;
+     MANAGES_GROUP / ABOVE_GROUPS carry their own coverage.
+7. Does the group have this tool enabled?          no  -> 403
+     inherited from the nearest ancestor that states an answer.
+8. Do the covering roles grant the action?         no  -> 403, yes -> allow
 ```
 
 Step 1 is the only 401. The distinction matters to a client: a 401 means stop
 reusing this credential, a 403 means the credential is fine and the answer is
-still no.
+still no. Step 3 is the only 404, and it is a 404 rather than a 403 for the
+reason given under **Tenancy**.
 
-Step 3 is the bypass. A `SYSTEM_ADMIN` is not a member of every department and
-must not have to be; neither is a mentor who reads everything. It is
-deliberately the only bypass in the system — there is no hard-coded "if admin"
-anywhere else.
+Step 4 is the bypass. A team admin is not a member of every department and must
+not have to be; neither is a mentor who reads everything. It is deliberately the
+only bypass in the system — there is no hard-coded "if admin" anywhere else, and
+`TEAM_WIDE` is the only placement that also skips step 7.
 
-Step 4 is what a request with no group means: an administrative action, or a
+Step 5 is what a request with no group means: an administrative action, or a
 record that belongs to no department (a cross-group task, a team-wide meeting).
-Only a GLOBAL role can authorize one, because there is no membership or
-`GroupTool` row to consult.
+Only `TEAM_WIDE` or `EXTERNAL` can authorize one, because every other placement
+takes its authority from a group and there is no group here to take it from.
 
-Step 6 is why a Programming lead cannot open Finance even though they run a
-department: `FINANCE` is not enabled for Programming, so the request stops
-before their role is ever read.
+Step 7 is why a Yazilim lead cannot open Finance even though they run a
+department: `FINANCE` is not enabled for Yazilim, so the request stops before
+their role is ever read.
 
 Holding several roles can only ever add permissions. The sets are merged with
 OR, so being both a mentor and a member never subtracts from either.
+
+### Tools inherit down the group tree
+
+A `GroupTool` row on `Teknik` applies to `Mekanik` under it and `Tasarim` under
+that. The nearest ancestor that states an answer wins, so a subgroup can write
+its own row to switch a module back off.
+
+**No row anywhere up the chain still means off.** Enabling a tool stays an
+explicit act: absence is the safe reading, and a group created tomorrow does not
+silently acquire Finance because somebody once enabled it three levels up.
+
+The groups screen shows both — what a group states for itself, and what actually
+applies — because a row can look locally configured when it is really borrowing
+the answer from an ancestor, and the person switching it needs to know which of
+the two they are about to change.
 
 ### `groupId` comes from the stored row, not the request body
 
@@ -107,14 +182,25 @@ than by someone remembering to copy it.
 
 The spec this was built from listed `Programming Lead`, `Mechanical Lead` and
 `Business Lead` as separate roles under `Team Lead`. They are one `LEAD` role
-here, scoped to a group by `AccountRole.groupId` — the same tree, at one role
-per level instead of one per level per department. Adding a seventh department
-adds no roles at all.
+here, scoped to groups by `RoleGroupScope` — the same tree, at one role per level
+instead of one per level per department. Adding a seventh department adds no
+roles at all.
 
-`Role.hierarchyLevel` is **display ordering only**. Authorization never reads
-it. Two sources of truth for "who outranks whom" would eventually disagree, and
-the graph is the one with edges to walk; the column is the equivalent of the old
-`ROLE_RANK` map, for sorting a list.
+### The hierarchy is bindings, not numbers
+
+There is no rank column. `Role.hierarchyLevel` was removed, because the graph
+already said everything it said and the two could disagree.
+
+The relation is **transitive and nothing stores that**: if 1 is above 2 and 2 is
+above 3, then 1 is above 3, because `expandDescendants` walks to arbitrary depth
+rather than stopping at the first hop. `GET /roles/graph` returns that closure so
+the roles screen can show it; it is computed on read, never written.
+
+Display order is derived the same way — `roleDepths` in
+[packages/types/src/roles.ts](../packages/types/src/roles.ts) counts how far each
+role sits below the top of the graph. That is a number, and it is not the old
+column returning: a value derived from the edges on every read cannot disagree
+with the edges.
 
 ## The rules the database cannot hold
 
@@ -126,24 +212,35 @@ are enforced on the write path instead, and each has one:
 
 | Invariant | Enforced by |
 | --- | --- |
-| A `GROUP` role needs a `groupId`; a `GLOBAL` role must not have one | `accounts.service.replaceRoles` |
+| An `IN_GROUP` role needs a `groupId`; every other placement must not have one | `accounts.service.replaceRoles` |
+| `MANAGES_GROUP` / `ABOVE_GROUPS` need at least one `RoleGroupScope`; `TEAM_WIDE` / `EXTERNAL` must have none | `roles.service.assertGroupScope` |
 | A role cannot be its own parent | `roles.service.linkRoles` |
 | The hierarchy has no cycles | `roles.service.linkRoles`, by walking descendants before writing the edge |
+| Both ends of a hierarchy edge are in the same team | `roles.service.linkRoles` |
+| A group cannot be its own ancestor | `groups.service.assertParent`, via `wouldCreateGroupCycle` |
+| Every id in a write belongs to the caller's team | each service, and `resolveSeasonId` for the operational ones |
+| A team always keeps one active `TEAM_ADMIN` | `accounts.service.assertNotLastAdmin` |
 | No duplicate `(account, role, group)` while `groupId` is null | the whole-set replacement in `accounts.service` |
 
 That last one is the same gap [roles.md](roles.md) documented for the old
 `MemberRole`: Postgres treats `NULL`s as distinct inside a unique index, so
 `@@unique([accountId, roleId, groupId])` does not stop a second
-`(account, SYSTEM_ADMIN, null)` row.
+`(account, TEAM_ADMIN, null)` row.
 
-**Anyone adding a second way to write roles has to re-check all four.** A bulk
-importer or an "add one role" endpoint that skips these services can write rows
-the model cannot describe, and nothing downstream will catch it.
+**Anyone adding a second way to write roles has to re-check all of these.** A
+bulk importer or an "add one role" endpoint that skips these services can write
+rows the model cannot describe, and nothing downstream will catch it.
 
-A cycle would be worse than bad data: `authorize()` walks these edges on every
-authorized request, so a loop is a hung request rather than a wrong answer.
-`expandDescendants` carries its own `seen` guard for exactly that reason — it
-does not merely trust the write path.
+A cycle would be worse than bad data: `authorize()` walks both the role edges and
+the group tree on every authorized request, so a loop is a hung request rather
+than a wrong answer. `expandDescendants` and `expandGroupSubtrees` each carry
+their own visited set for exactly that reason — neither merely trusts the write
+path.
+
+The last-admin rule is the one that is not about data shape. A team whose only
+`TEAM_ADMIN` is archived, suspended or demoted cannot create accounts, edit roles
+or reach its own settings, and there is no second way in — fixing it means a
+platform admin and a database. Cheaper to refuse.
 
 ## Assignments are replaced whole, never one at a time
 
@@ -160,12 +257,15 @@ remove-one endpoint for any of them, by design:
 Each replacement runs in one transaction, so nothing is ever left holding half
 a set.
 
-## Membership follows a group role
+## Membership follows an in-group role
 
-Granting someone a group-scoped role also creates their membership of that
-group (`accounts.service.replaceRoles`). Without it, step 5 would turn a freshly
-appointed lead away from their own department — a bug that looks like a
+Granting someone an `IN_GROUP` role also creates their membership of that group
+(`accounts.service.replaceRoles`). Without it, step 6 would turn a freshly
+appointed member away from their own department — a bug that looks like a
 permissions problem and is not.
+
+Roles scoped from above create no membership. A director is not a member of the
+departments they oversee, and inventing one would put them on the roster.
 
 The reverse is guarded too: `groups.service.replaceMembers` refuses to remove
 someone who still holds a role in the group, naming them. Take the role away
@@ -179,25 +279,47 @@ not by the seed — without these rows nobody can be authorized for anything, so
 freshly deployed database would be inert. Only *direct* grants are stored;
 inherited ones are resolved from the hierarchy at request time.
 
-| Role | Scope | Grants directly |
-| --- | --- | --- |
-| `SYSTEM_ADMIN` | GLOBAL | everything, on every tool |
-| `PRESIDENT` | GLOBAL | full finance and sponsors; accounts, groups, seasons |
-| `VICE_PRESIDENT` | GLOBAL | sponsors, some finance |
-| `TEAM_LEAD` | GLOBAL | roster and season reads, finance read |
-| `TECHNICAL_DIRECTOR` | GLOBAL | (inherits `LEAD`) |
-| `SOCIAL_DIRECTOR` | GLOBAL | sponsors |
-| `MENTOR` | GLOBAL | read on everything, write on nothing |
-| `LEAD` | GROUP | full tasks, meetings and gantt in the group; roster and group read |
-| `MEMBER` | GROUP | create and update tasks in the group |
-| `TEAM_MEMBER` | GLOBAL | read tasks, todo, meetings, gantt, calendar, logs |
+Two roles are created by the system rather than by a team:
 
-`SYSTEM_ADMIN` is granted every tool outright rather than by inheritance: its
-power must not depend on the shape of a tree an admin can edit. That grant was
-written as a `CROSS JOIN` over the tools that existed when the migration ran, so
-**a tool added later needs its own `SYSTEM_ADMIN` row** — see
+| Role | `teamId` | Placement | Grants directly |
+| --- | --- | --- | --- |
+| `SYSTEM_ADMIN` | **null** | `TEAM_WIDE` | `TEAMS`, and nothing else |
+| `TEAM_ADMIN` | the team | `TEAM_WIDE` | everything **except** `TEAMS` |
+
+The two sets do not overlap at all, and that is the whole of the split. Running
+a team does not include opening new ones; opening teams does not include working
+inside one. There is no `isSystemAdmin` flag anywhere to say so — "who may open a
+team" is a row in `RolePermission` like every other question of authority.
+
+`SYSTEM_ADMIN` held every tool until
+[20260831090500](../packages/db/prisma/migrations/20260831090500_narrow_system_admin_to_teams/migration.sql),
+inherited from the single-team role it replaced. Those grants authorized
+nothing — a platform admin has no team, and every team-scoped route refuses an
+account with none (`requireTeam`) — but permissions are what the UI draws from,
+so they filled the sidebar with eleven links to pages that would answer 403. A
+grant that cannot be exercised is not harmless; it is a menu of dead ends.
+
+Both are granted their tools outright rather than by inheritance: the power of an
+administrator must not depend on the shape of a role tree that administrator can
+edit.
+
+Everything else a team defines for itself. The wizard offers a starting set
+([setup.template.ts](../apps/api/src/modules/setup/setup.template.ts)) modelled
+on what most FRC teams look like — president, vice-president, team lead, mentor,
+group lead, group member, team member — and every row of it can be renamed,
+rewired or deleted afterwards. That is the point of roles being rows.
+
+**A tool added later needs a `TEAM_ADMIN` row, not a `SYSTEM_ADMIN` one.** New
+teams pick it up on their own, because `teams.service` builds the matrix from a
+live query when it creates the role; teams that already exist do not, so the
+migration that adds the tool has to grant it to them. See
+[the narrowing migration](../packages/db/prisma/migrations/20260831090500_narrow_system_admin_to_teams/migration.sql)
+for the statement to copy, and
 [the calendar migration](../packages/db/prisma/migrations/20260829091000_add_calendar_tool/migration.sql)
-for the four lines every future tool has to repeat.
+for the rest of what registering a tool involves.
+
+A tool that a platform admin genuinely needs is the rare case, and it is a
+deliberate decision rather than a default — grant it explicitly.
 
 ## A tool that only reads other tools
 
@@ -213,11 +335,11 @@ Without that second pass the calendar would be a side door — an account holdin
 asking the wrong endpoint. Any future tool that renders another's records owes
 the same check.
 
-Departments get `TASKS`, `TODO`, `TASK_LOGS`, `GANTT`, `CALENDAR`, `MEETINGS`,
-`ACCOUNTS` and `GROUPS`. `FINANCE` is on for Business only; `SPONSORS` for Business and
-Media. `ROLES`, `TOOLS`, `PERMISSIONS` and `SEASONS` are team-wide and have no
+`ROLES`, `TOOLS`, `PERMISSIONS`, `SEASONS` and `TEAMS` are team-wide and have no
 `GroupTool` rows at all — a missing row reads as disabled, so a group created
-tomorrow does not silently acquire them.
+tomorrow does not silently acquire them. Which of the rest each department uses
+is decided at the `TOOLS` step of the setup wizard, one group at a time, and
+inherited by its subgroups.
 
 ## What this model does not say
 

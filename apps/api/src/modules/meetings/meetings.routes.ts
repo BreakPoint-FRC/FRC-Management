@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
+import type { AuthenticatedAccount } from "../../plugins/auth";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createMeetingSchema,
@@ -36,15 +38,15 @@ export async function meetingsRoutes(app: FastifyInstance) {
   // Authorized against the group the meeting is in, read from the stored row
   // rather than the body -- same reason as tasks.
   const authorizeExisting = async (
-    accountId: string,
+    account: AuthenticatedAccount,
     meetingId: string,
     action: "read" | "update" | "delete"
   ) => {
-    const meeting = await service.groupOf(meetingId);
+    const meeting = await service.groupOf(requireTeam(account), meetingId);
     if (!meeting) throw new NotFoundError("Toplanti bulunamadi");
 
     await authorize(app.prisma, {
-      accountId,
+      accountId: account.id,
       tool: "MEETINGS",
       action,
       groupId: meeting.groupId,
@@ -61,15 +63,15 @@ export async function meetingsRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "read");
+    await authorizeExisting(req.account, id, "read");
 
-    const meeting = await service.getById(id);
+    const meeting = await service.getById(requireTeam(req.account), id);
     if (!meeting) throw new NotFoundError("Toplanti bulunamadi");
     return meeting;
   });
@@ -84,7 +86,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
       groupId: input.groupId,
     });
 
-    const meeting = await service.create(input, req.account.id);
+    const meeting = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(meeting);
   });
 
@@ -93,7 +95,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = updateMeetingSchema.parse(req.body);
 
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
     if (input.groupId !== undefined) {
       await authorize(app.prisma, {
@@ -104,23 +106,23 @@ export async function meetingsRoutes(app: FastifyInstance) {
       });
     }
 
-    return service.update(id, input);
+    return service.update(requireTeam(req.account), id, input);
   });
 
   // -> 200 | 400 | 401 | 403 | 404
   app.put("/:id/attendance", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
-    return service.recordAttendance(id, recordAttendanceSchema.parse(req.body));
+    return service.recordAttendance(requireTeam(req.account), id, recordAttendanceSchema.parse(req.body));
   });
 
   // -> 204 | 401 | 403 | 404
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "delete");
+    await authorizeExisting(req.account, id, "delete");
 
-    await service.remove(id);
+    await service.remove(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }

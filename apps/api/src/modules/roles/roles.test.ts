@@ -2,7 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@breakpoint/db";
 
 import { ConflictError } from "../../lib/http-errors";
+import { updateRoleSchema } from "./roles.schema";
 import { createRolesService } from "./roles.service";
+
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
 
 // The hierarchy is a graph the database cannot police: Prisma can express
 // neither a CHECK for the self-edge nor a recursive assertion for a cycle, and
@@ -17,8 +22,11 @@ const EDGES = [
 function stubPrisma(overrides: Record<string, unknown> = {}) {
   return {
     role: {
+      // linkRoles filters on teamId as well: platform roles are readable but
+      // not wireable, or a team could inherit the permissions of SYSTEM_ADMIN.
       findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
         where.id.in.map((id) => ({ id, name: id })),
+      count: async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.length,
     },
     roleHierarchy: {
       findMany: async () => EDGES,
@@ -32,7 +40,7 @@ describe("role hierarchy", () => {
   it("refuses an edge from a role to itself", async () => {
     const service = createRolesService(stubPrisma());
 
-    await expect(service.linkRoles("lead", "lead")).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.linkRoles(TEAM, "lead", "lead")).rejects.toBeInstanceOf(ConflictError);
   });
 
   it("refuses an edge that closes a cycle", async () => {
@@ -41,7 +49,7 @@ describe("role hierarchy", () => {
     // every authorized request.
     const service = createRolesService(stubPrisma());
 
-    await expect(service.linkRoles("member", "team-lead")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "member", "team-lead")).rejects.toThrow(/dongu/);
   });
 
   it("refuses a longer cycle, not just a direct one", async () => {
@@ -57,7 +65,7 @@ describe("role hierarchy", () => {
     });
     const service = createRolesService(prisma);
 
-    await expect(service.linkRoles("d", "a")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "d", "a")).rejects.toThrow(/dongu/);
   });
 
   it("allows an edge that only deepens the tree", async () => {
@@ -66,7 +74,7 @@ describe("role hierarchy", () => {
       stubPrisma({ roleHierarchy: { findMany: async () => EDGES, create } })
     );
 
-    await service.linkRoles("member", "intern");
+    await service.linkRoles(TEAM, "member", "intern");
 
     expect(create).toHaveBeenCalledWith({
       data: { parentRoleId: "member", childRoleId: "intern" },
@@ -81,7 +89,7 @@ describe("role hierarchy", () => {
       stubPrisma({ roleHierarchy: { findMany: async () => EDGES, create } })
     );
 
-    await service.linkRoles("president", "lead");
+    await service.linkRoles(TEAM, "president", "lead");
 
     expect(create).toHaveBeenCalled();
   });
@@ -90,15 +98,16 @@ describe("role hierarchy", () => {
 describe("deleting a role", () => {
   const stubForDelete = (role: unknown) =>
     ({
-      role: { findUnique: async () => role, delete: vi.fn() },
+      // findFirst, not findUnique: the team is half the identity now.
+      role: { findFirst: async () => role, delete: vi.fn() },
     }) as unknown as PrismaClient;
 
   it("refuses a system role", async () => {
     const service = createRolesService(
-      stubForDelete({ isSystemRole: true, name: "Sistem Yoneticisi", _count: { accountRoles: 0 } })
+      stubForDelete({ isSystemRole: true, name: "Takim Yoneticisi", _count: { accountRoles: 0 } })
     );
 
-    await expect(service.remove("system-admin")).rejects.toThrow(/Sistem rolleri silinemez/);
+    await expect(service.remove(TEAM, "system-admin")).rejects.toThrow(/Sistem rolleri silinemez/);
   });
 
   it("refuses a role that is still assigned, naming the count", async () => {
@@ -109,14 +118,14 @@ describe("deleting a role", () => {
       stubForDelete({ isSystemRole: false, name: "Arsiv Sorumlusu", _count: { accountRoles: 3 } })
     );
 
-    await expect(service.remove("role-x")).rejects.toThrow(/3 hesaba atanmis/);
+    await expect(service.remove(TEAM, "role-x")).rejects.toThrow(/3 hesaba atanmis/);
   });
 
   it("deletes a role nothing depends on", async () => {
     const remove = vi.fn().mockResolvedValue({});
     const prisma = {
       role: {
-        findUnique: async () => ({
+        findFirst: async () => ({
           isSystemRole: false,
           name: "Kullanilmayan",
           _count: { accountRoles: 0 },
@@ -125,8 +134,111 @@ describe("deleting a role", () => {
       },
     } as unknown as PrismaClient;
 
-    await createRolesService(prisma).remove("role-unused");
+    await createRolesService(prisma).remove(TEAM, "role-unused");
 
     expect(remove).toHaveBeenCalledWith({ where: { id: "role-unused" } });
+  });
+});
+
+describe("updating role placement scopes", () => {
+  function roleRow(placement: string, scopeIds: string[]) {
+    return {
+      id: "role-1",
+      teamId: TEAM,
+      key: "LEAD",
+      name: "Lead",
+      description: null,
+      placement,
+      isSystemRole: false,
+      groupScopes: scopeIds.map((groupId) => ({ group: { id: groupId, name: groupId } })),
+      permissions: [],
+      children: [],
+      parents: [],
+      _count: { accountRoles: 0 },
+    };
+  }
+
+  function updateStub(existingPlacement: string, existingScopeIds: string[]) {
+    const roleUpdate = vi.fn().mockResolvedValue({});
+    const scopeDelete = vi.fn().mockResolvedValue({ count: existingScopeIds.length });
+    const scopeCreate = vi.fn().mockResolvedValue({ count: 0 });
+    const assignmentUpdate = vi.fn().mockResolvedValue({ count: 0 });
+    const transaction = vi.fn(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        role: { update: roleUpdate },
+        roleGroupScope: { deleteMany: scopeDelete, createMany: scopeCreate },
+        accountRole: { updateMany: assignmentUpdate },
+      })
+    );
+    const prisma = {
+      role: {
+        findFirst: async () => ({
+          id: "role-1",
+          placement: existingPlacement,
+          groupScopes: existingScopeIds.map((groupId) => ({ groupId })),
+        }),
+        findUniqueOrThrow: async () => roleRow(existingPlacement, existingScopeIds),
+      },
+      group: { count: async ({ where }: { where: { id: { in: string[] } } }) => where.id.in.length },
+      roleHierarchy: { findMany: async () => [] },
+      $transaction: transaction,
+    } as unknown as PrismaClient;
+
+    return { prisma, roleUpdate, scopeDelete, scopeCreate, assignmentUpdate, transaction };
+  }
+
+  it("allows an omitted scope list through schema validation", () => {
+    expect(updateRoleSchema.safeParse({ placement: "ABOVE_GROUPS" }).success).toBe(true);
+  });
+
+  it("preserves stored scopes between placements that use them", async () => {
+    const stub = updateStub("MANAGES_GROUP", ["group-1"]);
+
+    await createRolesService(stub.prisma).update(TEAM, "role-1", {
+      placement: "ABOVE_GROUPS",
+    });
+
+    expect(stub.scopeDelete).not.toHaveBeenCalled();
+    expect(stub.scopeCreate).not.toHaveBeenCalled();
+    expect(stub.assignmentUpdate).toHaveBeenCalledWith({
+      where: { roleId: "role-1" },
+      data: { groupId: null },
+    });
+  });
+
+  it("clears stored scopes when moving to a placement that forbids them", async () => {
+    const stub = updateStub("MANAGES_GROUP", ["group-1"]);
+
+    await createRolesService(stub.prisma).update(TEAM, "role-1", {
+      placement: "TEAM_WIDE",
+    });
+
+    expect(stub.scopeDelete).toHaveBeenCalledWith({ where: { roleId: "role-1" } });
+    expect(stub.scopeCreate).not.toHaveBeenCalled();
+  });
+
+  it("rejects a required placement when neither stored nor submitted scopes exist", async () => {
+    const stub = updateStub("TEAM_WIDE", []);
+
+    await expect(
+      createRolesService(stub.prisma).update(TEAM, "role-1", {
+        placement: "MANAGES_GROUP",
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(stub.transaction).not.toHaveBeenCalled();
+  });
+
+  it("rejects an explicitly non-empty scope list for a team-wide placement", async () => {
+    const stub = updateStub("MANAGES_GROUP", ["group-1"]);
+
+    await expect(
+      createRolesService(stub.prisma).update(TEAM, "role-1", {
+        placement: "TEAM_WIDE",
+        groupScopeIds: ["group-1"],
+      })
+    ).rejects.toBeInstanceOf(ConflictError);
+
+    expect(stub.transaction).not.toHaveBeenCalled();
   });
 });

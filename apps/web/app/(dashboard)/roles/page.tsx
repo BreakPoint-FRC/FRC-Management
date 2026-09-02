@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { TOOL_KEYS, type Paginated, type ToolKey } from "@breakpoint/types";
+import { ROLE_PLACEMENT_LABELS, TOOL_KEYS, type Paginated, type ToolKey } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import {
@@ -12,26 +12,27 @@ import {
   PageHeader,
   RowActions,
 } from "@/components/ui";
-import { FormPanel, SelectField, TextAreaField, TextField } from "@/components/ui/form";
+import { FormPanel } from "@/components/ui/form";
+import {
+  matrixFromPermissions,
+  PERMISSION_ACTIONS,
+  permissionsPayload,
+  PermissionMatrix,
+  type PermissionMatrixValue,
+} from "@/components/roles/permission-matrix";
+import {
+  EMPTY_ROLE_DRAFT,
+  roleBody,
+  RoleFields,
+  type RoleDraft,
+} from "@/components/roles/role-fields";
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
-import type { RoleRow, ToolRow } from "@/lib/api-types";
+import type { GroupTreeRow, RoleGraphRow, RoleRow, ToolRow } from "@/lib/api-types";
 import { emptyToNull } from "@/lib/form-helpers";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
-
-const ACTIONS = [
-  { key: "canRead", short: "O" },
-  { key: "canCreate", short: "E" },
-  { key: "canUpdate", short: "G" },
-  { key: "canDelete", short: "S" },
-] as const;
-
-type Flags = Record<(typeof ACTIONS)[number]["key"], boolean>;
-type Matrix = Record<string, Flags>;
-
-const NO_FLAGS: Flags = { canRead: false, canCreate: false, canUpdate: false, canDelete: false };
 
 type Panel =
   | { kind: "closed" }
@@ -70,17 +71,16 @@ export default function RolesPage() {
   const { permissions } = useAuth();
   const roles = useApi<Paginated<RoleRow>>("/roles?pageSize=100");
   const tools = useApi<ToolRow[]>("/tools");
+  // The tree, for scoping a role to some departments and not others.
+  const groups = useApi<GroupTreeRow[]>("/groups/tree");
+  // The hierarchy with its transitive closure, so the page can show that a role
+  // bound to a second bound to a third is bound to the third as well.
+  const graph = useApi<RoleGraphRow>("/roles/graph");
   const mutation = useMutation();
 
   const [panel, setPanel] = useState<Panel>({ kind: "closed" });
-  const [draft, setDraft] = useState({
-    key: "",
-    name: "",
-    description: "",
-    scope: "GROUP",
-    hierarchyLevel: "100",
-  });
-  const [matrix, setMatrix] = useState<Matrix>({});
+  const [draft, setDraft] = useState<RoleDraft>(EMPTY_ROLE_DRAFT);
+  const [matrix, setMatrix] = useState<PermissionMatrixValue>({});
   const [newChild, setNewChild] = useState("");
 
   const mayCreate = can(permissions, "ROLES", "create");
@@ -95,7 +95,7 @@ export default function RolesPage() {
   }
 
   function openCreate() {
-    setDraft({ key: "", name: "", description: "", scope: "GROUP", hierarchyLevel: "100" });
+    setDraft(EMPTY_ROLE_DRAFT);
     setPanel({ kind: "form", role: null });
     mutation.reset();
   }
@@ -105,32 +105,15 @@ export default function RolesPage() {
       key: role.key,
       name: role.name,
       description: role.description ?? "",
-      scope: role.scope,
-      hierarchyLevel: String(role.hierarchyLevel),
+      placement: role.placement,
+      groupScopeIds: role.groupScopeIds,
     });
     setPanel({ kind: "form", role });
     mutation.reset();
   }
 
   function openPermissions(role: RoleRow) {
-    setMatrix(
-      Object.fromEntries(
-        TOOL_KEYS.map((tool) => {
-          const stored = role.permissions.find((entry) => entry.tool === tool);
-          return [
-            tool,
-            stored
-              ? {
-                  canRead: stored.canRead,
-                  canCreate: stored.canCreate,
-                  canUpdate: stored.canUpdate,
-                  canDelete: stored.canDelete,
-                }
-              : { ...NO_FLAGS },
-          ];
-        })
-      )
-    );
+    setMatrix(matrixFromPermissions(role.permissions));
     setPanel({ kind: "permissions", role });
     mutation.reset();
   }
@@ -138,20 +121,7 @@ export default function RolesPage() {
   async function submitForm() {
     if (panel.kind !== "form") return;
 
-    const body = panel.role
-      ? {
-          // key and scope are omitted: updateRoleSchema refuses both.
-          name: draft.name,
-          description: emptyToNull(draft.description),
-          hierarchyLevel: Number(draft.hierarchyLevel),
-        }
-      : {
-          key: draft.key,
-          name: draft.name,
-          description: emptyToNull(draft.description),
-          scope: draft.scope,
-          hierarchyLevel: Number(draft.hierarchyLevel),
-        };
+    const body = roleBody(draft, panel.role !== null);
 
     const ok = await mutation.run(() =>
       panel.role ? apiClient.patch(`/roles/${panel.role.id}`, body) : apiClient.post("/roles", body)
@@ -159,6 +129,7 @@ export default function RolesPage() {
     if (ok) {
       close();
       roles.reload();
+      graph.reload();
     }
   }
 
@@ -170,7 +141,7 @@ export default function RolesPage() {
 
     const ok = await mutation.run(() =>
       apiClient.put(`/roles/${panel.role.id}/permissions`, {
-        permissions: TOOL_KEYS.map((tool) => ({ tool, ...(matrix[tool] ?? NO_FLAGS) })),
+        permissions: permissionsPayload(matrix),
       })
     );
     if (ok) {
@@ -186,17 +157,22 @@ export default function RolesPage() {
     if (await mutation.run(() => apiClient.post(`/roles/${parentId}/children/${newChild}`))) {
       setNewChild("");
       roles.reload();
+      graph.reload();
     }
   }
 
   async function removeChild(parentId: string, childId: string) {
     if (await mutation.run(() => apiClient.delete(`/roles/${parentId}/children/${childId}`))) {
       roles.reload();
+      graph.reload();
     }
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/roles/${id}`))) roles.reload();
+    if (await mutation.run(() => apiClient.delete(`/roles/${id}`))) {
+      roles.reload();
+      graph.reload();
+    }
   }
 
   return (
@@ -225,57 +201,12 @@ export default function RolesPage() {
                   onSubmit={submitForm}
                   onCancel={close}
                 >
-                  <TextField
-                    label="Anahtar"
-                    value={draft.key}
-                    required={!editing}
-                    disabled={!!editing}
-                    placeholder="ARSIV_SORUMLUSU"
-                    hint={
-                      editing
-                        ? "Degistirilemez: kodun eslestirdigi sey budur."
-                        : "BUYUK_HARF ve alt cizgi."
-                    }
-                    onChange={(key) => setDraft({ ...draft, key })}
-                    error={issueFor(mutation.error, "key")}
-                  />
-                  <TextField
-                    label="Ad"
-                    value={draft.name}
-                    required
-                    onChange={(name) => setDraft({ ...draft, name })}
-                    error={issueFor(mutation.error, "name")}
-                  />
-                  <TextAreaField
-                    label="Aciklama"
-                    rows={2}
-                    value={draft.description}
-                    onChange={(description) => setDraft({ ...draft, description })}
-                    error={issueFor(mutation.error, "description")}
-                  />
-                  <SelectField
-                    label="Kapsam"
-                    value={draft.scope}
-                    disabled={!!editing}
-                    hint={
-                      editing
-                        ? "Degistirilemez: mevcut atamalar modelin yasakladigi bir hale duserdi."
-                        : "Grup ici rol, atandigi departmanda gecerlidir."
-                    }
-                    options={[
-                      { value: "GROUP", label: "Grup ici" },
-                      { value: "GLOBAL", label: "Takim geneli" },
-                    ]}
-                    onChange={(scope) => setDraft({ ...draft, scope })}
-                    error={issueFor(mutation.error, "scope")}
-                  />
-                  <TextField
-                    label="Siralama"
-                    type="number"
-                    value={draft.hierarchyLevel}
-                    hint="Yalnizca goruntuleme sirasi. Yetki devri hiyerarsi agacindan gelir."
-                    onChange={(hierarchyLevel) => setDraft({ ...draft, hierarchyLevel })}
-                    error={issueFor(mutation.error, "hierarchyLevel")}
+                  <RoleFields
+                    draft={draft}
+                    onChange={setDraft}
+                    groups={groups}
+                    editing={editing !== null}
+                    error={mutation.error}
                   />
 
                   {editing ? (
@@ -340,44 +271,7 @@ export default function RolesPage() {
                     Yalnizca dogrudan verilen yetkiler. Alt rollerden devralinanlar burada
                     isaretli gorunmez; istek aninda hiyerarsiden cozulur.
                   </p>
-                  <div className="table-wrap">
-                    <table className="table">
-                      <thead>
-                        <tr>
-                          <th>Modul</th>
-                          {ACTIONS.map((action) => (
-                            <th key={action.key} className="numeric">
-                              {action.short}
-                            </th>
-                          ))}
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {TOOL_KEYS.map((tool) => (
-                          <tr key={tool}>
-                            <td>{tool}</td>
-                            {ACTIONS.map((action) => (
-                              <td key={action.key} className="numeric">
-                                <input
-                                  type="checkbox"
-                                  checked={matrix[tool]?.[action.key] ?? false}
-                                  onChange={(event) =>
-                                    setMatrix((current) => ({
-                                      ...current,
-                                      [tool]: {
-                                        ...(current[tool] ?? NO_FLAGS),
-                                        [action.key]: event.target.checked,
-                                      },
-                                    }))
-                                  }
-                                />
-                              </td>
-                            ))}
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
+                  <PermissionMatrix value={matrix} onChange={setMatrix} />
                 </FormPanel>
               ) : null}
 
@@ -408,8 +302,8 @@ export default function RolesPage() {
                       <tr>
                         <th>Rol</th>
                         <th>Anahtar</th>
+                        <th>Konum</th>
                         <th>Kapsam</th>
-                        <th className="numeric">Sira</th>
                         <th className="numeric">Atanmis</th>
                         <th>Tur</th>
                         <th />
@@ -421,11 +315,15 @@ export default function RolesPage() {
                           <td>{role.name}</td>
                           <td className="muted small">{role.key}</td>
                           <td>
-                            <Badge tone={role.scope === "GLOBAL" ? "warn" : "off"}>
-                              {role.scope === "GLOBAL" ? "Takim geneli" : "Grup ici"}
+                            <Badge tone={role.placement === "TEAM_WIDE" ? "warn" : "off"}>
+                              {ROLE_PLACEMENT_LABELS[role.placement]}
                             </Badge>
                           </td>
-                          <td className="numeric">{role.hierarchyLevel}</td>
+                          <td className="small">
+                            {role.groupScopes.length > 0
+                              ? role.groupScopes.map((group) => group.name).join(", ")
+                              : "—"}
+                          </td>
                           <td className="numeric">{role.assignedCount}</td>
                           <td>{role.isSystemRole ? <Badge>Sistem</Badge> : "—"}</td>
                           <td>
@@ -499,7 +397,7 @@ export default function RolesPage() {
                                   (entry) => entry.tool === tool.key
                                 );
                                 const flags = permission
-                                  ? ACTIONS.map((action) =>
+                                  ? PERMISSION_ACTIONS.map((action) =>
                                       permission[action.key] ? action.short : "·"
                                     ).join("")
                                   : "····";

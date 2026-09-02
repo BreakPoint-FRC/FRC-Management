@@ -8,35 +8,41 @@ Keys and code are English, matching the rest of the codebase. Everything the
 team reads — `Role.name`, `Group.name` — is Turkish and comes from the database,
 so a team can rename a position or add a department without a deploy.
 
+Every team defines its own roles. Two rows exist that a team did not choose —
+`SYSTEM_ADMIN` (platform level, `teamId` null) and `TEAM_ADMIN` (created with
+the team) — and everything else is the team's own, created through the setup
+wizard or the roles screen. See [teams.md](teams.md).
+
 ## Two independent axes
 
-A role is a **position** (`Role`) plus, for the two positions scoped to a
-department, the **group** it applies to. The axes are independent on purpose:
-"Yazılım Lead" is `LEAD` assigned in `Programming` rather than its own role, so
-adding a seventh department adds one row instead of doubling the list of roles.
+A role is a **position** (`Role`) plus the **groups** it has authority over. The
+axes are independent on purpose: "Yazılım Lead" is a `LEAD` role scoped to
+`Yazılım` rather than its own role, so adding a seventh department adds one
+scope row instead of doubling the list of roles.
 
-`Role.scope` says which axis a role lives on:
+`Role.placement` says how a role relates to the group axis:
 
-| scope | Meaning | `AccountRole.groupId` |
-| --- | --- | --- |
-| `GLOBAL` | Team-wide. Means the same thing everywhere. | must be null |
-| `GROUP` | Only inside the department it was assigned in. | required |
-
-| Role key | scope | Name | Assigned in |
+| placement | Covers | `AccountRole.groupId` | `RoleGroupScope` |
 | --- | --- | --- | --- |
-| `SYSTEM_ADMIN` | GLOBAL | Sistem Yöneticisi | — |
-| `PRESIDENT` | GLOBAL | Başkan | — |
-| `VICE_PRESIDENT` | GLOBAL | Başkan Yardımcısı | — |
-| `TEAM_LEAD` | GLOBAL | Takım Lideri | — |
-| `TECHNICAL_DIRECTOR` | GLOBAL | Teknik Sorumlu | — |
-| `SOCIAL_DIRECTOR` | GLOBAL | Sosyal Sorumlu | — |
-| `MENTOR` | GLOBAL | Mentor | — |
-| `LEAD` | GROUP | Lead | a department |
-| `MEMBER` | GROUP | Üye | a department |
-| `TEAM_MEMBER` | GLOBAL | Takım Üyesi | — |
+| `IN_GROUP` | the group it was assigned in | required | optional |
+| `MANAGES_GROUP` | the scoped groups **and their subtrees** | must be null | required |
+| `ABOVE_GROUPS` | the same | must be null | required |
+| `TEAM_WIDE` | every group, plus the group-less records | must be null | forbidden |
+| `EXTERNAL` | no group; team-wide reach for what it is granted | must be null | forbidden |
 
-`TEAM_MEMBER` is the neutral floor: someone on the team whose department is not
-settled yet.
+This replaced a `GLOBAL`/`GROUP` pair that could only say "this one group" or
+"every group". There was no way to write *the Technical Director runs Mechanical,
+Software and Electrical but has no business in Media* — and that, not an
+exotic case, is what a team of any size actually looks like.
+
+`RoleGroupScope` stores the **roots** of the authority, not its closure. Scoping
+to `Teknik` covers `Tasarım` three levels below it, resolved by walking the group
+tree at request time, so a subgroup added tomorrow is covered the day it appears.
+
+A starting set of positions — president, vice-president, team lead, mentor, group
+lead, group member, team member — is offered at the `ROLES` step of the wizard
+([setup.template.ts](../apps/api/src/modules/setup/setup.template.ts)) and can be
+renamed, rewired or deleted afterwards. It is a starting point, not a list.
 
 Labels are `Role.name` and `Group.name`; never rebuild this table by hand.
 `formatAccountRole(roleName, groupName)` turns one entry into its label
@@ -96,10 +102,11 @@ Two need the stored `Role`, so they live in
 
 | Rule | Why |
 | --- | --- |
-| A `GROUP` role requires a `groupId` | "Lead" of nothing is not a job. |
-| A `GLOBAL` role must not have one | A president is a president everywhere. Allowing `PRESIDENT@Programming` would make the same fact expressible two ways, and the list could then disagree with itself. |
+| An `IN_GROUP` role requires a `groupId` | "Üye" of nothing is not a job. |
+| Every other placement must not have one | They carry their coverage on the role itself, so an assignment naming a group would describe something the resolver ignores. Allowing `PRESIDENT@Yazılım` would make the same fact expressible two ways, and the list could then disagree with itself. |
+| The role and the group belong to the caller's team | Otherwise a team could grant its people a role from another team by pasting an id, and inherit its permissions with it. |
 
-That second pair is a conditional `CHECK` constraint, which Prisma cannot write
+That pair is a conditional `CHECK` constraint, which Prisma cannot write
 — see [authorization.md](authorization.md) for the full list of invariants the
 database cannot hold and where each one is enforced instead.
 
@@ -115,9 +122,10 @@ client cannot see. Taking the whole set means the request carries everything the
 rules need.
 
 The replacement runs in one transaction, so an account is never left holding
-half a set. Granting a group-scoped role also creates the matching
-`GroupMembership`, because [the authorization check](authorization.md) asks
-about membership before it asks about roles.
+half a set. Granting an `IN_GROUP` role also creates the matching
+`GroupMembership`, because [the authorization check](authorization.md) requires
+membership before an `IN_GROUP` role counts. Roles scoped from above create no
+membership: a director is not a member of the departments they oversee.
 
 Archiving an account (`DELETE /accounts/:id`, a soft delete) leaves its roles in
 place — what someone did is part of the history the archive exists to preserve.
@@ -125,8 +133,8 @@ place — what someone did is part of the history the archive exists to preserve
 ## The primary role is derived, never stored
 
 When only one role fits — a sorted list, a compact table cell — use
-`primaryAccountRole(roles)`, which picks the entry with the lowest
-`hierarchyLevel`. `sortAccountRoles` orders a full set the same way.
+`primaryAccountRole(roles)`, which picks the shallowest entry.
+`sortAccountRoles` orders a full set the same way.
 
 There is no `isPrimary` column and no `Account.role` kept alongside the table.
 Either would be a second copy of a fact the table already holds, and the two
@@ -134,14 +142,26 @@ would eventually disagree. Precedence is a display concern, so it lives in the
 display helpers in
 [packages/types/src/roles.ts](../packages/types/src/roles.ts).
 
-For the same reason `hierarchyLevel` is only ever used for ordering. Who
-inherits whose permissions is the `RoleHierarchy` graph and nothing else.
+There is no rank column either. `Role.hierarchyLevel` was removed for the same
+reason: who outranks whom is the `RoleHierarchy` graph and nothing else, and a
+number beside it was a second source of truth for a fact the edges already held.
+The depth each role is sorted by is computed from those edges on every read
+(`roleDepths`), so it cannot disagree with them.
+
+The relation is transitive without storing that. An edge 1→2 and an edge 2→3
+already put 1 above 3, because the resolver walks to arbitrary depth rather than
+stopping at the first hop. `GET /roles/graph` returns that closure for the roles
+screen to draw.
 
 ## Known gap: the unique constraint is partial
 
 `AccountRole` declares `@@unique([accountId, roleId, groupId])`, but Postgres
 treats `NULL`s as distinct inside a unique index. A second
-`(account, SYSTEM_ADMIN, null)` row would not be rejected by the database.
+`(account, TEAM_ADMIN, null)` row would not be rejected by the database.
+
+`Role` has the same gap for the opposite reason: `@@unique([teamId, key])` does
+not stop two platform roles sharing a key, because their `teamId` is null.
+Platform roles are only ever written by migrations, which is what closes it.
 
 Prisma can express neither `NULLS NOT DISTINCT` nor a partial index, and adding
 one by hand to a migration puts the database permanently out of sync with
@@ -161,29 +181,43 @@ subteams or make a member's identity editable per row.
 
 Both objections went away when roles moved into the database. A department is
 now one thing: a `Group` row that owns tasks and meetings, decides which tools
-it uses, and is what a `GROUP`-scoped role is assigned in. The migration renamed
-the existing "Software" group to "Programming" rather than replacing it, so the
-tasks already pointing at it kept their group.
+it uses, and is what an `IN_GROUP` role is assigned in.
+
+Groups are also a **tree**. `Group.parentId` nests them to any depth — Teknik >
+Mekanik > Tasarım — because how finely a team subdivides itself is a decision for
+that team. Two things follow from the tree:
+
+- A role scoped to a group covers everything under it.
+- A `GroupTool` row on a group applies to everything under it, until a subgroup
+  states its own answer. No row anywhere up the chain still means off.
 
 Groups are retired with `isActive`, never deleted — tasks, meetings and
 transactions reference them with `ON DELETE RESTRICT`, so a hard delete would
-fail as soon as the department had done any work.
+fail as soon as the department had done any work. Retiring one retires its whole
+subtree: a live Tasarım under a retired Mekanik is a department nobody can reach
+and nobody meant to keep.
 
 ## Changing the set of roles
 
 Adding, renaming or removing a role or a department is now ordinary data:
 `POST /roles`, `PATCH /roles/:id`, `POST /groups`. No migration, no deploy.
 
-Two things are refused:
+Three things are refused:
 
-- **Deleting a system role.** `SYSTEM_ADMIN` and the rest are matched by key in
-  the seed and the migrations; removing one would leave an instance with no way
-  to administer itself.
+- **Deleting a system role.** `TEAM_ADMIN` is matched by key in the migrations
+  and in the lockout guard; removing it would leave a team with no way to
+  administer itself.
 - **Deleting a role that is still assigned.** The foreign key would stop it
   anyway, but as a `P2003` reading "Referenced record does not exist", which
   describes the opposite of what happened.
+- **Demoting the last team admin.** A team without one cannot create accounts,
+  edit roles or reach its own settings, and there is no second way in.
 
-`Role.key` and `Role.scope` are not updatable. The key is what code matches on,
-and changing a scope would silently invalidate every existing assignment — a
-`GROUP` role turned `GLOBAL` leaves rows carrying a `groupId` the model now
-forbids. Retire the role and make a new one.
+`Role.key` is not updatable: it is what code matches on.
+
+`Role.placement` **is**, unlike the old `scope`. Changing it can still invalidate
+existing assignments — an `IN_GROUP` role turned `TEAM_WIDE` leaves rows carrying
+a `groupId` the model forbids — so `roles.service.update` rewrites those
+assignments in the same transaction rather than leaving them. Moving *to*
+`IN_GROUP` cannot invent a group, so those assignments are deactivated and have
+to be made again deliberately.

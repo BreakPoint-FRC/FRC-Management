@@ -8,6 +8,10 @@ import {
 } from "./gantt.schema";
 import { createGanttService } from "./gantt.service";
 
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
+
 describe("board payload validation", () => {
   it("rejects the same task twice, pointing at the entry", () => {
     const result = replaceBoardTasksSchema.safeParse({ taskIds: ["t1", "t2", "t1"] });
@@ -56,19 +60,20 @@ describe("listing boards", () => {
   it("filters to one department when asked", async () => {
     const { prisma, findMany } = stubPrisma();
 
-    await createGanttService(prisma).list(listBoardsQuerySchema.parse({ groupId: "g1" }));
+    await createGanttService(prisma).list(TEAM, listBoardsQuerySchema.parse({ groupId: "g1" }));
 
-    expect(findMany.mock.calls[0]?.[0].where).toEqual({ groupId: "g1" });
+    expect(findMany.mock.calls[0]?.[0].where).toEqual({ teamId: TEAM, groupId: "g1" });
   });
 
   it("does not filter at all when no group is given", async () => {
     // An unfiltered list is a team-wide read. The route is what refuses it for
-    // an account without a global role; the service just does not narrow.
+    // an account without a team-wide role; the service narrows to the team and
+    // no further.
     const { prisma, findMany } = stubPrisma();
 
-    await createGanttService(prisma).list(listBoardsQuerySchema.parse({}));
+    await createGanttService(prisma).list(TEAM, listBoardsQuerySchema.parse({}));
 
-    expect(findMany.mock.calls[0]?.[0].where).toEqual({});
+    expect(findMany.mock.calls[0]?.[0].where).toEqual({ teamId: TEAM });
   });
 
   it("reads every date off the task, not off the board", async () => {
@@ -99,7 +104,7 @@ describe("listing boards", () => {
       },
     ]);
 
-    const { items } = await createGanttService(prisma).list(listBoardsQuerySchema.parse({}));
+    const { items } = await createGanttService(prisma).list(TEAM, listBoardsQuerySchema.parse({}));
 
     expect(items[0]).toMatchObject({ groupId: "g1", groupName: "Programlama", seasonName: "2026" });
     expect(items[0]?.tasks[0]).toMatchObject({
@@ -125,7 +130,13 @@ describe("updating a board", () => {
       tasks: [],
     });
 
-    return { prisma: { ganttBoard: { update } } as unknown as PrismaClient, update };
+    return {
+      prisma: {
+        // The service proves the board is this team's before it writes.
+        ganttBoard: { update, count: async () => 1 },
+      } as unknown as PrismaClient,
+      update,
+    };
   }
 
   it("does not touch the group when only the name was sent", async () => {
@@ -134,7 +145,11 @@ describe("updating a board", () => {
     // silently moved it to the whole team.
     const { prisma, update } = stubPrisma();
 
-    await createGanttService(prisma).update("b1", updateBoardSchema.parse({ name: "Yeni ad" }));
+    await createGanttService(prisma).update(
+      TEAM,
+      "b1",
+      updateBoardSchema.parse({ name: "Yeni ad" })
+    );
 
     expect(update.mock.calls[0]?.[0].data).toEqual({ name: "Yeni ad" });
     expect(update.mock.calls[0]?.[0].data).not.toHaveProperty("groupId");
@@ -143,7 +158,11 @@ describe("updating a board", () => {
   it("still moves a board to the team when null is meant", async () => {
     const { prisma, update } = stubPrisma();
 
-    await createGanttService(prisma).update("b1", updateBoardSchema.parse({ groupId: null }));
+    await createGanttService(prisma).update(
+      TEAM,
+      "b1",
+      updateBoardSchema.parse({ groupId: null })
+    );
 
     expect(update.mock.calls[0]?.[0].data).toEqual({ groupId: null });
   });
@@ -156,7 +175,8 @@ describe("replacing the task list", () => {
 
     const prisma = {
       ganttBoard: {
-        findUniqueOrThrow: async () => ({ seasonId: "s1" }),
+        // findFirst, not findUniqueOrThrow: the team is half the identity now.
+        findFirst: async () => ({ seasonId: "s1" }),
       },
       task: { count: async () => validTaskCount },
       $transaction: async (fn: (client: unknown) => unknown) =>
@@ -185,7 +205,7 @@ describe("replacing the task list", () => {
     // gaps, ties and an off-by-one nobody can see.
     const { prisma, createMany } = stubPrisma(3);
 
-    await createGanttService(prisma).replaceTasks("b1", { taskIds: ["t3", "t1", "t2"] });
+    await createGanttService(prisma).replaceTasks(TEAM, "b1", { taskIds: ["t3", "t1", "t2"] });
 
     expect(createMany.mock.calls[0]?.[0].data).toEqual([
       { ganttBoardId: "b1", taskId: "t3", displayOrder: 0 },
@@ -200,14 +220,14 @@ describe("replacing the task list", () => {
     const { prisma } = stubPrisma(1);
 
     await expect(
-      createGanttService(prisma).replaceTasks("b1", { taskIds: ["t1", "t2"] })
+      createGanttService(prisma).replaceTasks(TEAM, "b1", { taskIds: ["t1", "t2"] })
     ).rejects.toThrow("Gorevlerin hepsi bu sezona ait degil");
   });
 
   it("clears the board without writing an empty createMany", async () => {
     const { prisma, deleteMany, createMany } = stubPrisma(0);
 
-    await createGanttService(prisma).replaceTasks("b1", { taskIds: [] });
+    await createGanttService(prisma).replaceTasks(TEAM, "b1", { taskIds: [] });
 
     expect(deleteMany).toHaveBeenCalledWith({ where: { ganttBoardId: "b1" } });
     expect(createMany).not.toHaveBeenCalled();

@@ -24,52 +24,71 @@ export function createSeasonsService(prisma: PrismaClient) {
    * someone makes, not a shape the data has. Both writes are in one
    * transaction, so there is never a moment with two active seasons or none.
    */
-  const activateExclusively = (id: string) => [
-    prisma.season.updateMany({ where: { id: { not: id } }, data: { isActive: false } }),
+  const activateExclusively = (teamId: string, id: string) => [
+    prisma.season.updateMany({
+      // Scoped to the team: activating a season here must not deactivate the
+      // current season of every other team in the database.
+      where: { teamId, id: { not: id } },
+      data: { isActive: false },
+    }),
     prisma.season.update({ where: { id }, data: { isActive: true } }),
   ];
 
+  /** 404 unless the season exists and belongs to this team. */
+  const assertInTeam = async (teamId: string, id: string) => {
+    const found = await prisma.season.count({ where: { id, teamId } });
+    if (found === 0) throw new NotFoundError("Sezon bulunamadi");
+  };
+
   return {
-    list: async (query: ListSeasonsQuery) => {
+    list: async (teamId: string, query: ListSeasonsQuery) => {
       const [rows, total] = await prisma.$transaction([
         prisma.season.findMany({
+          where: { teamId },
           select: seasonSelect,
           orderBy: { startDate: "desc" },
           ...toPrismaPage(query),
         }),
-        prisma.season.count(),
+        prisma.season.count({ where: { teamId } }),
       ]);
 
       return paginated(rows, total, query);
     },
 
-    getById: (id: string) => prisma.season.findUnique({ where: { id }, select: seasonSelect }),
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getById: (teamId: string, id: string) =>
+      prisma.season.findFirst({ where: { id, teamId }, select: seasonSelect }),
 
     /** The season new records default to. */
-    current: () =>
-      prisma.season.findFirst({ where: { isActive: true }, select: seasonSelect }),
+    current: (teamId: string) =>
+      prisma.season.findFirst({ where: { teamId, isActive: true }, select: seasonSelect }),
 
-    create: async ({ isActive, ...rest }: CreateSeasonInput) => {
-      const season = await prisma.season.create({ data: rest, select: { id: true } });
-      if (isActive) await prisma.$transaction(activateExclusively(season.id));
+    create: async (teamId: string, { isActive, ...rest }: CreateSeasonInput) => {
+      const season = await prisma.season.create({
+        data: { ...rest, teamId },
+        select: { id: true },
+      });
+      if (isActive) await prisma.$transaction(activateExclusively(teamId, season.id));
 
       return prisma.season.findUniqueOrThrow({ where: { id: season.id }, select: seasonSelect });
     },
 
-    update: async (id: string, { isActive, ...rest }: UpdateSeasonInput) => {
+    update: async (teamId: string, id: string, { isActive, ...rest }: UpdateSeasonInput) => {
+      await assertInTeam(teamId, id);
       await prisma.season.update({ where: { id }, data: rest });
 
       // Only ever used to turn a season on. Turning the active season off would
       // leave no current season at all, and every "create a task" would have
       // nothing to attach to -- activate a different one instead.
-      if (isActive === true) await prisma.$transaction(activateExclusively(id));
+      if (isActive === true) await prisma.$transaction(activateExclusively(teamId, id));
 
       return prisma.season.findUniqueOrThrow({ where: { id }, select: seasonSelect });
     },
 
-    activate: async (id: string) => {
-      await prisma.season.findUniqueOrThrow({ where: { id }, select: { id: true } });
-      await prisma.$transaction(activateExclusively(id));
+    activate: async (teamId: string, id: string) => {
+      await assertInTeam(teamId, id);
+      await prisma.$transaction(activateExclusively(teamId, id));
       return prisma.season.findUniqueOrThrow({ where: { id }, select: seasonSelect });
     },
 
@@ -81,8 +100,11 @@ export function createSeasonsService(prisma: PrismaClient) {
      * record does not exist", which describes the opposite of what happened.
      * A season with records in it is history and stays.
      */
-    remove: async (id: string) => {
-      const season = await prisma.season.findUnique({ where: { id }, select: seasonSelect });
+    remove: async (teamId: string, id: string) => {
+      const season = await prisma.season.findFirst({
+        where: { id, teamId },
+        select: seasonSelect,
+      });
       if (!season) throw new NotFoundError("Sezon bulunamadi");
 
       const records =

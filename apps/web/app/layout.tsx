@@ -1,7 +1,6 @@
 import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
-import { RegisterServiceWorker } from "./register-sw";
 import { AuthProvider } from "@/components/auth/auth-provider";
 
 export const metadata: Metadata = {
@@ -42,7 +41,6 @@ export default function RootLayout({
     <html lang="tr">
       <body>
         <AuthProvider>{children}</AuthProvider>
-        <RegisterServiceWorker />
       </body>
     </html>
   );

@@ -2,6 +2,7 @@ import type { Prisma, PrismaClient } from "@breakpoint/db";
 import { ATTENDED_STATUSES } from "@breakpoint/types";
 
 import { resolveSeasonId } from "../../lib/active-season";
+import { NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
   CreateMeetingInput,
@@ -50,8 +51,9 @@ function serialize(meeting: MeetingRow) {
 
 export function createMeetingsService(prisma: PrismaClient) {
   return {
-    list: async (query: ListMeetingsQuery) => {
+    list: async (teamId: string, query: ListMeetingsQuery) => {
       const where: Prisma.MeetingWhereInput = {
+        teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
         ...(query.groupId ? { groupId: query.groupId } : {}),
       };
@@ -69,20 +71,32 @@ export function createMeetingsService(prisma: PrismaClient) {
       return paginated(rows.map(serialize), total, query);
     },
 
-    getById: async (id: string) => {
-      const meeting = await prisma.meeting.findUnique({ where: { id }, select: meetingSelect });
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getById: async (teamId: string, id: string) => {
+      const meeting = await prisma.meeting.findFirst({
+        where: { id, teamId },
+        select: meetingSelect,
+      });
       return meeting && serialize(meeting);
     },
 
-    /** Only used to decide which group to authorize a mutation against. */
-    groupOf: (id: string) =>
-      prisma.meeting.findUnique({ where: { id }, select: { id: true, groupId: true } }),
+    /**
+     * Only used to decide which group to authorize a mutation against.
+     *
+     * Scoped to the team as well, so a route that reads the group off a stored
+     * record cannot be handed another team's id and authorize against it. A
+     * miss here becomes the 404 the route already raises.
+     */
+    groupOf: (teamId: string, id: string) =>
+      prisma.meeting.findFirst({ where: { id, teamId }, select: { id: true, groupId: true } }),
 
-    create: async ({ seasonId, ...rest }: CreateMeetingInput, actorId: string) => {
-      const resolvedSeasonId = await resolveSeasonId(prisma, seasonId);
+    create: async (teamId: string, { seasonId, ...rest }: CreateMeetingInput, actorId: string) => {
+      const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
       const meeting = await prisma.meeting.create({
         data: {
           ...rest,
+          teamId,
           seasonId: resolvedSeasonId,
           createdById: actorId,
         },
@@ -91,7 +105,10 @@ export function createMeetingsService(prisma: PrismaClient) {
       return serialize(meeting);
     },
 
-    update: async (id: string, input: UpdateMeetingInput) => {
+    update: async (teamId: string, id: string, input: UpdateMeetingInput) => {
+      const existing = await prisma.meeting.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Toplanti bulunamadi");
+
       const meeting = await prisma.meeting.update({
         where: { id },
         data: input,
@@ -107,8 +124,22 @@ export function createMeetingsService(prisma: PrismaClient) {
      * what was taken in the room, and a name that survived from a previous
      * save would be a record of attendance nobody actually observed.
      */
-    recordAttendance: async (meetingId: string, input: RecordAttendanceInput) => {
+    recordAttendance: async (
+      teamId: string,
+      meetingId: string,
+      input: RecordAttendanceInput
+    ) => {
       const keep = input.attendance.map((entry) => entry.accountId);
+
+      const meetingExists = await prisma.meeting.count({ where: { id: meetingId, teamId } });
+      if (meetingExists === 0) throw new NotFoundError("Toplanti bulunamadi");
+
+      // Attendees have to be this team's own people. Without this an id from
+      // another team would land on the roll call and read as a member.
+      if (keep.length > 0) {
+        const found = await prisma.account.count({ where: { id: { in: keep }, teamId } });
+        if (found !== new Set(keep).size) throw new NotFoundError("Hesap bulunamadi");
+      }
 
       const meeting = await prisma.$transaction(async (tx) => {
         await tx.meetingAttendance.deleteMany({
@@ -142,6 +173,10 @@ export function createMeetingsService(prisma: PrismaClient) {
      * un-met" is not a thing. Deleting is gated on the MEETINGS delete
      * permission, which in practice only leads and above hold.
      */
-    remove: (id: string) => prisma.meeting.delete({ where: { id } }),
+    remove: async (teamId: string, id: string) => {
+      const existing = await prisma.meeting.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Toplanti bulunamadi");
+      await prisma.meeting.delete({ where: { id } });
+    },
   };
 }

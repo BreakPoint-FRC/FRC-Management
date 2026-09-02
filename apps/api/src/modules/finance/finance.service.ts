@@ -1,6 +1,7 @@
 import { Prisma, type PrismaClient } from "@breakpoint/db";
 
 import { resolveSeasonId } from "../../lib/active-season";
+import { NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
   CreateTransactionInput,
@@ -44,7 +45,13 @@ function serialize(transaction: TransactionRow) {
 }
 
 export function createFinanceService(prisma: PrismaClient) {
-  const buildWhere = (query: ListTransactionsQuery | SummaryQuery | MonthlyQuery): Prisma.FinanceTransactionWhereInput => ({
+  // The one place a filter is built, so the team scope cannot be present on the
+  // table and missing from the chart above it.
+  const buildWhere = (
+    teamId: string,
+    query: ListTransactionsQuery | SummaryQuery | MonthlyQuery
+  ): Prisma.FinanceTransactionWhereInput => ({
+    teamId,
     ...(query.seasonId ? { seasonId: query.seasonId } : {}),
     ...(query.groupId ? { groupId: query.groupId } : {}),
     ...("type" in query && query.type ? { type: query.type } : {}),
@@ -60,8 +67,8 @@ export function createFinanceService(prisma: PrismaClient) {
   });
 
   return {
-    list: async (query: ListTransactionsQuery) => {
-      const where = buildWhere(query);
+    list: async (teamId: string, query: ListTransactionsQuery) => {
+      const where = buildWhere(teamId, query);
 
       const [rows, total] = await prisma.$transaction([
         prisma.financeTransaction.findMany({
@@ -76,17 +83,21 @@ export function createFinanceService(prisma: PrismaClient) {
       return paginated(rows.map(serialize), total, query);
     },
 
-    getById: async (id: string) => {
-      const transaction = await prisma.financeTransaction.findUnique({
-        where: { id },
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getById: async (teamId: string, id: string) => {
+      const transaction = await prisma.financeTransaction.findFirst({
+        where: { id, teamId },
         select: transactionSelect,
       });
       return transaction && serialize(transaction);
     },
 
-    groupOf: (id: string) =>
-      prisma.financeTransaction.findUnique({
-        where: { id },
+    // Scoped to the team as well, so a route that reads the group off a stored
+    // record cannot be handed another team's id and authorize against it.
+    groupOf: (teamId: string, id: string) =>
+      prisma.financeTransaction.findFirst({
+        where: { id, teamId },
         select: { id: true, groupId: true },
       }),
 
@@ -97,8 +108,8 @@ export function createFinanceService(prisma: PrismaClient) {
      * arithmetic, so the numbers never pass through a float on their way to
      * being a balance.
      */
-    summary: async (query: SummaryQuery) => {
-      const where = buildWhere(query);
+    summary: async (teamId: string, query: SummaryQuery) => {
+      const where = buildWhere(teamId, query);
 
       const [income, expense] = await prisma.$transaction([
         prisma.financeTransaction.aggregate({
@@ -134,9 +145,9 @@ export function createFinanceService(prisma: PrismaClient) {
      * Money never becomes a number on the way through: it arrives as Decimal
      * and leaves as a fixed-point string, for the reason on serialize().
      */
-    monthly: async (query: MonthlyQuery) => {
+    monthly: async (teamId: string, query: MonthlyQuery) => {
       const rows = await prisma.financeTransaction.findMany({
-        where: buildWhere(query),
+        where: buildWhere(teamId, query),
         select: { type: true, amount: true, transactionDate: true },
         orderBy: { transactionDate: "asc" },
       });
@@ -177,11 +188,16 @@ export function createFinanceService(prisma: PrismaClient) {
       };
     },
 
-    create: async ({ seasonId, amount, ...rest }: CreateTransactionInput, actorId: string) => {
-      const resolvedSeasonId = await resolveSeasonId(prisma, seasonId);
+    create: async (
+      teamId: string,
+      { seasonId, amount, ...rest }: CreateTransactionInput,
+      actorId: string
+    ) => {
+      const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
       const transaction = await prisma.financeTransaction.create({
         data: {
           ...rest,
+          teamId,
           amount: new Prisma.Decimal(amount),
           seasonId: resolvedSeasonId,
           createdById: actorId,
@@ -191,7 +207,10 @@ export function createFinanceService(prisma: PrismaClient) {
       return serialize(transaction);
     },
 
-    update: async (id: string, { amount, ...rest }: UpdateTransactionInput) => {
+    update: async (teamId: string, id: string, { amount, ...rest }: UpdateTransactionInput) => {
+      const existing = await prisma.financeTransaction.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Kayit bulunamadi");
+
       const transaction = await prisma.financeTransaction.update({
         where: { id },
         data: { ...rest, ...(amount ? { amount: new Prisma.Decimal(amount) } : {}) },
@@ -209,7 +228,11 @@ export function createFinanceService(prisma: PrismaClient) {
      * not recorded today; if that becomes a question, the answer is a
      * FinanceActivity table modelled on TaskActivity, not a soft-delete flag.
      */
-    remove: (id: string) => prisma.financeTransaction.delete({ where: { id } }),
+    remove: async (teamId: string, id: string) => {
+      const existing = await prisma.financeTransaction.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Kayit bulunamadi");
+      await prisma.financeTransaction.delete({ where: { id } });
+    },
   };
 }
 

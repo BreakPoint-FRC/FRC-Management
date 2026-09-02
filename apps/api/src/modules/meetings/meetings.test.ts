@@ -4,6 +4,10 @@ import type { PrismaClient } from "@breakpoint/db";
 import { recordAttendanceSchema } from "./meetings.schema";
 import { createMeetingsService } from "./meetings.service";
 
+// Every service call is scoped to a team now. The id itself is arbitrary; what
+// the tests pin is that it reaches the query.
+const TEAM = "team-1";
+
 describe("roll call payload validation", () => {
   it("accepts the four attendance statuses", async () => {
     const result = recordAttendanceSchema.safeParse({
@@ -72,10 +76,14 @@ describe("recording attendance", () => {
     const deleteMany = vi.fn();
     const upsert = vi.fn();
     const prisma = {
+      // The service proves the meeting and every attendee belong to the team
+      // before it writes anything, so the stub has to answer both counts.
+      meeting: { count: async () => 1 },
+      account: { count: async () => 1 },
       $transaction: async (fn: (client: unknown) => unknown) => fn(stubTx(deleteMany, upsert)),
     } as unknown as PrismaClient;
 
-    await createMeetingsService(prisma).recordAttendance("m1", {
+    await createMeetingsService(prisma).recordAttendance(TEAM, "m1", {
       attendance: [{ accountId: "a1", status: "PRESENT" }],
     });
 
@@ -87,10 +95,12 @@ describe("recording attendance", () => {
 
   it("counts late as having turned up", async () => {
     const prisma = {
+      meeting: { count: async () => 1 },
+      account: { count: async () => 1 },
       $transaction: async (fn: (client: unknown) => unknown) => fn(stubTx(vi.fn(), vi.fn())),
     } as unknown as PrismaClient;
 
-    const meeting = await createMeetingsService(prisma).recordAttendance("m1", {
+    const meeting = await createMeetingsService(prisma).recordAttendance(TEAM, "m1", {
       attendance: [{ accountId: "a1", status: "PRESENT" }],
     });
 
@@ -108,6 +118,7 @@ describe("creating a meeting", () => {
 
     await expect(
       createMeetingsService(prisma).create(
+        TEAM,
         { title: "Kickoff", meetingDate: new Date("2026-09-01") },
         "a1"
       )

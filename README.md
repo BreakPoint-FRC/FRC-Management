@@ -26,13 +26,19 @@ pnpm install                   # also runs `prisma generate` via db postinstall
 docker compose up -d           # starts local Postgres
 pnpm --filter @breakpoint/db db:migrate
 pnpm --filter @breakpoint/db db:seed   # sample data, so the pages aren't empty
+pnpm --filter @breakpoint/db db:bootstrap  # the platform system admin
 pnpm dev                       # builds packages, then runs api + web
 ```
 
 Then open http://localhost:3000, which redirects to the sign-in page.
 
+`db:bootstrap` reads `SYSTEM_ADMIN_EMAIL` and `SYSTEM_ADMIN_PASSWORD` from
+`.env` and creates the **platform** administrator: the account that opens teams
+and creates the administrator who runs each one. It belongs to no team, which is
+the point of it — see [docs/teams.md](docs/teams.md).
+
 Every seeded account uses the password **`Breakpoint2026!`**. Sign in as
-`ada@breakpoint.test` for a `SYSTEM_ADMIN`, `kerem@breakpoint.test` for a
+`ada@breakpoint.test` for a `TEAM_ADMIN`, `kerem@breakpoint.test` for a
 department lead, or `emre@breakpoint.test` for a plain member. The three see
 noticeably different things — the admin gets eleven nav items, the lead six, the
 member four — which is the quickest way to check the permission model is
@@ -61,70 +67,70 @@ one wins the race, which is a genuinely confusing thing to debug.
 ## Authentication
 
 Two tokens. The access token is a short-lived JWT the client sends in an
-`Authorization` header; the refresh token is a long-lived opaque value in an
-httpOnly cookie that JavaScript cannot read.
+`Authorization` header; the refresh token is an opaque value that buys the next
+access token. Both are returned in the response body and both are held only in
+memory.
 
 ```
-POST /auth/login     { email, password }  -> { accessToken } + refresh cookie
-POST /auth/refresh   (cookie)             -> a new accessToken, and a new cookie
-POST /auth/logout    (cookie)             -> 204
+POST /auth/login     { email, password }  -> { accessToken, refreshToken }
+POST /auth/refresh   { refreshToken }     -> a new accessToken and a new refreshToken
+POST /auth/logout    { refreshToken }     -> 204
 GET  /auth/me                             -> account, roles, groups, permissions
 POST /auth/password  { currentPassword, newPassword }
 ```
 
-The access token is deliberately not stored in `localStorage` — a token that
-survives a tab close is what turns an XSS bug into a stolen session. It lives in
-memory, and `apps/web/lib/api-client.ts` silently refreshes once on a 401 and
-replays the request.
+Both tokens live in memory in `apps/web/lib/api-client.ts` and nothing about a
+session is written to the device — no cookie, no `localStorage`, no cache. A
+token that survives a tab close is what turns an XSS bug into a stolen session,
+and a laptop left in the pit is not a trusted place to leave one either. The
+client silently refreshes once on a 401 and replays the request, so a session
+lasts as long as the tab does.
+
+The cost is a sign-in on every page load: a reload starts a fresh module with
+no tokens in it, so there is nothing to restore and `/auth/refresh` is not even
+called. That is the trade this app makes on purpose, and it is paid once per
+visit rather than every fifteen minutes.
 
 Refresh tokens rotate: using one revokes it and issues another. Presenting a
 token that has already been used revokes **every** session for that account,
 because there is no way to tell the thief from the owner. That makes a second
-concurrent refresh indistinguishable from theft, so the client funnels all of
-them — the session restore on boot and every 401 retry — through one shared
-in-flight call: a page firing five requests at once rotates the token once.
+concurrent refresh indistinguishable from theft, so the client funnels every
+401 retry through one shared in-flight call: a page firing five requests at
+once rotates the token once.
 
 Passwords are hashed with argon2id. Who may do what is decided entirely on the
 server — see [docs/authorization.md](docs/authorization.md).
 
+An account created by an administrator gets a generated password, returned once
+by the call that made it and stored nowhere. Until it is changed, the API refuses
+every route but `/auth/me`, `/auth/password` and `/auth/logout`: a temporary
+password is a way in, not a credential.
+
+One database holds many teams, and a record belonging to another team answers
+404 rather than 403 — a 403 would confirm the id exists.
+
 ## PWA
 
-The web app is installable and supports **offline reads**: pages and API `GET`
-responses you have already loaded stay available without a connection. Writes
-still require the network.
+The web app is installable and runs standalone from a home screen, but it is
+**online only**. There is no offline mode, no service worker and no cached data:
+every screen is fetched when you open it, and losing the connection shows
+"Internet baglantisi yok" rather than stale numbers.
 
 - `apps/web/app/manifest.ts` — web app manifest (icons, theme, display mode)
-- `apps/web/public/sw.js` — service worker; API reads are network-first with a
-  5s timeout and cache fallback, so saturated venue wifi falls back to cache
-  instead of hanging
-- `apps/web/public/offline.html` — shown only for a page never visited before
 - `apps/web/scripts/generate-icons.mjs` — regenerates `public/icons/` (no image
   dependencies). Run `node scripts/generate-icons.mjs` from `apps/web` after
   changing the colours, or just replace the PNGs with your own.
 
-Cached API responses are split by account: the worker reads the account id out
-of the request's `Authorization` header and stores the response in
-`breakpoint-api-v2-<accountId>`. That is not tidiness. The Cache API keys
-entries by URL alone, so a single cache would hand the next person to sign in
-on a shared pit laptop the previous one's data whenever the network is slow
-enough to hit the 5s API timeout. Separating the caches by name means no
-timing — signing in does not have to win a race against a cleanup message —
-can produce that. The id is only a partition key and is never verified here;
-the token itself never becomes part of a cache name.
+Storing nothing is the decision here, not an omission. This app holds a team's
+finances and personal details, and the laptop it runs on during a competition is
+shared, borrowed and left unattended; anything cached on it outlives the session
+that fetched it. Offline reads were built once and removed for exactly that
+reason — if you are tempted to add a service worker back, that is what you would
+be trading away. The same reasoning is why both auth tokens live in memory.
 
-The app also drops every account's API cache whenever the signed-in account
-changes: signing out, signing in, a refresh the server refused, a session
-revoked from another device. All of those pass through `setAccessToken`, which
-posts `{ type: "purge" }` to the worker; a token rotating for the same account
-is not a change, so ordinary refreshes leave the offline reads alone. The shell
-and navigation caches survive a purge, because the offline page, icons and page
-shells belong to nobody: pages render on the client and fetch their data from
-the API.
-
-The service worker registers in production builds only — in dev it would serve
-stale chunks and fight hot reload. Because `NEXT_PUBLIC_API_URL` is baked in at
-build time, `next build` loads the root `.env`; set that variable for the
-deployed API origin or offline reads will cache nothing.
+Because `NEXT_PUBLIC_API_URL` is baked in at build time, `next build` loads the
+root `.env`; set that variable to the deployed API origin or the built app will
+call `localhost`.
 
 ## Scripts
 
@@ -140,6 +146,7 @@ deployed API origin or offline reads will cache nothing.
 | `pnpm --filter @breakpoint/db db:migrate` | Create/apply a migration (local only) |
 | `pnpm --filter @breakpoint/db db:deploy` | Apply pending migrations (CI/production) |
 | `pnpm --filter @breakpoint/db db:seed` | Load idempotent sample data |
+| `pnpm --filter @breakpoint/db db:bootstrap` | Create or reset the platform system admin |
 | `pnpm --filter @breakpoint/db db:studio` | Open Prisma Studio |
 
 Two things to know about the single-app scripts. `pnpm dev` also runs each
@@ -158,6 +165,7 @@ module-not-found error on a freshly cloned repo.
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commits, code layout, PR checklist
 - [docs/authorization.md](docs/authorization.md) — who may do what, and how it is checked
+- [docs/teams.md](docs/teams.md) — creating a team, the two kinds of admin, the setup wizard
 - [docs/roles.md](docs/roles.md) — the role model and the rules behind it
 - [docs/migrations.md](docs/migrations.md) — database change rules
 - [docs/documentation.md](docs/documentation.md) — what to document, and where

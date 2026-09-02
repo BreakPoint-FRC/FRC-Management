@@ -20,5 +20,13 @@ export const changePasswordSchema = z
     path: ["newPassword"],
   });
 
+// The refresh token travels in the request body now that it is not a cookie.
+// Logout accepts a missing one -- a client with nothing to revoke still wanted
+// the session gone -- so only /refresh parses with this.
+export const refreshSchema = z.object({
+  refreshToken: z.string().min(1, "Oturum bulunamadi"),
+});
+
 export type LoginInput = z.infer<typeof loginSchema>;
 export type ChangePasswordInput = z.infer<typeof changePasswordSchema>;
+export type RefreshInput = z.infer<typeof refreshSchema>;

@@ -1,6 +1,8 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
+import type { AuthenticatedAccount } from "../../plugins/auth";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createBoardSchema,
@@ -30,14 +32,19 @@ export async function ganttRoutes(app: FastifyInstance) {
   app.addHook("preHandler", app.authenticate);
 
   const authorizeExisting = async (
-    accountId: string,
+    account: AuthenticatedAccount,
     boardId: string,
     action: "read" | "update" | "delete"
   ) => {
-    const board = await service.groupOf(boardId);
+    const board = await service.groupOf(requireTeam(account), boardId);
     if (!board) throw new NotFoundError("Pano bulunamadi");
 
-    await authorize(app.prisma, { accountId, tool: "GANTT", action, groupId: board.groupId });
+    await authorize(app.prisma, {
+      accountId: account.id,
+      tool: "GANTT",
+      action,
+      groupId: board.groupId,
+    });
     return board;
   };
 
@@ -50,15 +57,15 @@ export async function ganttRoutes(app: FastifyInstance) {
       action: "read",
       groupId: query.groupId,
     });
-    return service.list(query);
+    return service.list(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "read");
+    await authorizeExisting(req.account, id, "read");
 
-    const board = await service.getById(id);
+    const board = await service.getById(requireTeam(req.account), id);
     if (!board) throw new NotFoundError("Pano bulunamadi");
     return board;
   });
@@ -73,7 +80,7 @@ export async function ganttRoutes(app: FastifyInstance) {
       groupId: input.groupId,
     });
 
-    const board = await service.create(input);
+    const board = await service.create(requireTeam(req.account), input);
     reply.code(201).send(board);
   });
 
@@ -82,7 +89,7 @@ export async function ganttRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     const input = updateBoardSchema.parse(req.body);
 
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
     if (input.groupId !== undefined) {
       await authorize(app.prisma, {
@@ -93,7 +100,7 @@ export async function ganttRoutes(app: FastifyInstance) {
       });
     }
 
-    return service.update(id, input);
+    return service.update(requireTeam(req.account), id, input);
   });
 
   // -> 200 | 400 | 401 | 403 | 404 | 409
@@ -102,17 +109,17 @@ export async function ganttRoutes(app: FastifyInstance) {
     // Arranging a board is a GANTT permission, not a TASKS one: putting a task
     // on a timeline does not change the task, and a lead planning the season
     // should not need permission to edit other departments' work to draw it.
-    await authorizeExisting(req.account.id, id, "update");
+    await authorizeExisting(req.account, id, "update");
 
-    return service.replaceTasks(id, replaceBoardTasksSchema.parse(req.body));
+    return service.replaceTasks(requireTeam(req.account), id, replaceBoardTasksSchema.parse(req.body));
   });
 
   // -> 204 | 401 | 403 | 404
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
-    await authorizeExisting(req.account.id, id, "delete");
+    await authorizeExisting(req.account, id, "delete");
 
-    await service.remove(id);
+    await service.remove(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }

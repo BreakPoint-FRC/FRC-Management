@@ -4,6 +4,7 @@ import { OPEN_TASK_STATUSES, type PaginationInput } from "@breakpoint/types";
 import { resolveSeasonId } from "../../lib/active-season";
 import { NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
+import { assertAccountsBelongToTeam } from "../../lib/tenant";
 import type {
   CreateTaskInput,
   ListTasksQuery,
@@ -70,8 +71,9 @@ const TRACKED: Array<{
 
 export function createTasksService(prisma: PrismaClient) {
   return {
-    list: async (query: ListTasksQuery) => {
+    list: async (teamId: string, query: ListTasksQuery) => {
       const where: Prisma.TaskWhereInput = {
+        teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
         ...(query.groupId ? { groupId: query.groupId } : {}),
         ...(query.priority ? { priority: { in: query.priority } } : {}),
@@ -100,19 +102,27 @@ export function createTasksService(prisma: PrismaClient) {
       return paginated(rows.map(serialize), total, query);
     },
 
-    getById: async (id: string) => {
-      const task = await prisma.task.findUnique({ where: { id }, select: taskSelect });
+    // findFirst rather than findUnique: the team is half the identity now, and
+    // (id, teamId) is not a unique index.
+    getById: async (teamId: string, id: string) => {
+      const task = await prisma.task.findFirst({ where: { id, teamId }, select: taskSelect });
       return task && serialize(task);
     },
 
-    /** Only used to decide which group to authorize a mutation against. */
-    groupOf: (id: string) =>
-      prisma.task.findUnique({ where: { id }, select: { id: true, groupId: true } }),
+    /**
+     * Only used to decide which group to authorize a mutation against.
+     *
+     * Scoped to the team as well, so a route that reads the group off a stored
+     * record cannot be handed another team's id and authorize against it. A
+     * miss here becomes the 404 the route already raises.
+     */
+    groupOf: (teamId: string, id: string) =>
+      prisma.task.findFirst({ where: { id, teamId }, select: { id: true, groupId: true } }),
 
-    activity: async (taskId: string, page: PaginationInput) => {
+    activity: async (teamId: string, taskId: string, page: PaginationInput) => {
       const [rows, total] = await prisma.$transaction([
         prisma.taskActivity.findMany({
-          where: { taskId },
+          where: { taskId, task: { teamId } },
           select: {
             id: true,
             action: true,
@@ -124,28 +134,34 @@ export function createTasksService(prisma: PrismaClient) {
           orderBy: { createdAt: "desc" },
           ...toPrismaPage(page),
         }),
-        prisma.taskActivity.count({ where: { taskId } }),
+        prisma.taskActivity.count({ where: { taskId, task: { teamId } } }),
       ]);
 
       return paginated(rows, total, page);
     },
 
-    create: async (input: CreateTaskInput, actorId: string) => {
+    create: async (teamId: string, input: CreateTaskInput, actorId: string) => {
       const { assigneeIds, seasonId, ...rest } = input;
-      const resolvedSeasonId = await resolveSeasonId(prisma, seasonId);
+      const uniqueAssigneeIds = [...new Set(assigneeIds)];
+
+      // Validate the complete set before the transaction starts. Foreign keys
+      // only prove that an account exists; they do not prove it belongs to the
+      // team that owns the task.
+      await assertAccountsBelongToTeam(prisma, teamId, uniqueAssigneeIds);
+      const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
 
       // Task, assignees and the log line in one transaction. A task that exists
       // with no record of having been created is a hole in the audit trail, and
       // the point of the trail is that it has none.
       const task = await prisma.$transaction(async (tx) => {
         const created = await tx.task.create({
-          data: { ...rest, seasonId: resolvedSeasonId, createdById: actorId },
+          data: { ...rest, teamId, seasonId: resolvedSeasonId, createdById: actorId },
           select: { id: true },
         });
 
-        if (assigneeIds.length > 0) {
+        if (uniqueAssigneeIds.length > 0) {
           await tx.taskAssignee.createMany({
-            data: assigneeIds.map((accountId) => ({ taskId: created.id, accountId })),
+            data: uniqueAssigneeIds.map((accountId) => ({ taskId: created.id, accountId })),
           });
         }
 
@@ -164,9 +180,9 @@ export function createTasksService(prisma: PrismaClient) {
       return serialize(task);
     },
 
-    update: async (id: string, input: UpdateTaskInput, actorId: string) => {
-      const before = await prisma.task.findUnique({
-        where: { id },
+    update: async (teamId: string, id: string, input: UpdateTaskInput, actorId: string) => {
+      const before = await prisma.task.findFirst({
+        where: { id, teamId },
         select: { status: true, priority: true, startDate: true, dueDate: true, name: true },
       });
       if (!before) throw new NotFoundError("Gorev bulunamadi");
@@ -235,7 +251,19 @@ export function createTasksService(prisma: PrismaClient) {
      * added and who was removed rather than "assignees changed" -- that is the
      * question anyone reads this history to answer.
      */
-    replaceAssignees: async (id: string, input: ReplaceAssigneesInput, actorId: string) => {
+    replaceAssignees: async (
+      teamId: string,
+      id: string,
+      input: ReplaceAssigneesInput,
+      actorId: string
+    ) => {
+      const owned = await prisma.task.count({ where: { id, teamId } });
+      if (owned === 0) throw new NotFoundError("Gorev bulunamadi");
+
+      // Assignees have to be this team's own people. Without this an id from
+      // another team would be assigned work and appear on the task.
+      await assertAccountsBelongToTeam(prisma, teamId, input.accountIds);
+
       const existing = await prisma.taskAssignee.findMany({
         where: { taskId: id },
         select: { accountId: true },
@@ -285,6 +313,10 @@ export function createTasksService(prisma: PrismaClient) {
      * gone -- unlike a meeting or a transaction, which are records of something
      * that happened in the world. Cancelling is the soft option and is a status.
      */
-    remove: (id: string) => prisma.task.delete({ where: { id } }),
+    remove: async (teamId: string, id: string) => {
+      const existing = await prisma.task.count({ where: { id, teamId } });
+      if (existing === 0) throw new NotFoundError("Gorev bulunamadi");
+      await prisma.task.delete({ where: { id } });
+    },
   };
 }

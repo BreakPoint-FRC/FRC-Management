@@ -1,6 +1,7 @@
 import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
+import { requireTeam } from "../../lib/tenant";
 import { NotFoundError } from "../../lib/http-errors";
 import {
   createOrganizationSchema,
@@ -55,7 +56,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
   app.get("/organizations", async (req) => {
     const query = listOrganizationsQuerySchema.parse(req.query);
     await require(req.account.id, "read");
-    return service.listOrganizations(query);
+    return service.listOrganizations(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
@@ -63,7 +64,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "read");
 
-    const organization = await service.getOrganization(id);
+    const organization = await service.getOrganization(requireTeam(req.account), id);
     if (!organization) throw new NotFoundError("Firma bulunamadi");
     return organization;
   });
@@ -73,6 +74,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     await require(req.account.id, "create");
 
     const organization = await service.createOrganization(
+      requireTeam(req.account),
       createOrganizationSchema.parse(req.body)
     );
     reply.code(201).send(organization);
@@ -83,7 +85,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "update");
 
-    return service.updateOrganization(id, updateOrganizationSchema.parse(req.body));
+    return service.updateOrganization(requireTeam(req.account), id, updateOrganizationSchema.parse(req.body));
   });
 
   // -> 204 | 401 | 403 | 404 | 409
@@ -91,7 +93,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "delete");
 
-    await service.removeOrganization(id);
+    await service.removeOrganization(requireTeam(req.account), id);
     reply.code(204).send();
   });
 
@@ -101,7 +103,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
   app.get("/sponsorships", async (req) => {
     const query = listSponsorshipsQuerySchema.parse(req.query);
     await require(req.account.id, "read");
-    return service.listSponsorships(query);
+    return service.listSponsorships(requireTeam(req.account), query);
   });
 
   // -> 200 | 401 | 403 | 404
@@ -109,7 +111,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "read");
 
-    const sponsorship = await service.getSponsorship(id);
+    const sponsorship = await service.getSponsorship(requireTeam(req.account), id);
     if (!sponsorship) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
     return sponsorship;
   });
@@ -119,6 +121,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     await require(req.account.id, "create");
 
     const sponsorship = await service.createSponsorship(
+      requireTeam(req.account),
       createSponsorshipSchema.parse(req.body)
     );
     reply.code(201).send(sponsorship);
@@ -129,7 +132,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "update");
 
-    return service.updateSponsorship(id, updateSponsorshipSchema.parse(req.body));
+    return service.updateSponsorship(requireTeam(req.account), id, updateSponsorshipSchema.parse(req.body));
   });
 
   // -> 204 | 401 | 403 | 404
@@ -137,7 +140,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "delete");
 
-    await service.removeSponsorship(id);
+    await service.removeSponsorship(requireTeam(req.account), id);
     reply.code(204).send();
   });
 }
