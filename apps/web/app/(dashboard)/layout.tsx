@@ -2,11 +2,10 @@
 
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
-import type { ToolKey } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { Loading, NavLink } from "@/components/ui";
-import { canAnywhere } from "@/lib/permissions";
+import { visibleNavigationItems } from "@/lib/navigation";
 
 /**
  * Each link carries the tool it leads to, so the nav is filtered by the same
@@ -14,22 +13,6 @@ import { canAnywhere } from "@/lib/permissions";
  * The overview has no tool -- everyone who is signed in can see their own
  * roles and permissions.
  */
-const NAV_ITEMS: Array<{ href: string; label: string; tool?: ToolKey }> = [
-  { href: "/", label: "Genel bakis" },
-  { href: "/teams", label: "Takimlar", tool: "TEAMS" },
-  { href: "/tasks", label: "Gorevler", tool: "TASKS" },
-  { href: "/meetings", label: "Toplantilar", tool: "MEETINGS" },
-  { href: "/calendar", label: "Takvim", tool: "CALENDAR" },
-  { href: "/gantt", label: "Zaman cizelgesi", tool: "GANTT" },
-  { href: "/finance", label: "Finans", tool: "FINANCE" },
-  { href: "/sponsors", label: "Sponsorlar", tool: "SPONSORS" },
-  { href: "/accounts", label: "Hesaplar", tool: "ACCOUNTS" },
-  { href: "/groups", label: "Gruplar", tool: "GROUPS" },
-  { href: "/roles", label: "Roller", tool: "ROLES" },
-  { href: "/tools", label: "Moduller", tool: "TOOLS" },
-  { href: "/seasons", label: "Sezonlar", tool: "SEASONS" },
-];
-
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { status, account, team, permissions, signOut } = useAuth();
   const router = useRouter();
@@ -71,9 +54,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   // Hiding a link the account cannot follow is a courtesy, not a control: the
   // route behind it is authorized on the server on every request.
-  const visible = NAV_ITEMS.filter(
-    (item) => !item.tool || canAnywhere(permissions, item.tool, "read")
-  );
+  const visible = visibleNavigationItems(account?.teamId, permissions);
 
   return (
     <div className="app-shell">

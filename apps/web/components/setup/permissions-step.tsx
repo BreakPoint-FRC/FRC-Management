@@ -3,7 +3,9 @@
 import { useState } from "react";
 import { ROLE_PLACEMENT_LABELS, type Paginated } from "@breakpoint/types";
 
+import { useAuth } from "@/components/auth/auth-provider";
 import {
+  lockedToolsFor,
   matrixFromPermissions,
   permissionsPayload,
   PermissionMatrix,
@@ -30,11 +32,16 @@ import type { RoleRow } from "@/lib/api-types";
  * The grid is the same component the roles screen uses, not a copy of it.
  */
 export function PermissionsStep() {
+  const { account } = useAuth();
   const roles = useApi<Paginated<RoleRow>>("/roles?pageSize=100");
   const mutation = useMutation();
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [matrix, setMatrix] = useState<PermissionMatrixValue>({});
+
+  // The wizard only ever runs inside a team, so this locks the platform tools
+  // in practice -- written the same way as the roles screen rather than assumed.
+  const lockedTools = lockedToolsFor(account?.teamId);
 
   function select(role: RoleRow) {
     setSelectedId(role.id);
@@ -45,7 +52,9 @@ export function PermissionsStep() {
   async function save() {
     if (!selectedId) return;
     const ok = await mutation.run(() =>
-      apiClient.put(`/roles/${selectedId}/permissions`, { permissions: permissionsPayload(matrix) })
+      apiClient.put(`/roles/${selectedId}/permissions`, {
+        permissions: permissionsPayload(matrix, lockedTools),
+      })
     );
     if (ok) roles.reload();
   }
@@ -104,7 +113,7 @@ export function PermissionsStep() {
                     Yalnizca dogrudan verilen yetkiler. Alt rollerden devralinanlar burada
                     isaretli gorunmez; istek aninda hiyerarsiden cozulur.
                   </p>
-                  <PermissionMatrix value={matrix} onChange={setMatrix} />
+                  <PermissionMatrix value={matrix} onChange={setMatrix} lockedTools={lockedTools} />
                   <div className="row">
                     <button
                       className="btn btn-primary btn-sm"

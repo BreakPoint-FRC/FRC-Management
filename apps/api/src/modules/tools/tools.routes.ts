@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
 import { NotFoundError } from "../../lib/http-errors";
+import { requirePlatform } from "../../lib/tenant";
 import { createToolSchema, updateToolSchema } from "./tools.schema";
 import { createToolsService } from "./tools.service";
 
@@ -17,8 +18,15 @@ import { createToolsService } from "./tools.service";
  *   DELETE /tools/:id       -> 204 | 401 | 403 | 404   (deactivates)
  *
  * A tool is the unit permissions are granted against, so editing this list is
- * editing the vocabulary the whole authorization layer speaks. In practice only
- * SYSTEM_ADMIN holds TOOLS write permission.
+ * editing the vocabulary the whole authorization layer speaks. It is one list
+ * for the whole platform -- Tool carries no teamId -- so every route here is
+ * behind requirePlatform as well as authorize.
+ *
+ * Holding the TOOLS permission is not what this asks about, and a team admin
+ * legitimately holds it: it is also the gate on switching modules on and off
+ * per department (PUT /groups/:id/tools, and the wizard step behind it).
+ * Deciding what Mekanik uses is a team decision; deciding what modules exist at
+ * all is not, and only the account tenancy separates the two.
  */
 export async function toolsRoutes(app: FastifyInstance) {
   const service = createToolsService(app.prisma);
@@ -27,6 +35,7 @@ export async function toolsRoutes(app: FastifyInstance) {
 
   // -> 200 | 401 | 403
   app.get("/", async (req) => {
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "read" });
     return service.list();
   });
@@ -34,6 +43,7 @@ export async function toolsRoutes(app: FastifyInstance) {
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "read" });
 
     const tool = await service.getById(id);
@@ -43,6 +53,7 @@ export async function toolsRoutes(app: FastifyInstance) {
 
   // -> 201 | 400 | 401 | 403 | 409
   app.post("/", async (req, reply) => {
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "create" });
 
     const tool = await service.create(createToolSchema.parse(req.body));
@@ -52,6 +63,7 @@ export async function toolsRoutes(app: FastifyInstance) {
   // -> 200 | 400 | 401 | 403 | 404
   app.patch("/:id", async (req) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "update" });
 
     return service.update(id, updateToolSchema.parse(req.body));
@@ -60,6 +72,7 @@ export async function toolsRoutes(app: FastifyInstance) {
   // -> 204 | 401 | 403 | 404
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "delete" });
 
     await service.deactivate(id);

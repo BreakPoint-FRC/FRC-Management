@@ -23,6 +23,30 @@ export function requireTeam(account: AuthenticatedAccount): string {
 }
 
 /**
+ * The mirror of requireTeam: proves the caller is *not* inside a team.
+ *
+ * Guards the platform surface -- /teams, and the module catalogue under /tools.
+ * There is no id to return, because that is the point: what is being checked is
+ * that the account belongs to no team.
+ *
+ * It reads the account rather than a permission row, and that is deliberate.
+ * `authorize()` decides on RolePermission rows, and its TEAM_WIDE bypass cannot
+ * tell a platform role from a team-wide role a team wrote for itself -- both are
+ * a placement, not a tenancy. So a team admin who granted their own new role
+ * TEAMS passed every check and opened teams. This is the check that answer
+ * cannot reach: an account with a teamId is refused here whatever any row says,
+ * including one written straight to the database.
+ *
+ * Called *before* authorize on those routes: it is synchronous and cheap, and
+ * the query behind authorize is neither.
+ */
+export function requirePlatform(account: AuthenticatedAccount): void {
+  if (account.teamId !== null) {
+    throw new ForbiddenError("Bu islem platform hesabiyla yapilir");
+  }
+}
+
+/**
  * Proves that every referenced account belongs to the tenant making the write.
  *
  * There is deliberately no active/archive filter here: historical work may

@@ -113,6 +113,41 @@ not have to be; neither is a mentor who reads everything. It is deliberately the
 only bypass in the system — there is no hard-coded "if admin" anywhere else, and
 `TEAM_WIDE` is the only placement that also skips step 7.
 
+### Step 4 is not a tenancy
+
+`TEAM_WIDE` means *across this team*, and the bypass reads the placement of a
+role, not whose role it is. A team admin writes their own roles, so they can
+create a `TEAM_WIDE` role, grant it `TEAMS`, hold it, and reach step 4 with a
+yes — which is how a team admin came to be able to open teams and list every
+team on the platform.
+
+Nothing in a `RolePermission` row can fix that, because the row is what is being
+forged. So the platform surface is guarded on the account instead:
+
+| Route | Guard |
+| --- | --- |
+| `/teams` (all six) | `requirePlatform(req.account)` beside `authorize` |
+| `/tools` (all five) | `requirePlatform(req.account)` beside `authorize` |
+
+`requirePlatform` is the mirror of `requireTeam` in
+[tenant.ts](../apps/api/src/lib/tenant.ts): it refuses an account that *has* a
+`teamId`. It reads the account rather than a permission row, so a grant written
+straight into the database still authorizes nothing, and it is synchronous — it
+runs before `authorize` and its queries.
+
+Holding the `TOOLS` permission is a separate question from reaching `/tools`. A
+team admin holds it legitimately: it is also the gate on `PUT /groups/:id/tools`,
+which decides what modules a department uses. Deciding what Mekanik uses is a
+team decision; deciding which modules exist at all is not.
+
+`roles.service.replacePermissions` refuses to store the grant in the first place
+(`PLATFORM_ONLY_TOOL_KEYS`), so the table does not fill up with rows that
+authorize nothing. It refuses the *flag*, never the entry: the permission editor
+sends every tool on every save, so an ordinary role edit always carries a
+`TEAMS` row of four falses. `resolvePermissionMatrix` masks the same tools out
+of `/auth/me` for the same reason the `SYSTEM_ADMIN` grants were narrowed below
+— the UI must not draw a link the API will refuse.
+
 Step 5 is what a request with no group means: an administrative action, or a
 record that belongs to no department (a cross-group task, a team-wide meeting).
 Only `TEAM_WIDE` or `EXTERNAL` can authorize one, because every other placement
@@ -220,6 +255,7 @@ are enforced on the write path instead, and each has one:
 | A group cannot be its own ancestor | `groups.service.assertParent`, via `wouldCreateGroupCycle` |
 | Every id in a write belongs to the caller's team | each service, and `resolveSeasonId` for the operational ones |
 | A team always keeps one active `TEAM_ADMIN` | `accounts.service.assertNotLastAdmin` |
+| A team's own role holds no platform-only tool (`TEAMS`) | `roles.service.replacePermissions`, with `requirePlatform` on the routes as the guarantee |
 | No duplicate `(account, role, group)` while `groupId` is null | the whole-set replacement in `accounts.service` |
 
 That last one is the same gap [roles.md](roles.md) documented for the old
@@ -290,6 +326,12 @@ The two sets do not overlap at all, and that is the whole of the split. Running
 a team does not include opening new ones; opening teams does not include working
 inside one. There is no `isSystemAdmin` flag anywhere to say so — "who may open a
 team" is a row in `RolePermission` like every other question of authority.
+
+That table is what the two roles are *seeded* with, and a seeded default is not
+by itself a rule: a team admin edits roles for a living, and could write a
+second `TEAM_WIDE` role granting `TEAMS` to itself. What holds the split is that
+`/teams` also asks whether the account belongs to a team at all — see **Step 4
+is not a tenancy** above.
 
 `SYSTEM_ADMIN` held every tool until
 [20260831090500](../packages/db/prisma/migrations/20260831090500_narrow_system_admin_to_teams/migration.sql),

@@ -30,6 +30,16 @@ working inside one. There is no `isSystemAdmin` flag and no branch on one
 anywhere in the codebase — "who may open a team" is a row in `RolePermission`
 like every other question of authority.
 
+That row is a *default*, though, and defaults are editable by whoever edits
+roles. A team admin can write a second `TEAM_WIDE` role, grant it `TEAMS` and
+hold it, and the `TEAM_WIDE` bypass in `authorize()` reads the placement of a
+role rather than whose role it is. So the split is held by a second check that
+no row can reach: every `/teams` route (and every `/tools` route) calls
+`requirePlatform(req.account)`, which refuses an account that has a `teamId` at
+all. `roles.service.replacePermissions` refuses to store such a grant in the
+first place. See
+[authorization.md](authorization.md#step-4-is-not-a-tenancy).
+
 A system admin belongs to no team on purpose. One that sat inside a team would
 be a back door into it — and that is also why holding the other modules would be
 pointless: every team-scoped route refuses an account with no team, so those

@@ -30,6 +30,30 @@ export const TOOL_KEYS = [
 
 export const toolKeySchema = z.enum(TOOL_KEYS);
 
+/**
+ * Tools no team role may be granted.
+ *
+ * `TEAMS` opens, lists and archives every team on the platform. Granting it to
+ * a team's own role is a privilege escalation rather than a generous
+ * permission, and nothing a team does inside itself needs it.
+ *
+ * `TOOLS` is deliberately *not* here even though `/tools` is platform-only too.
+ * The permission and the routes are different questions: a team admin holds
+ * `TOOLS` to switch modules on and off per department
+ * (`groups.routes` PUT /groups/:id/tools, and the wizard step behind it), while
+ * editing the global module list is guarded on the route by `requirePlatform`.
+ *
+ * This list is what the write path (`roles.service.replacePermissions`) refuses
+ * and what the permission matrix draws as locked. It is *not* the guarantee --
+ * that is `requirePlatform`, which reads the account rather than a permission
+ * row, so a grant written straight to the database still authorizes nothing.
+ */
+export const PLATFORM_ONLY_TOOL_KEYS = ["TEAMS"] as const;
+
+export function isPlatformOnlyTool(key: ToolKey): boolean {
+  return (PLATFORM_ONLY_TOOL_KEYS as readonly ToolKey[]).includes(key);
+}
+
 export const toolSchema = z.object({
   id: z.string(),
   key: toolKeySchema,
