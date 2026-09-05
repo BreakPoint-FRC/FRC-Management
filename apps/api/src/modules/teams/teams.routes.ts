@@ -2,6 +2,7 @@ import type { FastifyInstance } from "fastify";
 
 import { authorize } from "../../lib/authorize";
 import { NotFoundError } from "../../lib/http-errors";
+import { requirePlatform } from "../../lib/tenant";
 import {
   createTeamAdminSchema,
   createTeamSchema,
@@ -22,11 +23,19 @@ import { createTeamsService } from "./teams.service";
  *   POST   /teams/:id/admins   { fullName, email }             -> 201 | 400 | 401 | 403 | 404 | 409
  *   DELETE /teams/:id                                          -> 204 | 401 | 403 | 404 | 409 already archived
  *
- * Everything here is gated on TEAMS, which only the platform SYSTEM_ADMIN role
- * holds -- the TEAM_ADMIN matrix is every tool except this one. That is the
- * whole of the split: there is no isSystemAdmin flag and no branch on one,
- * because "who may open a team" is a row in RolePermission like every other
- * question of authority (docs/authorization.md).
+ * Every route is gated twice, and the two answer different questions.
+ *
+ * requirePlatform asks whether the caller belongs to no team. authorize asks
+ * whether they hold TEAMS. The first is the one that matters here: TEAMS is
+ * only ever held by the platform SYSTEM_ADMIN role by *default* -- the
+ * TEAM_ADMIN matrix is seeded with every tool except this one -- and a default
+ * is not a rule. A team admin edits their own roles, so they could write a
+ * TEAM_WIDE role granting TEAMS and hold it, and authorize would say yes:
+ * its bypass reads the placement, which is not a tenancy. requirePlatform reads
+ * the account instead, so no row anywhere can produce that answer.
+ *
+ * There is still no isSystemAdmin flag: "who may open a team" remains a row in
+ * RolePermission plus the tenancy of the account asking (docs/authorization.md).
  *
  * No route passes a groupId. A team is not inside a department, and the caller
  * is typically inside no team at all.
@@ -44,6 +53,7 @@ export async function teamsRoutes(app: FastifyInstance) {
   // -> 200 | 400 | 401 | 403
   app.get("/", async (req) => {
     const query = listTeamsQuerySchema.parse(req.query);
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "read" });
     return service.list(query);
   });
@@ -51,6 +61,7 @@ export async function teamsRoutes(app: FastifyInstance) {
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "read" });
 
     const team = await service.getById(id);
@@ -60,6 +71,7 @@ export async function teamsRoutes(app: FastifyInstance) {
 
   // -> 201 | 400 | 401 | 403 | 409
   app.post("/", async (req, reply) => {
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "create" });
 
     const created = await service.create(createTeamSchema.parse(req.body), req.account.id);
@@ -69,6 +81,7 @@ export async function teamsRoutes(app: FastifyInstance) {
   // -> 200 | 400 | 401 | 403 | 404
   app.patch("/:id", async (req) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "update" });
 
     return service.update(id, updateTeamSchema.parse(req.body));
@@ -77,6 +90,7 @@ export async function teamsRoutes(app: FastifyInstance) {
   // -> 201 | 400 | 401 | 403 | 404 | 409
   app.post("/:id/admins", async (req, reply) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "create" });
 
     const created = await service.addAdmin(
@@ -90,6 +104,7 @@ export async function teamsRoutes(app: FastifyInstance) {
   // -> 204 | 401 | 403 | 404 | 409
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
+    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "delete" });
 
     await service.archive(id);

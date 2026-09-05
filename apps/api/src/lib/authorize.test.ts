@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { PrismaClient } from "@breakpoint/db";
 import type { PermissionSet, RolePlacement } from "@breakpoint/types";
 
-import { authorize } from "./authorize";
+import { authorize, resolvePermissionMatrix } from "./authorize";
 import { ForbiddenError, NotFoundError, UnauthorizedError } from "./http-errors";
 
 // The authorization rules are the part of this system most expensive to get
@@ -582,5 +582,84 @@ describe("holding several roles", () => {
     await expect(
       authorize(prisma, { ...request, action: "delete", groupId: "mekanik" })
     ).resolves.toMatchObject({ canCreate: true, canDelete: true });
+  });
+});
+
+describe("resolvePermissionMatrix hides what the account could never use", () => {
+  // /auth/me is what the web app renders from. It is not a gate -- every
+  // request behind a rendered button is still authorized -- but a grant that
+  // cannot be exercised is not harmless either: it fills the sidebar with links
+  // that answer 403. /teams is guarded by requirePlatform, which reads the
+  // account rather than a permission row, so for an account inside a team a
+  // TEAMS grant is exactly that kind of dead end.
+
+  const TEAMS_TOOL = "tool-teams";
+
+  /** Both tools active, and every held role granting all four flags on both. */
+  function matrixPrisma(account: Scenario["account"]): PrismaClient {
+    const base = stubPrisma({ account, groupTools: ALL_TOOLS_ON });
+    return {
+      ...base,
+      tool: {
+        findMany: async () => [
+          { id: TOOL_ID, key: "TASKS" },
+          { id: TEAMS_TOOL, key: "TEAMS" },
+        ],
+      },
+      rolePermission: { findMany: async () => [ALL] },
+    } as unknown as PrismaClient;
+  }
+
+  it("answers false for TEAMS everywhere, for an account inside a team", async () => {
+    const matrix = await resolvePermissionMatrix(
+      matrixPrisma({
+        roles: [{ role: { id: "role-forged", placement: "TEAM_WIDE" } }],
+        memberships: [{ groupId: "mekanik" }],
+      }),
+      "account-1"
+    );
+
+    expect(matrix.global.TASKS).toMatchObject({ canRead: true, canDelete: true });
+    // The row is stored and authorize would read it; the map still says no,
+    // because the route the map is about refuses this account outright.
+    expect(matrix.global.TEAMS).toEqual(NONE);
+    for (const perTool of Object.values(matrix.byGroup)) {
+      expect(perTool.TEAMS).toEqual(NONE);
+    }
+  });
+
+  it("masks a group-scoped grant too, not only the team-wide one", async () => {
+    // byGroup merges the group path back in, so masking only `global` would
+    // hand the same dead link back one line later.
+    const matrix = await resolvePermissionMatrix(
+      matrixPrisma({
+        roles: [
+          {
+            role: {
+              id: "role-director",
+              placement: "ABOVE_GROUPS",
+              groupScopes: [{ groupId: "teknik" }],
+            },
+          },
+        ],
+      }),
+      "account-1"
+    );
+
+    expect(matrix.byGroup.teknik?.TASKS).toMatchObject({ canRead: true });
+    expect(matrix.byGroup.teknik?.TEAMS).toEqual(NONE);
+  });
+
+  it("leaves a platform account's TEAMS grant alone", async () => {
+    const matrix = await resolvePermissionMatrix(
+      matrixPrisma({
+        teamId: null,
+        team: null,
+        roles: [{ role: { id: "role-system", placement: "TEAM_WIDE" } }],
+      }),
+      "account-1"
+    );
+
+    expect(matrix.global.TEAMS).toEqual(ALL);
   });
 });

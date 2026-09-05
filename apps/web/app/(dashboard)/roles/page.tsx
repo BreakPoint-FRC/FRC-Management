@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { ROLE_PLACEMENT_LABELS, TOOL_KEYS, type Paginated, type ToolKey } from "@breakpoint/types";
+import { ROLE_PLACEMENT_LABELS, TOOL_KEYS, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import {
@@ -16,6 +16,7 @@ import { FormPanel } from "@/components/ui/form";
 import {
   matrixFromPermissions,
   PERMISSION_ACTIONS,
+  lockedToolsFor,
   permissionsPayload,
   PermissionMatrix,
   type PermissionMatrixValue,
@@ -29,7 +30,7 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
-import type { GroupTreeRow, RoleGraphRow, RoleRow, ToolRow } from "@/lib/api-types";
+import type { GroupTreeRow, RoleGraphRow, RoleRow } from "@/lib/api-types";
 import { emptyToNull } from "@/lib/form-helpers";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
@@ -68,9 +69,11 @@ function Tree({ role, byId }: { role: RoleRow; byId: Map<string, RoleRow> }) {
 }
 
 export default function RolesPage() {
-  const { permissions } = useAuth();
+  const { permissions, account } = useAuth();
+  // A team account cannot be granted the platform tools, so the grid draws them
+  // locked and the payload sends them empty. See lockedToolsFor.
+  const lockedTools = lockedToolsFor(account?.teamId);
   const roles = useApi<Paginated<RoleRow>>("/roles?pageSize=100");
-  const tools = useApi<ToolRow[]>("/tools");
   // The tree, for scoping a role to some departments and not others.
   const groups = useApi<GroupTreeRow[]>("/groups/tree");
   // The hierarchy with its transitive closure, so the page can show that a role
@@ -141,7 +144,7 @@ export default function RolesPage() {
 
     const ok = await mutation.run(() =>
       apiClient.put(`/roles/${panel.role.id}/permissions`, {
-        permissions: permissionsPayload(matrix),
+        permissions: permissionsPayload(matrix, lockedTools),
       })
     );
     if (ok) {
@@ -271,7 +274,7 @@ export default function RolesPage() {
                     Yalnizca dogrudan verilen yetkiler. Alt rollerden devralinanlar burada
                     isaretli gorunmez; istek aninda hiyerarsiden cozulur.
                   </p>
-                  <PermissionMatrix value={matrix} onChange={setMatrix} />
+                  <PermissionMatrix value={matrix} onChange={setMatrix} lockedTools={lockedTools} />
                 </FormPanel>
               ) : null}
 
@@ -374,47 +377,43 @@ export default function RolesPage() {
                 <p className="small muted" style={{ marginTop: 0 }}>
                   O = okuma, E = ekleme, G = guncelleme, S = silme.
                 </p>
-                <AsyncSection state={tools}>
-                  {(toolList) => (
-                    <div className="table-wrap">
-                      <table className="table">
-                        <thead>
-                          <tr>
-                            <th>Rol</th>
-                            {toolList.map((tool) => (
-                              <th key={tool.id} className="numeric small" title={tool.name}>
-                                {tool.key}
-                              </th>
-                            ))}
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {data.items.map((role) => (
-                            <tr key={role.id}>
-                              <td>{role.name}</td>
-                              {toolList.map((tool) => {
-                                const permission = role.permissions.find(
-                                  (entry) => entry.tool === tool.key
-                                );
-                                const flags = permission
-                                  ? PERMISSION_ACTIONS.map((action) =>
-                                      permission[action.key] ? action.short : "·"
-                                    ).join("")
-                                  : "····";
+                <div className="table-wrap">
+                  <table className="table">
+                    <thead>
+                      <tr>
+                        <th>Rol</th>
+                        {TOOL_KEYS.map((tool) => (
+                          <th key={tool} className="numeric small">
+                            {tool}
+                          </th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {data.items.map((role) => (
+                        <tr key={role.id}>
+                          <td>{role.name}</td>
+                          {TOOL_KEYS.map((tool) => {
+                            const permission = role.permissions.find(
+                              (entry) => entry.tool === tool
+                            );
+                            const flags = permission
+                              ? PERMISSION_ACTIONS.map((action) =>
+                                  permission[action.key] ? action.short : "·"
+                                ).join("")
+                              : "····";
 
-                                return (
-                                  <td key={tool.id} className="numeric small">
-                                    <span className={permission ? "" : "muted"}>{flags}</span>
-                                  </td>
-                                );
-                              })}
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  )}
-                </AsyncSection>
+                            return (
+                              <td key={tool} className="numeric small">
+                                <span className={permission ? "" : "muted"}>{flags}</span>
+                              </td>
+                            );
+                          })}
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
           );

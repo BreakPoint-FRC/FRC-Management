@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 import {
+  isPlatformOnlyTool,
   placementForbidsGroupScope,
   placementNeedsGroupScope,
   roleDepths,
@@ -432,6 +433,27 @@ export function createRolesService(prisma: PrismaClient) {
         select: { id: true },
       });
       if (!role) throw new NotFoundError("Rol bulunamadi");
+
+      // Every role this can reach is a team role -- the lookup above filters on
+      // teamId, and a platform role has none -- so a platform-only tool here is
+      // always an escalation. It is the *flag* that is refused, never the entry:
+      // the editor sends the whole matrix on every save, so an ordinary role
+      // edit carries a TEAMS row with four falses, and refusing the row itself
+      // would break every save in the app. An empty grant grants nothing.
+      //
+      // The guarantee is requirePlatform on the routes, not this. This is what
+      // keeps the row from being written in the first place, so nobody has to
+      // read a permission table full of grants that authorize nothing.
+      const escalating = input.permissions.find(
+        (entry) =>
+          isPlatformOnlyTool(entry.tool) &&
+          (entry.canRead || entry.canCreate || entry.canUpdate || entry.canDelete)
+      );
+      if (escalating) {
+        throw new ConflictError(
+          `${escalating.tool} yetkisi yalnizca platform rolune verilebilir`
+        );
+      }
 
       const tools = await prisma.tool.findMany({
         where: { key: { in: input.permissions.map((entry) => entry.tool) } },
