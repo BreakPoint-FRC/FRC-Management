@@ -19,14 +19,18 @@ import { createToolsService } from "./tools.service";
  *
  * A tool is the unit permissions are granted against, so editing this list is
  * editing the vocabulary the whole authorization layer speaks. It is one list
- * for the whole platform -- Tool carries no teamId -- so every route here is
- * behind requirePlatform as well as authorize.
+ * for the whole platform -- Tool carries no teamId -- so POST, PATCH and DELETE
+ * are behind requirePlatform as well as authorize. GET remains available to
+ * every account with TOOLS/read because team setup needs to read the catalogue.
  *
- * Holding the TOOLS permission is not what this asks about, and a team admin
- * legitimately holds it: it is also the gate on switching modules on and off
- * per department (PUT /groups/:id/tools, and the wizard step behind it).
+ * Holding the TOOLS permission cannot replace the platform identity check, and
+ * a team admin legitimately holds that permission: it is also the gate on
+ * switching modules on and off per department (PUT /groups/:id/tools, and the
+ * wizard step behind it).
  * Deciding what Mekanik uses is a team decision; deciding what modules exist at
- * all is not, and only the account tenancy separates the two.
+ * all is not. The mutation routes therefore ask two independent questions:
+ * whether the account is a platform identity, then whether it has the matching
+ * TOOLS permission.
  */
 export async function toolsRoutes(app: FastifyInstance) {
   const service = createToolsService(app.prisma);
@@ -35,7 +39,6 @@ export async function toolsRoutes(app: FastifyInstance) {
 
   // -> 200 | 401 | 403
   app.get("/", async (req) => {
-    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "read" });
     return service.list();
   });
@@ -43,7 +46,6 @@ export async function toolsRoutes(app: FastifyInstance) {
   // -> 200 | 401 | 403 | 404
   app.get("/:id", async (req) => {
     const { id } = req.params as { id: string };
-    requirePlatform(req.account);
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "read" });
 
     const tool = await service.getById(id);

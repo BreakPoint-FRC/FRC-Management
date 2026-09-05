@@ -25,9 +25,10 @@ export function requireTeam(account: AuthenticatedAccount): string {
 /**
  * The mirror of requireTeam: proves the caller is *not* inside a team.
  *
- * Guards the platform surface -- /teams, and the module catalogue under /tools.
- * There is no id to return, because that is the point: what is being checked is
- * that the account belongs to no team.
+ * Guards the platform surface -- every /teams operation and mutations of the
+ * module catalogue under /tools. Catalogue reads stay permission-controlled
+ * for team setup. There is no id to return, because that is the point: what is
+ * being checked is that the account belongs to no team.
  *
  * It reads the account rather than a permission row, and that is deliberate.
  * `authorize()` decides on RolePermission rows, and its TEAM_WIDE bypass cannot

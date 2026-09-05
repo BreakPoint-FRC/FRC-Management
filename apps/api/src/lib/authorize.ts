@@ -318,10 +318,10 @@ export async function canPerform(
 /**
  * Whether this account could ever exercise a grant on this tool.
  *
- * The platform surface (/teams, /tools) is guarded by `requirePlatform`, which
- * reads the account rather than a permission row -- so for an account inside a
- * team a TEAMS grant authorizes nothing, whether it was written by a mistake in
- * a template or straight into the database.
+ * The platform surface (/teams and catalogue mutations under /tools) is guarded
+ * by `requirePlatform`, which reads the account rather than a permission row --
+ * so for an account inside a team a TEAMS grant authorizes nothing, whether it
+ * was written by a mistake in a template or straight into the database.
  *
  * This is a *display* rule, and the only place in this file that is not a
  * permission rule: `authorize()` is deliberately left alone, because the route

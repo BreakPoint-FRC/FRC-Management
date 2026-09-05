@@ -37,11 +37,12 @@ export const toolKeySchema = z.enum(TOOL_KEYS);
  * a team's own role is a privilege escalation rather than a generous
  * permission, and nothing a team does inside itself needs it.
  *
- * `TOOLS` is deliberately *not* here even though `/tools` is platform-only too.
- * The permission and the routes are different questions: a team admin holds
- * `TOOLS` to switch modules on and off per department
- * (`groups.routes` PUT /groups/:id/tools, and the wizard step behind it), while
- * editing the global module list is guarded on the route by `requirePlatform`.
+ * `TOOLS` is deliberately *not* here even though mutations under `/tools` are
+ * platform-only. The permission and the identity boundary are different
+ * questions: a team admin holds `TOOLS` to read the catalogue and switch
+ * modules on and off per department (`groups.routes` PUT /groups/:id/tools,
+ * and the wizard step behind it), while editing the global module list is
+ * guarded on the route by `requirePlatform`.
  *
  * This list is what the write path (`roles.service.replacePermissions`) refuses
  * and what the permission matrix draws as locked. It is *not* the guarantee --
