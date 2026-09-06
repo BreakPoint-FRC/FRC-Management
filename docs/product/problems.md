@@ -13,4 +13,5 @@ raised. Items 1-8 are covered by the V1/V2 scope in [roadmap.md](roadmap.md).
 8. Finance tracker (sponsorships, income (from who/where), spendings (to who/where), balance)
 9. Polls and opinions
 
-**The main admin should be able to remove users.**
+**The main admin should be able to remove users.** Solved: `DELETE
+/accounts/:id`, available to `TEAM_ADMIN`.

@@ -173,3 +173,8 @@ module-not-found error on a freshly cloned repo.
 
 Run `pnpm lint && pnpm typecheck && pnpm test && pnpm build` before pushing;
 that is exactly what CI runs.
+
+## License
+
+[MIT](LICENSE) — chosen over Apache-2.0 for #21: no restriction on the team,
+and the patent grant Apache carries has no use here.
