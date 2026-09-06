@@ -6,6 +6,7 @@ import {
 } from "@breakpoint/types";
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
+import { auditValuesEqual, writeAuditLog } from "../../lib/audit-log";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
   CreateGroupInput,
@@ -26,6 +27,14 @@ const groupSelect = {
 } satisfies Prisma.GroupSelect;
 
 type GroupRow = Prisma.GroupGetPayload<{ select: typeof groupSelect }>;
+
+function auditTools(
+  entries: readonly { tool: string; isEnabled: boolean }[]
+): Prisma.InputJsonValue {
+  return entries
+    .map((entry) => ({ tool: entry.tool, isEnabled: entry.isEnabled }))
+    .sort((left, right) => left.tool.localeCompare(right.tool));
+}
 
 /**
  * `tools` is what this group states for itself; `effectiveTools` is what
@@ -208,27 +217,60 @@ export function createGroupsService(prisma: PrismaClient) {
       });
     },
 
-    create: async (teamId: string, input: CreateGroupInput) => {
+    create: async (teamId: string, input: CreateGroupInput, actorId: string) => {
       const parentId = input.parentId ?? null;
       await assertParent(teamId, null, parentId);
 
-      const group = await prisma.group.create({
-        data: { ...input, parentId, teamId },
-        select: groupSelect,
+      const group = await prisma.$transaction(async (tx) => {
+        const created = await tx.group.create({
+          data: { ...input, parentId, teamId },
+          select: groupSelect,
+        });
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "GROUP",
+          entityId: created.id,
+          action: "GROUP_CREATED",
+          newValue: { name: created.name, parentId: created.parentId },
+        });
+        return created;
       });
       return serialize(group, await effectiveToolsFor(teamId, group.id));
     },
 
-    update: async (teamId: string, id: string, input: UpdateGroupInput) => {
+    update: async (teamId: string, id: string, input: UpdateGroupInput, actorId: string) => {
       await assertInTeam(teamId, id);
       if (input.parentId !== undefined) {
         await assertParent(teamId, id, input.parentId ?? null);
       }
 
-      const group = await prisma.group.update({
-        where: { id },
-        data: { ...input, ...(input.parentId !== undefined ? { parentId: input.parentId ?? null } : {}) },
-        select: groupSelect,
+      const group = await prisma.$transaction(async (tx) => {
+        const existing = await tx.group.findUniqueOrThrow({
+          where: { id },
+          select: { parentId: true },
+        });
+        const updated = await tx.group.update({
+          where: { id },
+          data: {
+            ...input,
+            ...(input.parentId !== undefined ? { parentId: input.parentId ?? null } : {}),
+          },
+          select: groupSelect,
+        });
+
+        if (input.parentId !== undefined && existing.parentId !== updated.parentId) {
+          await writeAuditLog(tx, {
+            teamId,
+            actorId,
+            entityType: "GROUP",
+            entityId: id,
+            action: "GROUP_PARENT_CHANGED",
+            oldValue: { parentId: existing.parentId },
+            newValue: { parentId: updated.parentId },
+          });
+        }
+        return updated;
       });
       return serialize(group, await effectiveToolsFor(teamId, id));
     },
@@ -253,7 +295,7 @@ export function createGroupsService(prisma: PrismaClient) {
      * Mekanik is a department nobody can reach through the tree and nobody
      * meant to keep.
      */
-    remove: async (teamId: string, id: string) => {
+    remove: async (teamId: string, id: string, actorId: string) => {
       await assertInTeam(teamId, id);
       const tree = await treeOf(teamId);
       const subtree = [...expandGroupSubtrees([id], tree)];
@@ -276,9 +318,61 @@ export function createGroupsService(prisma: PrismaClient) {
         const depthOf = (groupId: string) => groupAncestorPath(groupId, tree).length;
         const deepestFirst = [...subtree].sort((a, b) => depthOf(b) - depthOf(a));
 
-        await prisma.$transaction(
-          deepestFirst.map((groupId) => prisma.group.delete({ where: { id: groupId } }))
-        );
+        await prisma.$transaction(async (tx) => {
+          const [groups, assignments, scopes, tools] = await Promise.all([
+            tx.group.findMany({
+              where: { id: { in: subtree }, teamId },
+              select: { id: true, name: true, parentId: true, isActive: true },
+            }),
+            tx.accountRole.findMany({
+              where: { groupId: { in: subtree } },
+              select: { accountId: true, roleId: true, groupId: true, isActive: true },
+            }),
+            tx.roleGroupScope.findMany({
+              where: { groupId: { in: subtree } },
+              select: { roleId: true, groupId: true },
+            }),
+            tx.groupTool.findMany({
+              where: { groupId: { in: subtree } },
+              select: { groupId: true, isEnabled: true, tool: { select: { key: true } } },
+            }),
+          ]);
+
+          for (const groupId of deepestFirst) {
+            await tx.group.delete({ where: { id: groupId } });
+          }
+          await writeAuditLog(tx, {
+            teamId,
+            actorId,
+            entityType: "GROUP",
+            entityId: id,
+            action: "GROUP_REMOVED",
+            oldValue: {
+              groups: groups.sort((left, right) => left.id.localeCompare(right.id)),
+              assignments: assignments.sort(
+                (left, right) =>
+                  left.accountId.localeCompare(right.accountId) ||
+                  left.roleId.localeCompare(right.roleId)
+              ),
+              roleScopes: scopes.sort(
+                (left, right) =>
+                  left.roleId.localeCompare(right.roleId) ||
+                  left.groupId.localeCompare(right.groupId)
+              ),
+              tools: tools
+                .map((entry) => ({
+                  groupId: entry.groupId,
+                  tool: entry.tool.key,
+                  isEnabled: entry.isEnabled,
+                }))
+                .sort(
+                  (left, right) =>
+                    left.groupId.localeCompare(right.groupId) ||
+                    left.tool.localeCompare(right.tool)
+                ),
+            },
+          });
+        });
 
         return { removed: subtree.length, retired: 0 };
       }
@@ -286,13 +380,51 @@ export function createGroupsService(prisma: PrismaClient) {
       // A group nobody can act in but that still grants roles is a confusing
       // half-state, so the roles go too. Memberships stay: who was in the
       // department is history, which is exactly what this branch is preserving.
-      await prisma.$transaction([
-        prisma.group.updateMany({ where: { id: { in: subtree } }, data: { isActive: false } }),
-        prisma.accountRole.updateMany({
+      await prisma.$transaction(async (tx) => {
+        const [groups, assignments] = await Promise.all([
+          tx.group.findMany({
+            where: { id: { in: subtree }, teamId },
+            select: { id: true, name: true, parentId: true, isActive: true },
+          }),
+          tx.accountRole.findMany({
+            where: { groupId: { in: subtree }, isActive: true },
+            select: { accountId: true, roleId: true, groupId: true, isActive: true },
+          }),
+        ]);
+
+        await tx.group.updateMany({ where: { id: { in: subtree } }, data: { isActive: false } });
+        await tx.accountRole.updateMany({
           where: { groupId: { in: subtree } },
           data: { isActive: false },
-        }),
-      ]);
+        });
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "GROUP",
+          entityId: id,
+          action: "GROUP_RETIRED",
+          oldValue: {
+            groups: groups.sort((left, right) => left.id.localeCompare(right.id)),
+            assignments: assignments.sort(
+              (left, right) =>
+                left.accountId.localeCompare(right.accountId) ||
+                left.roleId.localeCompare(right.roleId)
+            ),
+          },
+          newValue: {
+            groups: groups
+              .map((group) => ({ ...group, isActive: false }))
+              .sort((left, right) => left.id.localeCompare(right.id)),
+            assignments: assignments
+              .map((assignment) => ({ ...assignment, isActive: false }))
+              .sort(
+                (left, right) =>
+                  left.accountId.localeCompare(right.accountId) ||
+                  left.roleId.localeCompare(right.roleId)
+              ),
+          },
+        });
+      });
 
       return { removed: 0, retired: subtree.length };
     },
@@ -306,7 +438,12 @@ export function createGroupsService(prisma: PrismaClient) {
      * whole of the override mechanism, and it is why an entry carries an
      * isEnabled rather than the list being a set of enabled keys.
      */
-    replaceTools: async (teamId: string, groupId: string, input: ReplaceGroupToolsInput) => {
+    replaceTools: async (
+      teamId: string,
+      groupId: string,
+      input: ReplaceGroupToolsInput,
+      actorId: string
+    ) => {
       await assertInTeam(teamId, groupId);
 
       const tools = await prisma.tool.findMany({
@@ -315,16 +452,36 @@ export function createGroupsService(prisma: PrismaClient) {
       });
       const idByKey = new Map(tools.map((tool) => [tool.key, tool.id]));
 
-      await prisma.$transaction([
-        prisma.groupTool.deleteMany({ where: { groupId } }),
-        prisma.groupTool.createMany({
+      await prisma.$transaction(async (tx) => {
+        const stored = await tx.groupTool.findMany({
+          where: { groupId },
+          select: { isEnabled: true, tool: { select: { key: true } } },
+        });
+        const oldValue = auditTools(
+          stored.map((entry) => ({ tool: entry.tool.key, isEnabled: entry.isEnabled }))
+        );
+        const newValue = auditTools(input.tools);
+
+        await tx.groupTool.deleteMany({ where: { groupId } });
+        await tx.groupTool.createMany({
           data: input.tools.map((entry) => ({
             groupId,
             toolId: idByKey.get(entry.tool) as string,
             isEnabled: entry.isEnabled,
           })),
-        }),
-      ]);
+        });
+        if (!auditValuesEqual(oldValue, newValue)) {
+          await writeAuditLog(tx, {
+            teamId,
+            actorId,
+            entityType: "GROUP",
+            entityId: groupId,
+            action: "GROUP_TOOLS_REPLACED",
+            oldValue,
+            newValue,
+          });
+        }
+      });
     },
 
     /**

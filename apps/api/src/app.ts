@@ -19,6 +19,7 @@ import { setupRoutes } from "./modules/setup/setup.routes";
 import { accountsRoutes } from "./modules/accounts/accounts.routes";
 import { groupsRoutes } from "./modules/groups/groups.routes";
 import { rolesRoutes } from "./modules/roles/roles.routes";
+import { auditLogRoutes } from "./modules/audit-log/audit-log.routes";
 import { toolsRoutes } from "./modules/tools/tools.routes";
 import { seasonsRoutes } from "./modules/seasons/seasons.routes";
 import { tasksRoutes } from "./modules/tasks/tasks.routes";
@@ -156,6 +157,7 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.register(accountsRoutes, { prefix: "/accounts" });
   app.register(groupsRoutes, { prefix: "/groups" });
   app.register(rolesRoutes, { prefix: "/roles" });
+  app.register(auditLogRoutes, { prefix: "/audit-log" });
   app.register(toolsRoutes, { prefix: "/tools" });
 
   // Operational modules. Every one of them is scoped to a season.

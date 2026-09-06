@@ -24,6 +24,7 @@ export const TOOL_KEYS = [
   "ROLES",
   "TOOLS",
   "PERMISSIONS",
+  "AUDIT_LOG",
   "SEASONS",
   "TEAMS",
 ] as const;

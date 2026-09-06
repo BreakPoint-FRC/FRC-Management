@@ -27,11 +27,27 @@ describe("the group tree", () => {
     groupOverrides: Record<string, unknown> = {},
     records: { tasks?: number; meetings?: number } = {}
   ) {
-    return {
+    const stub = {
       group: {
         findMany: async () => TREE,
         count: async () => 1,
-        update: vi.fn().mockResolvedValue({ id: "mekanik", tools: [], _count: { memberships: 0 } }),
+        findUniqueOrThrow: async ({ where }: { where: { id: string } }) => ({
+          parentId: TREE.find((group) => group.id === where.id)?.parentId ?? null,
+        }),
+        update: vi.fn(
+          async ({ where, data }: { where: { id: string }; data: { parentId?: string | null } }) => ({
+            id: where.id,
+            parentId:
+              data.parentId !== undefined
+                ? data.parentId
+                : TREE.find((group) => group.id === where.id)?.parentId ?? null,
+            name: where.id,
+            description: null,
+            isActive: true,
+            tools: [],
+            _count: { memberships: 0 },
+          })
+        ),
         updateMany: vi.fn(),
         delete: vi.fn(),
         ...groupOverrides,
@@ -41,9 +57,16 @@ describe("the group tree", () => {
       ganttBoard: { count: async () => 0 },
       financeTransaction: { count: async () => 0 },
       groupTool: { findMany: async () => [] },
-      accountRole: { updateMany: vi.fn() },
-      $transaction: async (operations: unknown[]) => Promise.all(operations),
-    } as unknown as PrismaClient;
+      roleGroupScope: { findMany: async () => [] },
+      accountRole: { findMany: async () => [], updateMany: vi.fn() },
+      auditLog: { create: vi.fn() },
+    };
+    return Object.assign(stub, {
+      $transaction: async (work: unknown) =>
+        Array.isArray(work)
+          ? Promise.all(work)
+          : (work as (tx: typeof stub) => unknown)(stub),
+    }) as unknown as PrismaClient;
   }
 
   it("refuses a group as its own parent", async () => {
@@ -85,14 +108,23 @@ describe("the group tree", () => {
     // A live Tasarim under a retired Mekanik is a department nobody can reach
     // through the tree and nobody meant to keep.
     const updateMany = vi.fn();
-    const service = createGroupsService(stubPrisma({ updateMany }, { tasks: 2 }));
+    const prisma = stubPrisma({ updateMany }, { tasks: 2 });
+    const service = createGroupsService(prisma);
 
-    const result = await service.remove(TEAM, "teknik");
+    const result = await service.remove(TEAM, "teknik", "admin-1");
 
     expect(result).toEqual({ removed: 0, retired: 3 });
     expect(updateMany).toHaveBeenCalledWith({
       where: { id: { in: ["teknik", "mekanik", "tasarim"] } },
       data: { isActive: false },
+    });
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        teamId: TEAM,
+        actorId: "admin-1",
+        entityId: "teknik",
+        action: "GROUP_RETIRED",
+      }),
     });
   });
 
@@ -102,12 +134,21 @@ describe("the group tree", () => {
     // against the next department that wants it.
     const remove = vi.fn();
     const updateMany = vi.fn();
-    const service = createGroupsService(stubPrisma({ delete: remove, updateMany }));
+    const prisma = stubPrisma({ delete: remove, updateMany });
+    const service = createGroupsService(prisma);
 
-    const result = await service.remove(TEAM, "teknik");
+    const result = await service.remove(TEAM, "teknik", "admin-1");
 
     expect(result).toEqual({ removed: 3, retired: 0 });
     expect(updateMany).not.toHaveBeenCalled();
+    expect(prisma.auditLog.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        teamId: TEAM,
+        actorId: "admin-1",
+        entityId: "teknik",
+        action: "GROUP_REMOVED",
+      }),
+    });
   });
 
   it("takes the subtree and leaves the siblings", async () => {
@@ -117,7 +158,7 @@ describe("the group tree", () => {
     const remove = vi.fn();
     const service = createGroupsService(stubPrisma({ delete: remove }));
 
-    const result = await service.remove(TEAM, "mekanik");
+    const result = await service.remove(TEAM, "mekanik", "admin-1");
 
     expect(result).toEqual({ removed: 2, retired: 0 });
     expect(remove.mock.calls.map((call) => call[0].where.id).sort()).toEqual([
@@ -132,12 +173,50 @@ describe("the group tree", () => {
     const remove = vi.fn();
     const service = createGroupsService(stubPrisma({ delete: remove }));
 
-    await service.remove(TEAM, "teknik");
+    await service.remove(TEAM, "teknik", "admin-1");
 
     expect(remove.mock.calls.map((call) => call[0].where.id)).toEqual([
       "tasarim",
       "mekanik",
       "teknik",
     ]);
+  });
+
+  it("commits neither group deletion nor its audit when the transaction fails", async () => {
+    const committed = { groups: [...TREE], audits: [] as unknown[] };
+    const staged = { deletedIds: [] as string[], audits: [] as unknown[] };
+    const prisma = {
+      group: {
+        count: async () => 1,
+        findMany: async () => TREE,
+      },
+      task: { count: async () => 0 },
+      meeting: { count: async () => 0 },
+      ganttBoard: { count: async () => 0 },
+      financeTransaction: { count: async () => 0 },
+      $transaction: async (work: (tx: unknown) => unknown) => {
+        const tx = {
+          group: {
+            findMany: async () => TREE,
+            delete: async ({ where }: { where: { id: string } }) => {
+              staged.deletedIds.push(where.id);
+            },
+          },
+          accountRole: { findMany: async () => [] },
+          roleGroupScope: { findMany: async () => [] },
+          groupTool: { findMany: async () => [] },
+          auditLog: { create: async (entry: unknown) => staged.audits.push(entry) },
+        };
+        await work(tx);
+        throw new Error("commit failed");
+      },
+    } as unknown as PrismaClient;
+
+    await expect(
+      createGroupsService(prisma).remove(TEAM, "teknik", "admin-1")
+    ).rejects.toThrow(/commit failed/);
+    expect(staged.deletedIds).toEqual(["tasarim", "mekanik", "teknik"]);
+    expect(staged.audits).toHaveLength(1);
+    expect(committed).toEqual({ groups: TREE, audits: [] });
   });
 });

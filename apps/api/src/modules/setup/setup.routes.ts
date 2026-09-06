@@ -101,6 +101,6 @@ export async function setupRoutes(app: FastifyInstance) {
       tool: "PERMISSIONS",
       action: "create",
     });
-    return service.applyTemplate(requireTeam(req.account));
+    return service.applyTemplate(requireTeam(req.account), req.account.id);
   });
 }

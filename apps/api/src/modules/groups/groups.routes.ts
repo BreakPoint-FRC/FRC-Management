@@ -106,7 +106,11 @@ export async function groupsRoutes(app: FastifyInstance) {
       action: "create",
     });
 
-    const group = await service.create(requireTeam(req.account), createGroupSchema.parse(req.body));
+    const group = await service.create(
+      requireTeam(req.account),
+      createGroupSchema.parse(req.body),
+      req.account.id
+    );
     reply.code(201).send(group);
   });
 
@@ -119,7 +123,12 @@ export async function groupsRoutes(app: FastifyInstance) {
       action: "update",
     });
 
-    return service.update(requireTeam(req.account), id, updateGroupSchema.parse(req.body));
+    return service.update(
+      requireTeam(req.account),
+      id,
+      updateGroupSchema.parse(req.body),
+      req.account.id
+    );
   });
 
   // -> 204 | 400 | 401 | 403 | 404
@@ -137,7 +146,8 @@ export async function groupsRoutes(app: FastifyInstance) {
     await service.replaceTools(
       requireTeam(req.account),
       id,
-      replaceGroupToolsSchema.parse(req.body)
+      replaceGroupToolsSchema.parse(req.body),
+      req.account.id
     );
     reply.code(204).send();
   });
@@ -169,7 +179,7 @@ export async function groupsRoutes(app: FastifyInstance) {
       action: "delete",
     });
 
-    await service.remove(requireTeam(req.account), id);
+    await service.remove(requireTeam(req.account), id, req.account.id);
     reply.code(204).send();
   });
 }
