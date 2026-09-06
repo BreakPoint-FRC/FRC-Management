@@ -5,4 +5,8 @@
 -- rejects that write going forward; this repairs any environment where the
 -- row was already left inactive before the guard existed.
 
-UPDATE "Tool" SET "isActive" = true WHERE "key" = 'TOOLS';
+UPDATE "Tool"
+SET "isActive" = true,
+    "updatedAt" = CURRENT_TIMESTAMP
+WHERE "key" = 'TOOLS'
+  AND "isActive" = false;
