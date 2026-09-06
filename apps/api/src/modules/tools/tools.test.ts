@@ -328,3 +328,77 @@ describe("the global tool catalogue boundary", () => {
     await state.app.close();
   });
 });
+
+// #39: the TOOLS row is what every "tool":"TOOLS" authorize() call reads
+// through, including the one PATCH/DELETE would need to turn it back on. Once
+// it is inactive there is no request left that can undo it, so this is the one
+// tool the write path must refuse to deactivate -- everything else keeps
+// working exactly as before.
+describe("the TOOLS catalogue cannot lock itself out", () => {
+  it("refuses PATCH isActive:false on the TOOLS row", async () => {
+    const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "PATCH", "/tools/tool-tools", { isActive: false });
+    expect(response.statusCode).toBe(409);
+    expect(state.tools.find((tool) => tool.id === "tool-tools")?.isActive).toBe(true);
+
+    await state.app.close();
+  });
+
+  it("refuses DELETE on the TOOLS row", async () => {
+    const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "DELETE", "/tools/tool-tools");
+    expect(response.statusCode).toBe(409);
+    expect(state.tools.find((tool) => tool.id === "tool-tools")?.isActive).toBe(true);
+
+    await state.app.close();
+  });
+
+  it("still lets other modules be deactivated, and TOOLS routes keep working after a rejected attempt", async () => {
+    const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
+    await state.app.ready();
+
+    await inject(state.app, "DELETE", "/tools/tool-tools");
+
+    expect((await inject(state.app, "DELETE", "/tools/tool-tasks")).statusCode).toBe(204);
+    expect(state.tools.find((tool) => tool.id === "tool-tasks")?.isActive).toBe(false);
+
+    expect((await inject(state.app, "GET", "/tools")).statusCode).toBe(200);
+    expect(
+      (await inject(state.app, "PATCH", "/tools/tool-tools", { name: "Moduller" })).statusCode
+    ).toBe(200);
+
+    await state.app.close();
+  });
+
+  it("does not affect a team's own group-tool setup, since TOOLS never actually went inactive", async () => {
+    // The guard runs on the platform side; this proves the rejection has no
+    // side effect a team admin could ever observe on their own screen.
+    const state = statefulApp({ grants: ["GROUPS", "TOOLS"] });
+    await state.app.ready();
+
+    const groupResponse = await inject(state.app, "PUT", `/groups/${GROUP.id}/tools`, {
+      tools: [{ tool: "TASKS", isEnabled: true }],
+    });
+    expect(groupResponse.statusCode).toBe(204);
+
+    const advanceResponse = await inject(state.app, "POST", "/setup/advance");
+    expect(advanceResponse.statusCode).toBe(200);
+
+    await state.app.close();
+  });
+
+  it("a name-only PATCH on TOOLS is unaffected", async () => {
+    const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "PATCH", "/tools/tool-tools", { name: "Katalog" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ id: "tool-tools", name: "Katalog", isActive: true });
+
+    await state.app.close();
+  });
+});
