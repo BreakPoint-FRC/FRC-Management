@@ -14,8 +14,8 @@ import { createToolsService } from "./tools.service";
  *   POST   /tools    { key, name, description?, isActive? }
  *                           -> 201 | 400 | 401 | 403 | 409 duplicate key
  *   PATCH  /tools/:id { name?, description?, isActive? }
- *                           -> 200 | 400 | 401 | 403 | 404
- *   DELETE /tools/:id       -> 204 | 401 | 403 | 404   (deactivates)
+ *                           -> 200 | 400 | 401 | 403 | 404 | 409
+ *   DELETE /tools/:id       -> 204 | 401 | 403 | 404 | 409   (deactivates)
  *
  * A tool is the unit permissions are granted against, so editing this list is
  * editing the vocabulary the whole authorization layer speaks. It is one list
@@ -62,7 +62,7 @@ export async function toolsRoutes(app: FastifyInstance) {
     reply.code(201).send(tool);
   });
 
-  // -> 200 | 400 | 401 | 403 | 404
+  // -> 200 | 400 | 401 | 403 | 404 | 409
   app.patch("/:id", async (req) => {
     const { id } = req.params as { id: string };
     requirePlatform(req.account);
@@ -71,7 +71,7 @@ export async function toolsRoutes(app: FastifyInstance) {
     return service.update(id, updateToolSchema.parse(req.body));
   });
 
-  // -> 204 | 401 | 403 | 404
+  // -> 204 | 401 | 403 | 404 | 409
   app.delete("/:id", async (req, reply) => {
     const { id } = req.params as { id: string };
     requirePlatform(req.account);
