@@ -93,6 +93,37 @@ describe("recording attendance", () => {
     expect(upsert).toHaveBeenCalledTimes(1);
   });
 
+  it("records someone who is no longer in the group the meeting belongs to", async () => {
+    // The other half of "a saved roll call is a record, not a recomputation":
+    // the web app keeps a stored attendee who has since left the group in the
+    // payload, and the server has to accept them. Attendees are proved to
+    // belong to the *team*; group membership is deliberately not consulted,
+    // which also lets a guest at a group meeting be marked present.
+    const upsert = vi.fn();
+    const membershipQuery = vi.fn();
+    const prisma = {
+      meeting: { count: async () => 1 },
+      // Both ids are this team's people, which is the whole check.
+      account: { count: async () => 2 },
+      groupMembership: { count: membershipQuery, findMany: membershipQuery },
+      $transaction: async (fn: (client: unknown) => unknown) => fn(stubTx(vi.fn(), upsert)),
+    } as unknown as PrismaClient;
+
+    await createMeetingsService(prisma).recordAttendance(TEAM, "m1", {
+      attendance: [
+        { accountId: "a1", status: "PRESENT" },
+        { accountId: "a9", status: "PRESENT" },
+      ],
+    });
+
+    expect(membershipQuery).not.toHaveBeenCalled();
+    expect(upsert).toHaveBeenCalledTimes(2);
+    expect(upsert.mock.calls.map((call) => call[0].where.meetingId_accountId.accountId)).toEqual([
+      "a1",
+      "a9",
+    ]);
+  });
+
   it("counts late as having turned up", async () => {
     const prisma = {
       meeting: { count: async () => 1 },
@@ -110,6 +141,46 @@ describe("recording attendance", () => {
 });
 
 describe("creating a meeting", () => {
+  it("writes no roll call of its own", async () => {
+    // Deliberate, and the web app depends on it -- see apps/web/lib/attendance.ts.
+    // A row per member written here would be a record of a roll call nobody
+    // took: the list page reads `attendedCount / attendance.length`, so a
+    // meeting that has not happened yet would report "0 / 14" and there would
+    // be no way left to tell "not taken" from "everybody was absent". It would
+    // also go stale the moment PATCH /meetings/:id moves the meeting to another
+    // group, because nothing recomputes it.
+    const createMany = vi.fn();
+    const create = vi.fn(async () => ({
+      id: "m1",
+      seasonId: "s1",
+      groupId: "g1",
+      title: "Kickoff",
+      body: null,
+      meetingDate: new Date("2026-09-01"),
+      createdAt: new Date("2026-09-01"),
+      group: { name: "Yazilim" },
+      createdBy: { id: "a1", fullName: "Ada Yilmaz" },
+      attendance: [],
+    }));
+
+    const prisma = {
+      season: { findFirst: async () => ({ id: "s1" }) },
+      meeting: { create },
+      meetingAttendance: { createMany, create: createMany, upsert: createMany },
+    } as unknown as PrismaClient;
+
+    const meeting = await createMeetingsService(prisma).create(
+      TEAM,
+      { title: "Kickoff", groupId: "g1", meetingDate: new Date("2026-09-01") },
+      "a1"
+    );
+
+    expect(createMany).not.toHaveBeenCalled();
+    expect(meeting.attendance).toEqual([]);
+    // "Not taken", not "nobody came".
+    expect(meeting.attendedCount).toBe(0);
+  });
+
   it("refuses when there is no active season to attach it to", async () => {
     const prisma = {
       season: { findFirst: async () => null },
