@@ -26,7 +26,7 @@ import { createRolesService } from "./roles.service";
  *                                                               -> 200 | 400 | 401 | 403 | 404
  *   DELETE /roles/:id                                           -> 204 | 401 | 403 | 404 | 409 system or assigned
  *   PUT    /roles/:id/permissions { permissions: [{ tool, canRead, ... }] }
- *                                                               -> 204 | 400 | 401 | 403 | 404
+ *                                                    -> 204 | 400 | 401 | 403 | 404 | 409 platform-only tool
  *   POST   /roles/:id/children/:childId                         -> 204 | 401 | 403 | 404 | 409 cycle
  *   DELETE /roles/:id/children/:childId                         -> 204 | 401 | 403 | 404
  *

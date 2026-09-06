@@ -4,6 +4,7 @@ import {
   PERMISSION_FLAG,
   expandGroupSubtrees,
   groupAncestorPath,
+  isPlatformOnlyTool,
   mergePermissions,
   type PermissionAction,
   type PermissionSet,
@@ -315,6 +316,25 @@ export async function canPerform(
 }
 
 /**
+ * Whether this account could ever exercise a grant on this tool.
+ *
+ * The platform surface (/teams and catalogue mutations under /tools) is guarded
+ * by `requirePlatform`, which reads the account rather than a permission row --
+ * so for an account inside a team a TEAMS grant authorizes nothing, whether it
+ * was written by a mistake in a template or straight into the database.
+ *
+ * This is a *display* rule, and the only place in this file that is not a
+ * permission rule: `authorize()` is deliberately left alone, because the route
+ * check is what refuses those requests and duplicating it here would put the
+ * same decision in two places. What it prevents is /auth/me promising a link
+ * the API will answer 403 to -- a grant that cannot be exercised is not
+ * harmless, it is a menu of dead ends (docs/authorization.md).
+ */
+function exercisable(teamId: string | null, toolKey: string): boolean {
+  return teamId === null || !isPlatformOnlyTool(toolKey as ToolKey);
+}
+
+/**
  * Everything the signed-in account may do, for GET /auth/me.
  *
  * The web app uses this to decide what to render. It is a convenience, not a
@@ -347,7 +367,9 @@ export async function resolvePermissionMatrix(
 
   const teamWideRoleIds = expandDescendants(context.teamWideRoleIds, context.childrenOfRole);
   for (const tool of tools) {
-    global[tool.key] = await permissionsFor(prisma, teamWideRoleIds, tool.id);
+    global[tool.key] = exercisable(context.teamId, tool.key)
+      ? await permissionsFor(prisma, teamWideRoleIds, tool.id)
+      : { ...EMPTY_PERMISSIONS };
   }
 
   for (const [groupId, held] of context.roleIdsByGroup) {
@@ -363,9 +385,15 @@ export async function resolvePermissionMatrix(
       // Do not shortcut this on "holds a TEAM_WIDE role". That role is also in
       // roleIdsByGroup for every group, so skipping the gate would merge its
       // group-path permissions in and answer yes where authorize answers 403.
-      perTool[tool.key] = groupToolEnabled(context, groupId, tool.id)
-        ? mergePermissions([teamWide, await permissionsFor(prisma, roleIds, tool.id)])
-        : teamWide;
+      //
+      // The platform mask comes first: a group-scoped role could carry the same
+      // unexercisable grant, and merging it back in here would undo the mask a
+      // few lines up.
+      perTool[tool.key] = !exercisable(context.teamId, tool.key)
+        ? { ...EMPTY_PERMISSIONS }
+        : groupToolEnabled(context, groupId, tool.id)
+          ? mergePermissions([teamWide, await permissionsFor(prisma, roleIds, tool.id)])
+          : teamWide;
     }
 
     byGroup[groupId] = perTool;
