@@ -29,15 +29,21 @@ import { can } from "@/lib/permissions";
  * here, rather than one that would always fail.
  */
 export default function ToolsPage() {
-  const { permissions } = useAuth();
+  const { account, permissions } = useAuth();
   const tools = useApi<ToolRow[]>("/tools");
   const mutation = useMutation();
 
   const [editing, setEditing] = useState<ToolRow | null>(null);
   const [draft, setDraft] = useState({ name: "", description: "", isActive: true });
 
-  const mayUpdate = can(permissions, "TOOLS", "update");
-  const mayDelete = can(permissions, "TOOLS", "delete");
+  // The mutation routes are behind requirePlatform() as well as TOOLS, and a
+  // team admin legitimately holds TOOLS (it also gates their own group-tool
+  // screen) -- so the permission map alone would show these buttons to an
+  // account that gets a 403 the moment it clicks one. teamId === null is the
+  // same identity check the API makes.
+  const isPlatform = account?.teamId === null;
+  const mayUpdate = isPlatform && can(permissions, "TOOLS", "update");
+  const mayDelete = isPlatform && can(permissions, "TOOLS", "delete");
 
   function openEdit(tool: ToolRow) {
     setDraft({
@@ -109,8 +115,9 @@ export default function ToolsPage() {
             error={issueFor(mutation.error, "description")}
           />
           <CheckboxField
-            label="Aktif"
+            label={editing.key === "TOOLS" ? "Aktif (bu modul pasife alinamaz)" : "Aktif"}
             checked={draft.isActive}
+            disabled={editing.key === "TOOLS"}
             onChange={(isActive) => setDraft({ ...draft, isActive })}
           />
         </FormPanel>
@@ -149,7 +156,7 @@ export default function ToolsPage() {
                             Duzenle
                           </button>
                         ) : null}
-                        {mayDelete && tool.isActive ? (
+                        {mayDelete && tool.isActive && tool.key !== "TOOLS" ? (
                           <ConfirmButton
                             question={`${tool.name} modulu herkes icin kapatilsin mi?`}
                             onConfirm={() => void deactivate(tool.id)}
