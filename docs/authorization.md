@@ -23,10 +23,32 @@ group names, error messages — is Turkish.
 | `Tool` | Which modules exist? |
 | `GroupTool` | Which modules does a department use? |
 | `RolePermission` | What may a role do to a module? |
+| `AuditLog` | Who changed a security-sensitive setting, and what was its previous value? |
 
 `Account` has no `role` column and no permission flags. Everything about
 authority is reached through `AccountRole`, which is what makes it possible for
 one person to be Programming Lead and a Strategy member at the same time.
+
+## Security audit trail
+
+Audit history has its own `AUDIT_LOG` tool instead of reusing `ROLES`. The log
+also contains account assignments, group hierarchy and setup-template changes;
+requiring `ROLES/read` would tie access to only one of the domains it records
+and prevent a security reviewer from receiving audit access independently.
+`AUDIT_LOG` therefore grants read separately and accepts no create, update or
+delete flags.
+
+`GET /audit-log` is the only client-callable route. Its `teamId` comes from the
+authenticated account and is applied to both the page query and its count, so a
+caller cannot select another team's history. A platform `SYSTEM_ADMIN` has no
+team context and is intentionally not granted this endpoint; a future
+platform-wide audit view would need an explicit team-selection contract and a
+separate security review.
+
+Audit rows are emitted inside the transaction that performs the configuration
+change. A failed mutation therefore leaves no history claiming it happened, and
+there is no independent audit-write endpoint. `oldValue` and `newValue` contain
+allow-listed configuration snapshots only, never passwords, hashes or tokens.
 
 ## Tenancy
 

@@ -58,7 +58,7 @@ describe("role placement enforcement", () => {
   ];
 
   function stubPrisma() {
-    return {
+    const stub = {
       role: {
         findMany: async ({ where }: { where: { id: { in: string[] } } }) =>
           ROLES.filter((role) => where.id.in.includes(role.id)),
@@ -81,11 +81,22 @@ describe("role placement enforcement", () => {
           memberships: [],
         }),
       },
-      accountRole: { deleteMany: vi.fn(), createMany: vi.fn(), count: async () => 0 },
+      accountRole: {
+        deleteMany: vi.fn(),
+        createMany: vi.fn(),
+        count: async () => 0,
+        findMany: async () => [],
+      },
       groupMembership: { upsert: vi.fn() },
       roleHierarchy: { findMany: async () => [] },
-      $transaction: async (operations: unknown[]) => Promise.all(operations),
-    } as unknown as PrismaClient;
+      auditLog: { create: vi.fn() },
+    };
+    return Object.assign(stub, {
+      $transaction: async (work: unknown) =>
+        Array.isArray(work)
+          ? Promise.all(work)
+          : (work as (tx: typeof stub) => unknown)(stub),
+    }) as unknown as PrismaClient;
   }
 
   it("refuses a group role with no group", async () => {

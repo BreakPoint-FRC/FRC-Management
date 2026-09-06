@@ -7,6 +7,7 @@ import {
 } from "@breakpoint/types";
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
+import { writeAuditLog } from "../../lib/audit-log";
 import type { NamingInput } from "./setup.schema";
 import { FRC_ROLE_TEMPLATE, parseGrant } from "./setup.template";
 
@@ -223,7 +224,7 @@ export function createSetupService(prisma: PrismaClient) {
      * covering each department rather than a role per department. The team
      * narrows it afterwards if that is not what they meant.
      */
-    applyTemplate: async (teamId: string) => {
+    applyTemplate: async (teamId: string, actorId: string) => {
       const existing = await prisma.role.count({ where: { teamId, isSystemRole: false } });
       if (existing > 0) {
         throw new ConflictError(
@@ -244,6 +245,7 @@ export function createSetupService(prisma: PrismaClient) {
 
       return prisma.$transaction(async (tx) => {
         const idByKey = new Map<string, string>();
+        let permissionCount = 0;
 
         for (const template of FRC_ROLE_TEMPLATE) {
           const role = await tx.role.create({
@@ -269,7 +271,10 @@ export function createSetupService(prisma: PrismaClient) {
               ...parseGrant(letters),
             }))
             .filter((grant): grant is typeof grant & { toolId: string } => !!grant.toolId);
-          if (grants.length > 0) await tx.rolePermission.createMany({ data: grants });
+          if (grants.length > 0) {
+            await tx.rolePermission.createMany({ data: grants });
+            permissionCount += grants.length;
+          }
         }
 
         // Edges last, so every key in `above` already resolves to a row. The
@@ -282,6 +287,24 @@ export function createSetupService(prisma: PrismaClient) {
           }))
         ).filter((edge) => edge.parentRoleId && edge.childRoleId);
         if (edges.length > 0) await tx.roleHierarchy.createMany({ data: edges });
+
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "TEAM",
+          entityId: teamId,
+          action: "TEMPLATE_APPLIED",
+          newValue: {
+            template: "FRC_ROLE_TEMPLATE_V1",
+            roles: FRC_ROLE_TEMPLATE.map((role) => ({
+              id: idByKey.get(role.key) as string,
+              key: role.key,
+              placement: role.placement,
+            })),
+            permissionCount,
+            hierarchy: edges,
+          },
+        });
 
         return { created: idByKey.size, edges: edges.length };
       });

@@ -67,6 +67,7 @@ model Team {
   transactions  FinanceTransaction[]
   organizations Organization[]
   sponsorships  Sponsorship[]
+  auditLogs     AuditLog[]
 
   @@index([isActive])
   @@index([createdById])
@@ -147,6 +148,7 @@ model Account {
   taskActivities  TaskActivity[]
   transactions    FinanceTransaction[] @relation("TransactionAuthor")
   sponsorships    Sponsorship[]        @relation("SponsorshipOwner")
+  auditLogs        AuditLog[]
 
   @@index([teamId])
   @@index([isActive])
@@ -596,6 +598,33 @@ model TaskActivity {
   actor Account? @relation(fields: [actorId], references: [id], onDelete: SetNull)
 
   @@index([taskId, createdAt])
+  @@index([actorId])
+}
+
+// Security-sensitive configuration history. Unlike TaskActivity this carries
+// teamId directly: the only read endpoint must be able to enforce the tenant
+// boundary without resolving an arbitrary entity id first.
+//
+// actorId is required and Restrict. Accounts are archived rather than deleted,
+// so the answer to "who changed this?" never has to disappear from the log.
+// oldValue and newValue contain allow-listed configuration snapshots only;
+// request bodies, password hashes and tokens are never serialized into them.
+model AuditLog {
+  id         String   @id @default(cuid())
+  teamId     String
+  actorId    String
+  entityType String
+  entityId   String
+  action     String
+  oldValue   Json?
+  newValue   Json?
+  createdAt  DateTime @default(now())
+
+  team  Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  actor Account @relation(fields: [actorId], references: [id], onDelete: Restrict)
+
+  @@index([teamId, createdAt])
+  @@index([teamId, entityType, entityId, createdAt])
   @@index([actorId])
 }
 

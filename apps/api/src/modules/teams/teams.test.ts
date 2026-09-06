@@ -88,6 +88,172 @@ describe("team archival", () => {
   });
 });
 
+describe("team administrator audit", () => {
+  it("audits the bootstrap role, its permissions and the first administrator", async () => {
+    const audit = vi.fn().mockResolvedValue({});
+    const tx = {
+      team: { create: vi.fn(async () => ({ id: "team-new" })) },
+      role: {
+        create: vi.fn(async () => ({ id: "role-admin" })),
+        findFirst: vi.fn(async () => ({ id: "role-admin" })),
+      },
+      tool: {
+        findMany: vi.fn(async () => [
+          { id: "tool-audit", key: "AUDIT_LOG" },
+          { id: "tool-tasks", key: "TASKS" },
+        ]),
+      },
+      rolePermission: { createMany: vi.fn(async () => ({ count: 2 })) },
+      account: {
+        count: vi.fn(async () => 0),
+        create: vi.fn(async () => ({
+          id: "account-admin",
+          email: "admin@example.test",
+          fullName: "New Admin",
+        })),
+      },
+      accountRole: { create: vi.fn(async () => ({})) },
+      auditLog: { create: audit },
+    };
+    const prisma = asPrisma({
+      team: {
+        count: vi.fn(async () => 0),
+        findUniqueOrThrow: vi.fn(async () => ({
+          id: "team-new",
+          name: "New Team",
+          slug: "new-team",
+          isActive: true,
+          setupStage: "GROUPS",
+          setupCompletedAt: null,
+          createdAt: new Date("2026-09-06"),
+          _count: { accounts: 1, groups: 0 },
+        })),
+      },
+      $transaction: (work: (client: typeof tx) => unknown) => work(tx),
+    });
+
+    await createTeamsService(prisma).create(
+      {
+        name: "New Team",
+        adminFullName: "New Admin",
+        adminEmail: "admin@example.test",
+      },
+      "system-admin"
+    );
+
+    expect(audit.mock.calls.map((call) => call[0].data.action)).toEqual([
+      "ROLE_CREATED",
+      "ACCOUNT_CREATED",
+    ]);
+    expect(audit.mock.calls[0]?.[0].data).toMatchObject({
+      teamId: "team-new",
+      actorId: "system-admin",
+      entityId: "role-admin",
+      newValue: {
+        permissions: [
+          {
+            tool: "AUDIT_LOG",
+            canRead: true,
+            canCreate: false,
+            canUpdate: false,
+            canDelete: false,
+          },
+          {
+            tool: "TASKS",
+            canRead: true,
+            canCreate: true,
+            canUpdate: true,
+            canDelete: true,
+          },
+        ],
+      },
+    });
+    expect(audit.mock.calls[1]?.[0].data).toMatchObject({
+      teamId: "team-new",
+      actorId: "system-admin",
+      entityId: "account-admin",
+      newValue: { roles: [{ roleId: "role-admin", groupId: null }] },
+    });
+    expect(JSON.stringify(audit.mock.calls)).not.toMatch(/password|token/i);
+  });
+
+  it("audits a later administrator in the same transaction", async () => {
+    const audit = vi.fn().mockResolvedValue({});
+    const tx = {
+      account: {
+        count: vi.fn(async () => 0),
+        create: vi.fn(async () => ({
+          id: "account-second",
+          email: "second@example.test",
+          fullName: "Second Admin",
+        })),
+      },
+      role: { findFirst: vi.fn(async () => ({ id: "role-admin" })) },
+      accountRole: { create: vi.fn(async () => ({})) },
+      auditLog: { create: audit },
+    };
+    const prisma = asPrisma({
+      team: { findUnique: vi.fn(async () => ({ isActive: true })) },
+      $transaction: (work: (client: typeof tx) => unknown) => work(tx),
+    });
+
+    await createTeamsService(prisma).addAdmin(
+      "team-1",
+      { fullName: "Second Admin", email: "second@example.test" },
+      "system-admin"
+    );
+
+    expect(audit).toHaveBeenCalledOnce();
+    expect(audit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        teamId: "team-1",
+        actorId: "system-admin",
+        entityId: "account-second",
+        action: "ACCOUNT_CREATED",
+      }),
+    });
+  });
+
+  it("commits neither an administrator nor its audit when the transaction fails", async () => {
+    const committed = { accounts: [] as string[], audits: [] as unknown[] };
+    const staged = { accounts: [] as string[], audits: [] as unknown[] };
+    const prisma = asPrisma({
+      team: { findUnique: vi.fn(async () => ({ isActive: true })) },
+      $transaction: async (work: (client: unknown) => unknown) => {
+        const tx = {
+          account: {
+            count: async () => 0,
+            create: async () => {
+              staged.accounts.push("account-second");
+              return {
+                id: "account-second",
+                email: "second@example.test",
+                fullName: "Second Admin",
+              };
+            },
+          },
+          role: { findFirst: async () => ({ id: "role-admin" }) },
+          accountRole: { create: async () => ({}) },
+          auditLog: { create: async (entry: unknown) => staged.audits.push(entry) },
+        };
+        await work(tx);
+        throw new Error("commit failed");
+      },
+    });
+
+    await expect(
+      createTeamsService(prisma).addAdmin(
+        "team-1",
+        { fullName: "Second Admin", email: "second@example.test" },
+        "system-admin"
+      )
+    ).rejects.toThrow(/commit failed/);
+    expect(staged.accounts).toEqual(["account-second"]);
+    expect(staged.audits).toHaveLength(1);
+    expect(committed).toEqual({ accounts: [], audits: [] });
+  });
+});
+
 describe("archived teams are an authentication boundary", () => {
   const inactiveTeamAccount = { ...ACTIVE_ACCOUNT, team: { isActive: false } };
 
@@ -266,7 +432,7 @@ describe("/teams belongs to the platform, not to a team", () => {
                 create: async () => ({ id: "role-admin-new" }),
                 findFirst: async () => ({ id: "role-admin" }),
               },
-              tool: { findMany: async () => [{ id: "tool-tasks" }] },
+              tool: { findMany: async () => [{ id: "tool-tasks", key: "TASKS" }] },
               rolePermission: { createMany: async () => ({ count: 1 }) },
               account: {
                 count: async () => 0,
@@ -277,6 +443,7 @@ describe("/teams belongs to the platform, not to a team", () => {
                 }),
               },
               accountRole: { create: async () => ({}) },
+              auditLog: { create: async () => ({}) },
             }),
       // Reached by both authenticate and authorize; the caller, never a target.
       account: { findUnique: async () => account, updateMany: async () => ({ count: 1 }) },
