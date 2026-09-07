@@ -54,7 +54,7 @@ export default function GroupsPage() {
   // Only loaded while the members editor is open: the roster of everyone, so
   // people can be added, not just removed.
   const accounts = useApi<Paginated<AccountRow>>(
-    panel.kind === "members" ? "/accounts?pageSize=200" : null
+    panel.kind === "members" ? "/accounts?pageSize=100" : null
   );
 
   // Seeded from the loaded roster. Doing this during render would be a

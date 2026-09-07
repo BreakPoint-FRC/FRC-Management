@@ -75,7 +75,7 @@ export default function GanttPage() {
   // a team-wide read that the board's own lead may not have.
   const candidates = useApi<Paginated<TaskRow>>(
     panel.kind === "tasks"
-      ? `/tasks?pageSize=200${panel.board.groupId ? `&groupId=${panel.board.groupId}` : ""}`
+      ? `/tasks?pageSize=100${panel.board.groupId ? `&groupId=${panel.board.groupId}` : ""}`
       : null
   );
 

@@ -43,8 +43,8 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
   const candidates = useApi<Paginated<AccountRow>>(
     editingAssignees
       ? task.data?.groupId
-        ? `/accounts?groupId=${encodeURIComponent(task.data.groupId)}&pageSize=200`
-        : "/accounts?pageSize=200"
+        ? `/accounts?groupId=${encodeURIComponent(task.data.groupId)}&pageSize=100`
+        : "/accounts?pageSize=100"
       : null
   );
 
