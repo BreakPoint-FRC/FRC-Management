@@ -2,20 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import {
-  attendanceStatusLabels,
-  type AttendanceStatus,
-  type Paginated,
-} from "@breakpoint/types";
+import { attendanceStatusLabels, type AttendanceStatus } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, ErrorBox, PageHeader } from "@/components/ui";
 import { useApi } from "@/hooks/use-api";
 import { ApiError, apiClient } from "@/lib/api-client";
-import { buildRollCall } from "@/lib/attendance";
+import { buildRollCall, canSaveRollCall, type Candidate } from "@/lib/attendance";
 import { formatDate } from "@/lib/format";
 import { can } from "@/lib/permissions";
-import type { AccountRow, MeetingRow } from "@/lib/api-types";
+import type { MeetingRow } from "@/lib/api-types";
 import { attendanceTone } from "@/lib/status";
 
 export default function MeetingDetailPage({ params }: { params: { meetingId: string } }) {
@@ -33,20 +29,17 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
   // server-side, and lib/attendance.ts says why -- so without this the page has
   // nothing to draw and attendance cannot be taken at all.
   //
-  // The group's members for a group meeting; everyone on the team for a
-  // team-wide one, because a team meeting is attended by the team and there is
-  // no "member role" to filter on: roles are rows a team defines for itself.
+  // Its own endpoint rather than GET /accounts: this is gated on MEETINGS/update
+  // for the meeting's own group, the same permission `mayUpdate` above already
+  // checked, so there is no second permission (ACCOUNTS/read) that has to
+  // happen to agree with it -- and no page size to run into either, since the
+  // route returns the whole roster rather than a paginated slice.
   //
-  // Only asked for when the viewer may actually take the roll call. Reading the
-  // roster needs ACCOUNTS/read, which every role that can update a meeting
-  // holds and a plain member does not -- asking anyway would turn their page
-  // into an error box.
-  const candidates = useApi<Paginated<AccountRow>>(
-    !mayUpdate || !meeting.data
-      ? null
-      : meeting.data.groupId
-        ? `/accounts?groupId=${encodeURIComponent(meeting.data.groupId)}&pageSize=100`
-        : "/accounts?pageSize=100"
+  // Only asked for when the viewer may actually take the roll call; asking
+  // anyway would turn a plain member's page into an error box for a request
+  // the route would refuse regardless.
+  const candidates = useApi<Candidate[]>(
+    !mayUpdate || !meeting.data ? null : `/meetings/${params.meetingId}/attendance-candidates`
   );
 
   const [draft, setDraft] = useState<Record<string, AttendanceStatus>>({});
@@ -59,8 +52,13 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
     setDraft({});
   }, [meeting.data]);
 
-  const rows = buildRollCall(meeting.data?.attendance ?? [], candidates.data?.items ?? null);
-  const rosterTruncated = candidates.data ? candidates.data.total > candidates.data.items.length : false;
+  const rows = buildRollCall(meeting.data?.attendance ?? [], candidates.data ?? null);
+  const canSave = canSaveRollCall({
+    mayUpdate,
+    saving,
+    candidatesLoading: candidates.loading,
+    candidatesFailed: candidates.error !== null,
+  });
 
   async function save() {
     setSaving(true);
@@ -126,20 +124,6 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                   sayilir.
                 </p>
 
-                {/* paginationSchema caps pageSize at 100, so a team with more
-                    accounts than that gets a roster with names missing from it.
-                    Nobody already on the roll call is lost -- the stored list is
-                    merged in regardless -- but somebody who has never been
-                    marked would be invisible, and a roll call that quietly
-                    leaves people out is worse than one that says so. */}
-                {rosterTruncated ? (
-                  <p className="small muted">
-                    Listede {candidates.data?.total} kisiden ilk{" "}
-                    {candidates.data?.items.length} tanesi var. Kalanlar icin
-                    yoklama bu ekrandan alinamiyor.
-                  </p>
-                ) : null}
-
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
@@ -155,9 +139,11 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                           <td className="muted" colSpan={3}>
                             {candidates.loading
                               ? "Uyeler yukleniyor..."
-                              : mayUpdate
-                                ? "Bu toplantiya katilabilecek kimse yok."
-                                : "Yoklama alinmamis."}
+                              : candidates.error
+                                ? "Katilimci listesi yuklenemedi."
+                                : mayUpdate
+                                  ? "Bu toplantiya katilabilecek kimse yok."
+                                  : "Yoklama alinmamis."}
                           </td>
                         </tr>
                       ) : null}
@@ -208,10 +194,11 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                     className="btn btn-primary"
                     type="button"
                     style={{ marginTop: 12 }}
-                    // Held until the roster has arrived: saving before it does
-                    // would write a roll call missing everyone it was about to
-                    // add, and the save replaces the whole set.
-                    disabled={saving || candidates.loading}
+                    // Held until the roster has arrived successfully: the save
+                    // sends buildRollCall's union, so a press before it does (or
+                    // after it failed) would replace the whole set with one
+                    // built from the stored list alone. See canSaveRollCall.
+                    disabled={!canSave}
                     onClick={() => void save()}
                   >
                     {saving ? "Kaydediliyor..." : "Yoklamayi kaydet"}

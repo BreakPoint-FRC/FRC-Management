@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { buildRollCall } from "./attendance";
+import { buildRollCall, canSaveRollCall } from "./attendance";
 
 const names = (rows: ReturnType<typeof buildRollCall>) => rows.map((row) => row.fullName);
 
@@ -20,7 +20,10 @@ describe("buildRollCall", () => {
     expect(rows.every((row) => row.isFormerMember === false)).toBe(true);
   });
 
-  it("keeps what was recorded rather than defaulting it back to absent", () => {
+  it("keeps what was recorded rather than defaulting it back to absent, and adds nobody else", () => {
+    // A roll call that has already been taken once is not re-seeded from the
+    // roster: a2 is on the roster here and is not in the stored list, and must
+    // not appear just because they exist.
     const rows = buildRollCall(
       [{ accountId: "a1", fullName: "Ada Yilmaz", status: "LATE", note: "Servis gecikti." }],
       [
@@ -37,14 +40,14 @@ describe("buildRollCall", () => {
         note: "Servis gecikti.",
         isFormerMember: false,
       },
-      { accountId: "a2", fullName: "Deniz Kaya", status: "ABSENT", note: null, isFormerMember: false },
     ]);
   });
 
-  it("adds someone who joined the group after the roll call was taken", () => {
-    // Decision: a saved roll call is never recomputed, but the editor is drawn
-    // from the roster as it stands now, so a new member can be marked without
-    // anyone rewriting history.
+  it("does not backfill someone who joined the group after the roll call was taken", () => {
+    // The bug this replaces: a stored roll call is a record, and the roster is
+    // consulted here only to decide isFormerMember below, never to add a row.
+    // A February meeting, saved again in March for an unrelated reason, must
+    // not end up with an ABSENT entry for someone who joined in March.
     const rows = buildRollCall(
       [{ accountId: "a1", fullName: "Ada Yilmaz", status: "PRESENT", note: null }],
       [
@@ -53,8 +56,24 @@ describe("buildRollCall", () => {
       ]
     );
 
+    expect(names(rows)).toEqual(["Ada Yilmaz"]);
+  });
+
+  it("still adds every roster member the very first time a roll call is taken", () => {
+    // The other half of the same rule: the empty-stored case is the one and
+    // only place the roster is allowed to add rows, and it still has to.
+    const rows = buildRollCall(
+      [],
+      [
+        { id: "a1", fullName: "Ada Yilmaz" },
+        { id: "a3", fullName: "Emre Sahin" },
+      ]
+    );
+
     expect(names(rows)).toEqual(["Ada Yilmaz", "Emre Sahin"]);
-    expect(rows[1]).toMatchObject({ accountId: "a3", status: "ABSENT", isFormerMember: false });
+    expect(rows.every((row) => row.status === "ABSENT" && row.isFormerMember === false)).toBe(
+      true
+    );
   });
 
   it("keeps someone who has since left the group, flagged", () => {
@@ -138,5 +157,37 @@ describe("buildRollCall", () => {
 
   it("returns nothing for a group with no members and no roll call", () => {
     expect(buildRollCall([], [])).toEqual([]);
+  });
+});
+
+describe("canSaveRollCall", () => {
+  const READY = {
+    mayUpdate: true,
+    saving: false,
+    candidatesLoading: false,
+    candidatesFailed: false,
+  };
+
+  it("allows saving once the roster has loaded successfully", () => {
+    expect(canSaveRollCall(READY)).toBe(true);
+  });
+
+  it("refuses without MEETINGS/update", () => {
+    expect(canSaveRollCall({ ...READY, mayUpdate: false })).toBe(false);
+  });
+
+  it("refuses a second press while a save is already in flight", () => {
+    expect(canSaveRollCall({ ...READY, saving: true })).toBe(false);
+  });
+
+  it("refuses while the roster is still loading", () => {
+    expect(canSaveRollCall({ ...READY, candidatesLoading: true })).toBe(false);
+  });
+
+  it("refuses once the roster request has failed, not just while it is loading", () => {
+    // The bug this guards: a failed request also leaves `loading` false, so
+    // checking only that would let a save through with an incomplete roster
+    // baked into buildRollCall's union.
+    expect(canSaveRollCall({ ...READY, candidatesFailed: true })).toBe(false);
   });
 });
