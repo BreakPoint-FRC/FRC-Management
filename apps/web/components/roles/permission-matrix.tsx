@@ -1,6 +1,11 @@
 "use client";
 
-import { PLATFORM_ONLY_TOOL_KEYS, TOOL_KEYS, type ToolKey } from "@breakpoint/types";
+import {
+  isReadOnlyTool,
+  PLATFORM_ONLY_TOOL_KEYS,
+  TOOL_KEYS,
+  type ToolKey,
+} from "@breakpoint/types";
 
 /**
  * The four flags a RolePermission row carries, and the letters the UI shows
@@ -65,14 +70,32 @@ export function matrixFromPermissions(
 }
 
 /**
+ * Whether one action's box for one tool must be false, regardless of what the
+ * caller's state holds for it.
+ *
+ * Two different reasons produce the same drawing: a whole tool locked by
+ * `lockedTools` (platform-only, see lockedToolsFor), or a read-only tool's
+ * mutation columns (see isReadOnlyTool -- AUDIT_LOG accepts canRead but the
+ * API refuses any grant that sets canCreate/canUpdate/canDelete on it).
+ */
+function isCellLocked(
+  tool: ToolKey,
+  action: (typeof PERMISSION_ACTIONS)[number]["key"],
+  lockedTools: ReadonlySet<ToolKey>
+): boolean {
+  if (lockedTools.has(tool)) return true;
+  return action !== "canRead" && isReadOnlyTool(tool);
+}
+
+/**
  * The whole set, as PUT /roles/:id/permissions wants it.
  *
- * A locked tool is sent as four falses rather than left out: the endpoint
- * replaces the matrix whole, so an omitted tool and an empty one mean the same
- * thing to it, and sending the row keeps the payload the same shape for every
- * role. Forcing them empty rather than passing them through is what makes a
- * role that somehow holds a locked grant saveable -- the save clears it instead
- * of failing on it forever.
+ * A locked tool or a locked column is sent as false rather than whatever the
+ * caller's state holds: the endpoint replaces the matrix whole, so an omitted
+ * flag and a false one mean the same thing to it, and sending the row keeps
+ * the payload the same shape for every role. Forcing it false rather than
+ * passing it through is what makes a role that somehow holds a locked grant
+ * saveable -- the save clears it instead of failing on it forever.
  */
 export function permissionsPayload(
   value: PermissionMatrixValue,
@@ -80,7 +103,13 @@ export function permissionsPayload(
 ) {
   return TOOL_KEYS.map((tool) => ({
     tool,
-    ...(lockedTools.has(tool) ? NO_FLAGS : value[tool] ?? NO_FLAGS),
+    ...NO_FLAGS,
+    ...(value[tool] ?? NO_FLAGS),
+    ...Object.fromEntries(
+      PERMISSION_ACTIONS.filter((action) => isCellLocked(tool, action.key, lockedTools)).map(
+        (action) => [action.key, false]
+      )
+    ),
   }));
 }
 
@@ -128,33 +157,42 @@ export function PermissionMatrix({
         <tbody>
           {TOOL_KEYS.map((tool) => {
             const locked = lockedTools.has(tool);
+            const readOnly = !locked && isReadOnlyTool(tool);
             return (
               <tr key={tool}>
                 <td>
                   {tool}
-                  {locked ? (
-                    <span className="small muted"> — platform rolu</span>
-                  ) : null}
+                  {locked ? <span className="small muted"> — platform rolu</span> : null}
+                  {readOnly ? <span className="small muted"> — yalnizca okuma</span> : null}
                 </td>
-                {PERMISSION_ACTIONS.map((action) => (
-                  <td key={action.key} className="numeric">
-                    <input
-                      type="checkbox"
-                      disabled={disabled || locked}
-                      title={locked ? "Bu modul yalnizca platform rolune verilebilir" : undefined}
-                      checked={locked ? false : value[tool]?.[action.key] ?? false}
-                      onChange={(event) =>
-                        onChange({
-                          ...value,
-                          [tool]: {
-                            ...(value[tool] ?? NO_FLAGS),
-                            [action.key]: event.target.checked,
-                          },
-                        })
-                      }
-                    />
-                  </td>
-                ))}
+                {PERMISSION_ACTIONS.map((action) => {
+                  const cellLocked = isCellLocked(tool, action.key, lockedTools);
+                  return (
+                    <td key={action.key} className="numeric">
+                      <input
+                        type="checkbox"
+                        disabled={disabled || cellLocked}
+                        title={
+                          locked
+                            ? "Bu modul yalnizca platform rolune verilebilir"
+                            : cellLocked
+                              ? "Bu modul yalnizca okuma yetkisi kabul eder"
+                              : undefined
+                        }
+                        checked={cellLocked ? false : value[tool]?.[action.key] ?? false}
+                        onChange={(event) =>
+                          onChange({
+                            ...value,
+                            [tool]: {
+                              ...(value[tool] ?? NO_FLAGS),
+                              [action.key]: event.target.checked,
+                            },
+                          })
+                        }
+                      />
+                    </td>
+                  );
+                })}
               </tr>
             );
           })}

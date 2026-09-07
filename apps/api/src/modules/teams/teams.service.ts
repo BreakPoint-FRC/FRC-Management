@@ -3,8 +3,10 @@ import { randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 import {
   generateTemporaryPassword,
+  isReadOnlyTool,
   slugifyTeamName,
   type CreateTeamInput,
+  type ToolKey,
   type UpdateTeamInput,
 } from "@breakpoint/types";
 
@@ -188,9 +190,9 @@ export function createTeamsService(prisma: PrismaClient) {
             canRead: true,
             // Audit entries are emitted internally by the transaction they
             // describe. There is deliberately no client mutation authority.
-            canCreate: tool.key !== "AUDIT_LOG",
-            canUpdate: tool.key !== "AUDIT_LOG",
-            canDelete: tool.key !== "AUDIT_LOG",
+            canCreate: !isReadOnlyTool(tool.key as ToolKey),
+            canUpdate: !isReadOnlyTool(tool.key as ToolKey),
+            canDelete: !isReadOnlyTool(tool.key as ToolKey),
           }))
           .sort((left, right) => left.tool.localeCompare(right.tool));
         await tx.rolePermission.createMany({

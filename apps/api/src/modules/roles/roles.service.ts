@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 import {
   isPlatformOnlyTool,
+  isReadOnlyTool,
   placementForbidsGroupScope,
   placementNeedsGroupScope,
   roleDepths,
@@ -615,13 +616,15 @@ export function createRolesService(prisma: PrismaClient) {
         );
       }
 
-      const auditMutationGrant = input.permissions.find(
+      const readOnlyMutationGrant = input.permissions.find(
         (entry) =>
-          entry.tool === "AUDIT_LOG" &&
+          isReadOnlyTool(entry.tool) &&
           (entry.canCreate || entry.canUpdate || entry.canDelete)
       );
-      if (auditMutationGrant) {
-        throw new ConflictError("AUDIT_LOG yalnizca okuma yetkisi kabul eder");
+      if (readOnlyMutationGrant) {
+        throw new ConflictError(
+          `${readOnlyMutationGrant.tool} yalnizca okuma yetkisi kabul eder`
+        );
       }
 
       const tools = await prisma.tool.findMany({
