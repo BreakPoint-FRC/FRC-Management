@@ -83,22 +83,29 @@ comment already claims.
 
 | Meeting | Roster |
 | --- | --- |
-| Group (`groupId` set) | `GET /accounts?groupId=<id>` — active `GroupMembership`, archived accounts excluded |
-| Team-wide (`groupId` null) | `GET /accounts` — every non-archived account on the team |
+| Group (`groupId` set) | active `GroupMembership` in that group, archived accounts excluded |
+| Team-wide (`groupId` null) | every non-archived account on the team |
 
 Team-wide is deliberately not filtered by role. A team meeting is attended by
 the team, and there is no "member role" to filter on: roles are rows each team
 defines and can rename or delete, so any hardcoded key would be a guess that
 breaks on a team that reorganised.
 
-The roster is requested only when the viewer may actually take the roll call.
-Reading it needs `ACCOUNTS/read`, which every role that can update a meeting
-holds (`LEAD` and everything above it) and a plain member does not — asking
-anyway would turn a member's page into an error box.
+Read from `GET /meetings/:id/attendance-candidates`, not `GET /accounts`. The
+first draft asked `/accounts`, which needs `ACCOUNTS/read` — a permission that
+can be edited independently of `MEETINGS/update` and, on a team that has done
+exactly that for a role that only runs meetings, would leave someone who can
+update a meeting through the API still refused the list of people to mark it
+against. The dedicated route is authorized against `MEETINGS/update` for the
+meeting's own group instead, the same check the page already needs to pass to
+show the editor at all, so there is no second permission left that can
+disagree with it. It also has no page size to run into: it returns the whole
+roster, not a paginated slice, because a team large enough for `/accounts`'s
+100-row page to matter was the bug, not a real limit.
 
-Both rosters are capped at 100 by `paginationSchema`. A team larger than that
-gets a truncated list, and the page says so rather than quietly leaving people
-out.
+The roster is requested only when the viewer may actually take the roll call —
+asking anyway would turn a plain member's page into an error box for a request
+the route would refuse regardless.
 
 ### A saved roll call is a record, not a recomputation
 
@@ -106,15 +113,30 @@ Stored attendance is never recalculated when group membership changes. Past
 attendance is the record of who was in the room, and a member list edited in
 March must not rewrite what February's meeting says.
 
-The editor therefore shows the **union** of the stored roll call and the current
-roster, not either alone:
+That rule cuts both ways, and the roster's part in the editor is smaller than
+"union" first suggests:
 
-- somebody who joined after the roll call was taken appears, absent, and can be
-  marked;
-- somebody who has since left the group still appears with their recorded
-  status, flagged, and is still sent back with every save.
+- **A meeting with no roll call yet** (`stored` is empty) gets its rows from
+  the roster, full stop — that is the bug this file exists for, and it is the
+  *only* place the roster is allowed to add a row.
+- **A meeting that already has one** gets its rows from the stored list alone.
+  The roster is still read, but only to flag a stored attendee who is no
+  longer on it (`isFormerMember`) — never to add a row for someone who was not
+  in the stored list, however current a member they are now.
 
-That second one is the whole reason for the union. `PUT
-/meetings/:id/attendance` deletes anyone missing from the payload, so an editor
-drawn from the current roster alone would erase, on the next save, a record of
-attendance that actually happened.
+The first draft did not draw that line: it merged the roster into every
+render regardless of whether a roll call already existed, so opening a
+months-old meeting and saving it again — for any reason, even to fix one
+person's note — wrote a fresh `ABSENT` row for everyone who had joined the
+team since. `PUT /meetings/:id/attendance` deletes anyone missing from the
+payload, so that write reached the database on the very next save: a March
+save of a February meeting invented February attendance for a person who did
+not exist there yet. That is the opposite failure from the one this section
+opens with, and just as real — see `apps/web/lib/attendance.ts`, where
+`stored.length === 0` is the whole guard.
+
+What the roster still protects, once a roll call exists, is the other
+direction: someone who has since left the group keeps their recorded status
+and is flagged rather than silently dropped on the next whole-set `PUT` — an
+editor built from the current roster alone would erase that the moment they
+left.
