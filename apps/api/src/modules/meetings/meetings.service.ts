@@ -118,6 +118,32 @@ export function createMeetingsService(prisma: PrismaClient) {
     },
 
     /**
+     * Who a roll call for this meeting can be taken over: the group's active
+     * members for a group meeting, everyone non-archived on the team for a
+     * team-wide one. `{id, fullName}` only -- this is a roster to draw a table
+     * from, not an accounts listing, so it carries none of `Account`'s other
+     * fields and none of `GET /accounts`'s pagination. A team is not going to
+     * have thousands of members; capping this at 100 was the bug, not a
+     * feature.
+     *
+     * Authorized by the route against MEETINGS/update for this meeting's own
+     * group, same as recording attendance. That is the point of this being its
+     * own endpoint rather than the caller reaching for GET /accounts: whoever
+     * can take a roll call can always see who it can be taken over, with no
+     * second permission (ACCOUNTS/read) that has to happen to line up with it.
+     */
+    attendanceCandidates: (teamId: string, groupId: string | null) =>
+      prisma.account.findMany({
+        where: {
+          teamId,
+          archivedAt: null,
+          ...(groupId ? { memberships: { some: { groupId, isActive: true } } } : {}),
+        },
+        select: { id: true, fullName: true },
+        orderBy: { fullName: "asc" },
+      }),
+
+    /**
      * Replaces the roll call.
      *
      * Anyone left out of the list is dropped, not silently kept: the list is

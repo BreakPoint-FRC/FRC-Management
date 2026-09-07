@@ -21,6 +21,7 @@ import { createMeetingsService } from "./meetings.service";
  *                                                             -> 201 | 400 | 401 | 403 | 409 no active season
  *   PATCH  /meetings/:id { title?, body?, meetingDate?, groupId? }
  *                                                             -> 200 | 400 | 401 | 403 | 404
+ *   GET    /meetings/:id/attendance-candidates                -> 200 | 401 | 403 | 404
  *   PUT    /meetings/:id/attendance { attendance: [{ accountId, status, note? }] }
  *                                                             -> 200 | 400 | 401 | 403 | 404
  *   DELETE /meetings/:id                                      -> 204 | 401 | 403 | 404
@@ -29,6 +30,13 @@ import { createMeetingsService } from "./meetings.service";
  * Roll call is separate because it is a set with its own shape, and because
  * writing a report and taking attendance are done by different people at
  * different times.
+ *
+ * attendance-candidates is gated on MEETINGS/update rather than ACCOUNTS/read.
+ * Whoever can record a roll call has to be able to see who it can be taken
+ * over -- making that depend on a second, independently-editable permission
+ * would let a team configure a role that can update a meeting and still get
+ * refused the list of people to mark, which is exactly the bug this route
+ * replaces (the web app used to ask GET /accounts instead).
  */
 export async function meetingsRoutes(app: FastifyInstance) {
   const service = createMeetingsService(app.prisma);
@@ -107,6 +115,14 @@ export async function meetingsRoutes(app: FastifyInstance) {
     }
 
     return service.update(requireTeam(req.account), id, input);
+  });
+
+  // -> 200 | 401 | 403 | 404
+  app.get("/:id/attendance-candidates", async (req) => {
+    const { id } = req.params as { id: string };
+    const meeting = await authorizeExisting(req.account, id, "update");
+
+    return service.attendanceCandidates(requireTeam(req.account), meeting.groupId);
   });
 
   // -> 200 | 400 | 401 | 403 | 404
