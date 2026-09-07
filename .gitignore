@@ -11,6 +11,7 @@ out/
 
 # Env files — .env.example is the only one that ships
 .env*
+*.env
 !.env.example
 
 # Logs
