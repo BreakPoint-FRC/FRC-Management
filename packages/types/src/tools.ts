@@ -24,6 +24,7 @@ export const TOOL_KEYS = [
   "ROLES",
   "TOOLS",
   "PERMISSIONS",
+  "AUDIT_LOG",
   "SEASONS",
   "TEAMS",
 ] as const;
@@ -53,6 +54,23 @@ export const PLATFORM_ONLY_TOOL_KEYS = ["TEAMS"] as const;
 
 export function isPlatformOnlyTool(key: ToolKey): boolean {
   return (PLATFORM_ONLY_TOOL_KEYS as readonly ToolKey[]).includes(key);
+}
+
+/**
+ * Tools whose grant may hold `canRead` but never `canCreate`, `canUpdate` or
+ * `canDelete`.
+ *
+ * `AUDIT_LOG` is written exclusively by the server transaction that performs
+ * the change it records (see `docs/authorization.md`) -- there is no
+ * client-callable route a mutation grant could ever authorize. This is what
+ * `roles.service.replacePermissions` refuses (409) and what the permission
+ * matrix locks those three columns against, so a role editor cannot tick a
+ * box the server has already decided to refuse.
+ */
+export const READ_ONLY_TOOL_KEYS = ["AUDIT_LOG"] as const;
+
+export function isReadOnlyTool(key: ToolKey): boolean {
+  return (READ_ONLY_TOOL_KEYS as readonly ToolKey[]).includes(key);
 }
 
 export const toolSchema = z.object({

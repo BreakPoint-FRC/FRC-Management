@@ -1,6 +1,7 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 import {
   isPlatformOnlyTool,
+  isReadOnlyTool,
   placementForbidsGroupScope,
   placementNeedsGroupScope,
   roleDepths,
@@ -9,6 +10,7 @@ import {
 } from "@breakpoint/types";
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
+import { auditValuesEqual, writeAuditLog } from "../../lib/audit-log";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type { CreateRoleInput, ListRolesQuery, UpdateRoleInput } from "./roles.schema";
 
@@ -36,6 +38,46 @@ const roleSelect = {
 } satisfies Prisma.RoleSelect;
 
 type RoleRow = Prisma.RoleGetPayload<{ select: typeof roleSelect }>;
+
+type PermissionAuditEntry = {
+  tool: string;
+  canRead: boolean;
+  canCreate: boolean;
+  canUpdate: boolean;
+  canDelete: boolean;
+};
+
+function auditPermissions(entries: readonly PermissionAuditEntry[]): Prisma.InputJsonValue {
+  return entries
+    .map((entry) => ({
+      tool: entry.tool,
+      canRead: entry.canRead,
+      canCreate: entry.canCreate,
+      canUpdate: entry.canUpdate,
+      canDelete: entry.canDelete,
+    }))
+    .sort((left, right) => left.tool.localeCompare(right.tool));
+}
+
+function auditRoleState(
+  role: {
+    key: string;
+    name: string;
+    description: string | null;
+    placement: string;
+    isSystemRole: boolean;
+  },
+  groupScopeIds: readonly string[]
+): Prisma.InputJsonValue {
+  return {
+    key: role.key,
+    name: role.name,
+    description: role.description,
+    placement: role.placement,
+    isSystemRole: role.isSystemRole,
+    groupScopeIds: [...groupScopeIds].sort(),
+  };
+}
 
 function serialize(role: RoleRow, depth: number) {
   const { permissions, children, parents, groupScopes, _count, ...rest } = role;
@@ -186,17 +228,28 @@ export function createRolesService(prisma: PrismaClient) {
       return (await serializeMany([role]))[0];
     },
 
-    create: async (teamId: string, input: CreateRoleInput) => {
+    create: async (teamId: string, input: CreateRoleInput, actorId: string) => {
       const { groupScopeIds, ...fields } = input;
       await assertGroupScope(teamId, fields.placement, groupScopeIds);
 
-      const role = await prisma.role.create({
-        data: {
-          ...fields,
+      const role = await prisma.$transaction(async (tx) => {
+        const created = await tx.role.create({
+          data: {
+            ...fields,
+            teamId,
+            groupScopes: { create: groupScopeIds.map((groupId) => ({ groupId })) },
+          },
+          select: roleSelect,
+        });
+        await writeAuditLog(tx, {
           teamId,
-          groupScopes: { create: groupScopeIds.map((groupId) => ({ groupId })) },
-        },
-        select: roleSelect,
+          actorId,
+          entityType: "ROLE",
+          entityId: created.id,
+          action: "ROLE_CREATED",
+          newValue: auditRoleState(created, groupScopeIds),
+        });
+        return created;
       });
       return (await serializeMany([role]))[0];
     },
@@ -211,12 +264,16 @@ export function createRolesService(prisma: PrismaClient) {
      * rather than eventually -- the alternative is refusing the change, which
      * just moves the work to a human.
      */
-    update: async (teamId: string, id: string, input: UpdateRoleInput) => {
+    update: async (teamId: string, id: string, input: UpdateRoleInput, actorId: string) => {
       const existing = await prisma.role.findFirst({
         where: { id, teamId },
         select: {
           id: true,
+          key: true,
+          name: true,
+          description: true,
           placement: true,
+          isSystemRole: true,
           groupScopes: { select: { groupId: true } },
         },
       });
@@ -271,6 +328,34 @@ export function createRolesService(prisma: PrismaClient) {
             await tx.accountRole.updateMany({ where: { roleId: id }, data: { groupId: null } });
           }
         }
+
+        const updated = await tx.role.findUniqueOrThrow({
+          where: { id },
+          select: {
+            key: true,
+            name: true,
+            description: true,
+            placement: true,
+            isSystemRole: true,
+            groupScopes: { select: { groupId: true } },
+          },
+        });
+        const oldValue = auditRoleState(existing, storedScopeIds);
+        const newValue = auditRoleState(
+          updated,
+          updated.groupScopes.map((scope) => scope.groupId)
+        );
+        if (!auditValuesEqual(oldValue, newValue)) {
+          await writeAuditLog(tx, {
+            teamId,
+            actorId,
+            entityType: "ROLE",
+            entityId: id,
+            action: "ROLE_UPDATED",
+            oldValue,
+            newValue,
+          });
+        }
       });
 
       const role = await prisma.role.findUniqueOrThrow({ where: { id }, select: roleSelect });
@@ -286,12 +371,27 @@ export function createRolesService(prisma: PrismaClient) {
      * says how many -- the foreign key would stop it anyway, but as a P2003 that
      * reads "Referenced record does not exist", which is not what happened.
      */
-    remove: async (teamId: string, id: string) => {
+    remove: async (teamId: string, id: string, actorId: string) => {
       const role = await prisma.role.findFirst({
         where: { id, teamId },
         select: {
+          key: true,
           isSystemRole: true,
           name: true,
+          description: true,
+          placement: true,
+          groupScopes: { select: { groupId: true } },
+          permissions: {
+            select: {
+              canRead: true,
+              canCreate: true,
+              canUpdate: true,
+              canDelete: true,
+              tool: { select: { key: true } },
+            },
+          },
+          children: { select: { childRoleId: true } },
+          parents: { select: { parentRoleId: true } },
           _count: { select: { accountRoles: true } },
         },
       });
@@ -304,7 +404,37 @@ export function createRolesService(prisma: PrismaClient) {
         );
       }
 
-      await prisma.role.delete({ where: { id } });
+      await prisma.$transaction(async (tx) => {
+        await tx.role.delete({ where: { id } });
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "ROLE",
+          entityId: id,
+          action: "ROLE_DELETED",
+          oldValue: {
+            key: role.key,
+            name: role.name,
+            description: role.description,
+            placement: role.placement,
+            isSystemRole: role.isSystemRole,
+            groupScopeIds: role.groupScopes.map((scope) => scope.groupId).sort(),
+            permissions: role.permissions
+              .map((entry) => ({
+                tool: entry.tool.key,
+                canRead: entry.canRead,
+                canCreate: entry.canCreate,
+                canUpdate: entry.canUpdate,
+                canDelete: entry.canDelete,
+              }))
+              .sort((left, right) => left.tool.localeCompare(right.tool)),
+            hierarchy: {
+              parentRoleIds: role.parents.map((edge) => edge.parentRoleId).sort(),
+              childRoleIds: role.children.map((edge) => edge.childRoleId).sort(),
+            },
+          },
+        });
+      });
     },
 
     /**
@@ -325,7 +455,12 @@ export function createRolesService(prisma: PrismaClient) {
      * edges on every authorized request, so a loop is a hung request, not a bad
      * answer.
      */
-    linkRoles: async (teamId: string, parentRoleId: string, childRoleId: string) => {
+    linkRoles: async (
+      teamId: string,
+      parentRoleId: string,
+      childRoleId: string,
+      actorId: string
+    ) => {
       if (parentRoleId === childRoleId) {
         throw new ConflictError("Bir rol kendisine bagli olamaz");
       }
@@ -346,17 +481,42 @@ export function createRolesService(prisma: PrismaClient) {
         throw new ConflictError("Bu baglanti rol hiyerarsisinde dongu olusturur");
       }
 
-      await prisma.roleHierarchy.create({ data: { parentRoleId, childRoleId } });
+      await prisma.$transaction(async (tx) => {
+        await tx.roleHierarchy.create({ data: { parentRoleId, childRoleId } });
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "ROLE",
+          entityId: parentRoleId,
+          action: "ROLE_HIERARCHY_LINKED",
+          newValue: { parentRoleId, childRoleId },
+        });
+      });
     },
 
-    unlinkRoles: async (teamId: string, parentRoleId: string, childRoleId: string) => {
+    unlinkRoles: async (
+      teamId: string,
+      parentRoleId: string,
+      childRoleId: string,
+      actorId: string
+    ) => {
       const roles = await prisma.role.count({
         where: { id: { in: [parentRoleId, childRoleId] }, teamId },
       });
       if (roles !== 2) throw new NotFoundError("Rol bulunamadi");
 
-      await prisma.roleHierarchy.delete({
-        where: { parentRoleId_childRoleId: { parentRoleId, childRoleId } },
+      await prisma.$transaction(async (tx) => {
+        await tx.roleHierarchy.delete({
+          where: { parentRoleId_childRoleId: { parentRoleId, childRoleId } },
+        });
+        await writeAuditLog(tx, {
+          teamId,
+          actorId,
+          entityType: "ROLE",
+          entityId: parentRoleId,
+          action: "ROLE_HIERARCHY_UNLINKED",
+          oldValue: { parentRoleId, childRoleId },
+        });
       });
     },
 
@@ -426,7 +586,8 @@ export function createRolesService(prisma: PrismaClient) {
     replacePermissions: async (
       teamId: string,
       roleId: string,
-      input: RolePermissionMatrixInput
+      input: RolePermissionMatrixInput,
+      actorId: string
     ) => {
       const role = await prisma.role.findFirst({
         where: { id: roleId, teamId },
@@ -455,15 +616,41 @@ export function createRolesService(prisma: PrismaClient) {
         );
       }
 
+      const readOnlyMutationGrant = input.permissions.find(
+        (entry) =>
+          isReadOnlyTool(entry.tool) &&
+          (entry.canCreate || entry.canUpdate || entry.canDelete)
+      );
+      if (readOnlyMutationGrant) {
+        throw new ConflictError(
+          `${readOnlyMutationGrant.tool} yalnizca okuma yetkisi kabul eder`
+        );
+      }
+
       const tools = await prisma.tool.findMany({
         where: { key: { in: input.permissions.map((entry) => entry.tool) } },
         select: { id: true, key: true },
       });
       const idByKey = new Map(tools.map((tool) => [tool.key, tool.id]));
 
-      await prisma.$transaction([
-        prisma.rolePermission.deleteMany({ where: { roleId } }),
-        prisma.rolePermission.createMany({
+      await prisma.$transaction(async (tx) => {
+        const stored = await tx.rolePermission.findMany({
+          where: { roleId },
+          select: {
+            canRead: true,
+            canCreate: true,
+            canUpdate: true,
+            canDelete: true,
+            tool: { select: { key: true } },
+          },
+        });
+        const oldValue = auditPermissions(
+          stored.map((entry) => ({ ...entry, tool: entry.tool.key }))
+        );
+        const newValue = auditPermissions(input.permissions);
+
+        await tx.rolePermission.deleteMany({ where: { roleId } });
+        await tx.rolePermission.createMany({
           data: input.permissions.map((entry) => ({
             roleId,
             toolId: idByKey.get(entry.tool) as string,
@@ -472,8 +659,19 @@ export function createRolesService(prisma: PrismaClient) {
             canUpdate: entry.canUpdate,
             canDelete: entry.canDelete,
           })),
-        }),
-      ]);
+        });
+        if (!auditValuesEqual(oldValue, newValue)) {
+          await writeAuditLog(tx, {
+            teamId,
+            actorId,
+            entityType: "ROLE",
+            entityId: roleId,
+            action: "ROLE_PERMISSIONS_REPLACED",
+            oldValue,
+            newValue,
+          });
+        }
+      });
     },
   };
 }

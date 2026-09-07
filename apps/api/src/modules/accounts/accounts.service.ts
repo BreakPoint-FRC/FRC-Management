@@ -7,6 +7,7 @@ import {
 } from "@breakpoint/types";
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
+import { auditValuesEqual, writeAuditLog } from "../../lib/audit-log";
 import { hashPassword } from "../../lib/password";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
@@ -46,6 +47,16 @@ const accountSelect = {
 } satisfies Prisma.AccountSelect;
 
 type AccountRow = Prisma.AccountGetPayload<{ select: typeof accountSelect }>;
+
+function auditRoles(roles: readonly AccountRoleInput[]): Prisma.InputJsonValue {
+  return roles
+    .map((entry) => ({ roleId: entry.roleId, groupId: entry.groupId ?? null }))
+    .sort(
+      (left, right) =>
+        left.roleId.localeCompare(right.roleId) ||
+        (left.groupId ?? "").localeCompare(right.groupId ?? "")
+    );
+}
 
 /** Flattens the nested role rows into the shape packages/types describes. */
 function serialize(account: AccountRow, depths: Map<string, number>) {
@@ -176,36 +187,35 @@ export function createAccountsService(prisma: PrismaClient) {
    * a director is not a member of the departments they oversee, and inventing
    * one would put them on the roster.
    */
-  const replaceRoles = async (
+  const replaceRolesInTransaction = async (
+    tx: Prisma.TransactionClient,
     teamId: string,
     accountId: string,
     roles: readonly AccountRoleInput[],
     assignedById: string
   ) => {
-    await assertAssignable(teamId, roles);
-
     const groupIds = [
       ...new Set(roles.map((entry) => entry.groupId).filter((id): id is string => !!id)),
     ];
 
-    await prisma.$transaction([
-      prisma.accountRole.deleteMany({ where: { accountId } }),
-      prisma.accountRole.createMany({
-        data: roles.map((entry) => ({
-          accountId,
-          roleId: entry.roleId,
-          groupId: entry.groupId ?? null,
-          assignedById,
-        })),
-      }),
-      ...groupIds.map((groupId) =>
-        prisma.groupMembership.upsert({
+    await tx.accountRole.deleteMany({ where: { accountId } });
+    await tx.accountRole.createMany({
+      data: roles.map((entry) => ({
+        accountId,
+        roleId: entry.roleId,
+        groupId: entry.groupId ?? null,
+        assignedById,
+      })),
+    });
+    await Promise.all(
+      groupIds.map((groupId) =>
+        tx.groupMembership.upsert({
           where: { accountId_groupId: { accountId, groupId } },
           update: { isActive: true },
           create: { accountId, groupId },
         })
-      ),
-    ]);
+      )
+    );
   };
 
   return {
@@ -257,19 +267,39 @@ export function createAccountsService(prisma: PrismaClient) {
       { roles, password, ...rest }: CreateAccountInput,
       assignedById: string
     ) => {
-      const account = await prisma.account.create({
-        data: {
-          ...rest,
-          teamId,
-          passwordHash: await hashPassword(password),
-          // Whoever typed this password is not the person who will use it, so
-          // it is a way in rather than a credential. Cleared by /auth/password.
-          mustChangePassword: true,
-        },
-        select: { id: true },
-      });
+      await assertAssignable(teamId, roles);
+      const passwordHash = await hashPassword(password);
 
-      await replaceRoles(teamId, account.id, roles, assignedById);
+      const account = await prisma.$transaction(async (tx) => {
+        const created = await tx.account.create({
+          data: {
+            ...rest,
+            teamId,
+            passwordHash,
+            // Whoever typed this password is not the person who will use it,
+            // so it is a way in rather than a credential. Cleared by
+            // /auth/password. It is deliberately absent from the audit value.
+            mustChangePassword: true,
+          },
+          select: { id: true },
+        });
+
+        await replaceRolesInTransaction(tx, teamId, created.id, roles, assignedById);
+        await writeAuditLog(tx, {
+          teamId,
+          actorId: assignedById,
+          entityType: "ACCOUNT",
+          entityId: created.id,
+          action: "ACCOUNT_CREATED",
+          newValue: {
+            email: rest.email,
+            fullName: rest.fullName,
+            roles: auditRoles(roles),
+          },
+        });
+
+        return created;
+      });
 
       const created = await prisma.account.findUniqueOrThrow({
         where: { id: account.id },
@@ -323,7 +353,28 @@ export function createAccountsService(prisma: PrismaClient) {
         })) > 0;
       if (wasAdmin && !staysAdmin) await assertNotLastAdmin(teamId, id);
 
-      await replaceRoles(teamId, id, input.roles, assignedById);
+      await assertAssignable(teamId, input.roles);
+      await prisma.$transaction(async (tx) => {
+        const stored = await tx.accountRole.findMany({
+          where: { accountId: id, isActive: true },
+          select: { roleId: true, groupId: true },
+        });
+        const oldValue = auditRoles(stored);
+        const newValue = auditRoles(input.roles);
+
+        await replaceRolesInTransaction(tx, teamId, id, input.roles, assignedById);
+        if (!auditValuesEqual(oldValue, newValue)) {
+          await writeAuditLog(tx, {
+            teamId,
+            actorId: assignedById,
+            entityType: "ACCOUNT",
+            entityId: id,
+            action: "ACCOUNT_ROLES_REPLACED",
+            oldValue,
+            newValue,
+          });
+        }
+      });
 
       const updated = await prisma.account.findUniqueOrThrow({
         where: { id },

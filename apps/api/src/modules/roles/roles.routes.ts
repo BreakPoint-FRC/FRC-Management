@@ -70,7 +70,11 @@ export async function rolesRoutes(app: FastifyInstance) {
   app.post("/", async (req, reply) => {
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "create" });
 
-    const role = await service.create(requireTeam(req.account), createRoleSchema.parse(req.body));
+    const role = await service.create(
+      requireTeam(req.account),
+      createRoleSchema.parse(req.body),
+      req.account.id
+    );
     reply.code(201).send(role);
   });
 
@@ -79,7 +83,12 @@ export async function rolesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "update" });
 
-    return service.update(requireTeam(req.account), id, updateRoleSchema.parse(req.body));
+    return service.update(
+      requireTeam(req.account),
+      id,
+      updateRoleSchema.parse(req.body),
+      req.account.id
+    );
   });
 
   // -> 204 | 401 | 403 | 404 | 409
@@ -87,7 +96,7 @@ export async function rolesRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "delete" });
 
-    await service.remove(requireTeam(req.account), id);
+    await service.remove(requireTeam(req.account), id, req.account.id);
     reply.code(204).send();
   });
 
@@ -105,7 +114,8 @@ export async function rolesRoutes(app: FastifyInstance) {
     await service.replacePermissions(
       requireTeam(req.account),
       id,
-      rolePermissionMatrixSchema.parse(req.body)
+      rolePermissionMatrixSchema.parse(req.body),
+      req.account.id
     );
     reply.code(204).send();
   });
@@ -115,7 +125,7 @@ export async function rolesRoutes(app: FastifyInstance) {
     const { id, childId } = req.params as { id: string; childId: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "update" });
 
-    await service.linkRoles(requireTeam(req.account), id, childId);
+    await service.linkRoles(requireTeam(req.account), id, childId, req.account.id);
     reply.code(204).send();
   });
 
@@ -124,7 +134,7 @@ export async function rolesRoutes(app: FastifyInstance) {
     const { id, childId } = req.params as { id: string; childId: string };
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "update" });
 
-    await service.unlinkRoles(requireTeam(req.account), id, childId);
+    await service.unlinkRoles(requireTeam(req.account), id, childId, req.account.id);
     reply.code(204).send();
   });
 }

@@ -193,6 +193,7 @@ function statefulApp(options: {
       },
       count: async () => 0,
     },
+    auditLog: { create: vi.fn() },
     season: { count: async () => 0 },
   };
   const prisma = stub as unknown as PrismaClient;

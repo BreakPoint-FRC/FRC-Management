@@ -21,7 +21,7 @@ const EDGES = [
 ];
 
 function stubPrisma(overrides: Record<string, unknown> = {}) {
-  return {
+  const stub = {
     role: {
       // linkRoles filters on teamId as well: platform roles are readable but
       // not wireable, or a team could inherit the permissions of SYSTEM_ADMIN.
@@ -33,15 +33,22 @@ function stubPrisma(overrides: Record<string, unknown> = {}) {
       findMany: async () => EDGES,
       create: vi.fn().mockResolvedValue({}),
     },
+    auditLog: { create: vi.fn() },
     ...overrides,
-  } as unknown as PrismaClient;
+  };
+  return Object.assign(stub, {
+    $transaction: async (work: unknown) =>
+      Array.isArray(work)
+        ? Promise.all(work)
+        : (work as (tx: typeof stub) => unknown)(stub),
+  }) as unknown as PrismaClient;
 }
 
 describe("role hierarchy", () => {
   it("refuses an edge from a role to itself", async () => {
     const service = createRolesService(stubPrisma());
 
-    await expect(service.linkRoles(TEAM, "lead", "lead")).rejects.toBeInstanceOf(ConflictError);
+    await expect(service.linkRoles(TEAM, "lead", "lead", "admin-1")).rejects.toBeInstanceOf(ConflictError);
   });
 
   it("refuses an edge that closes a cycle", async () => {
@@ -50,7 +57,7 @@ describe("role hierarchy", () => {
     // every authorized request.
     const service = createRolesService(stubPrisma());
 
-    await expect(service.linkRoles(TEAM, "member", "team-lead")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "member", "team-lead", "admin-1")).rejects.toThrow(/dongu/);
   });
 
   it("refuses a longer cycle, not just a direct one", async () => {
@@ -66,7 +73,7 @@ describe("role hierarchy", () => {
     });
     const service = createRolesService(prisma);
 
-    await expect(service.linkRoles(TEAM, "d", "a")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "d", "a", "admin-1")).rejects.toThrow(/dongu/);
   });
 
   it("allows an edge that only deepens the tree", async () => {
@@ -75,7 +82,7 @@ describe("role hierarchy", () => {
       stubPrisma({ roleHierarchy: { findMany: async () => EDGES, create } })
     );
 
-    await service.linkRoles(TEAM, "member", "intern");
+    await service.linkRoles(TEAM, "member", "intern", "admin-1");
 
     expect(create).toHaveBeenCalledWith({
       data: { parentRoleId: "member", childRoleId: "intern" },
@@ -90,7 +97,7 @@ describe("role hierarchy", () => {
       stubPrisma({ roleHierarchy: { findMany: async () => EDGES, create } })
     );
 
-    await service.linkRoles(TEAM, "president", "lead");
+    await service.linkRoles(TEAM, "president", "lead", "admin-1");
 
     expect(create).toHaveBeenCalled();
   });
@@ -108,7 +115,7 @@ describe("deleting a role", () => {
       stubForDelete({ isSystemRole: true, name: "Takim Yoneticisi", _count: { accountRoles: 0 } })
     );
 
-    await expect(service.remove(TEAM, "system-admin")).rejects.toThrow(/Sistem rolleri silinemez/);
+    await expect(service.remove(TEAM, "system-admin", "admin-1")).rejects.toThrow(/Sistem rolleri silinemez/);
   });
 
   it("refuses a role that is still assigned, naming the count", async () => {
@@ -119,23 +126,34 @@ describe("deleting a role", () => {
       stubForDelete({ isSystemRole: false, name: "Arsiv Sorumlusu", _count: { accountRoles: 3 } })
     );
 
-    await expect(service.remove(TEAM, "role-x")).rejects.toThrow(/3 hesaba atanmis/);
+    await expect(service.remove(TEAM, "role-x", "admin-1")).rejects.toThrow(/3 hesaba atanmis/);
   });
 
   it("deletes a role nothing depends on", async () => {
     const remove = vi.fn().mockResolvedValue({});
-    const prisma = {
+    const stub = {
       role: {
         findFirst: async () => ({
+          key: "UNUSED",
           isSystemRole: false,
           name: "Kullanilmayan",
+          description: null,
+          placement: "TEAM_WIDE",
+          groupScopes: [],
+          permissions: [],
+          children: [],
+          parents: [],
           _count: { accountRoles: 0 },
         }),
         delete: remove,
       },
-    } as unknown as PrismaClient;
+      auditLog: { create: vi.fn() },
+    };
+    const prisma = Object.assign(stub, {
+      $transaction: async (work: (tx: typeof stub) => unknown) => work(stub),
+    }) as unknown as PrismaClient;
 
-    await createRolesService(prisma).remove(TEAM, "role-unused");
+    await createRolesService(prisma).remove(TEAM, "role-unused", "admin-1");
 
     expect(remove).toHaveBeenCalledWith({ where: { id: "role-unused" } });
   });
@@ -160,22 +178,48 @@ describe("updating role placement scopes", () => {
   }
 
   function updateStub(existingPlacement: string, existingScopeIds: string[]) {
-    const roleUpdate = vi.fn().mockResolvedValue({});
-    const scopeDelete = vi.fn().mockResolvedValue({ count: existingScopeIds.length });
-    const scopeCreate = vi.fn().mockResolvedValue({ count: 0 });
+    let placement = existingPlacement;
+    let scopeIds = [...existingScopeIds];
+    const roleUpdate = vi.fn(async ({ data }: { data: { placement?: string } }) => {
+      if (data.placement) placement = data.placement;
+      return {};
+    });
+    const scopeDelete = vi.fn(async () => {
+      scopeIds = [];
+      return { count: existingScopeIds.length };
+    });
+    const scopeCreate = vi.fn(async ({ data }: { data: Array<{ groupId: string }> }) => {
+      scopeIds = data.map((entry) => entry.groupId);
+      return { count: data.length };
+    });
     const assignmentUpdate = vi.fn().mockResolvedValue({ count: 0 });
     const transaction = vi.fn(async (fn: (tx: unknown) => unknown) =>
       fn({
-        role: { update: roleUpdate },
+        role: {
+          update: roleUpdate,
+          findUniqueOrThrow: async () => ({
+            key: "LEAD",
+            name: "Lead",
+            description: null,
+            placement,
+            isSystemRole: false,
+            groupScopes: scopeIds.map((groupId) => ({ groupId })),
+          }),
+        },
         roleGroupScope: { deleteMany: scopeDelete, createMany: scopeCreate },
         accountRole: { updateMany: assignmentUpdate },
+        auditLog: { create: vi.fn() },
       })
     );
     const prisma = {
       role: {
         findFirst: async () => ({
           id: "role-1",
+          key: "LEAD",
+          name: "Lead",
+          description: null,
           placement: existingPlacement,
+          isSystemRole: false,
           groupScopes: existingScopeIds.map((groupId) => ({ groupId })),
         }),
         findUniqueOrThrow: async () => roleRow(existingPlacement, existingScopeIds),
@@ -195,9 +239,12 @@ describe("updating role placement scopes", () => {
   it("preserves stored scopes between placements that use them", async () => {
     const stub = updateStub("MANAGES_GROUP", ["group-1"]);
 
-    await createRolesService(stub.prisma).update(TEAM, "role-1", {
-      placement: "ABOVE_GROUPS",
-    });
+    await createRolesService(stub.prisma).update(
+      TEAM,
+      "role-1",
+      { placement: "ABOVE_GROUPS" },
+      "admin-1"
+    );
 
     expect(stub.scopeDelete).not.toHaveBeenCalled();
     expect(stub.scopeCreate).not.toHaveBeenCalled();
@@ -210,9 +257,12 @@ describe("updating role placement scopes", () => {
   it("clears stored scopes when moving to a placement that forbids them", async () => {
     const stub = updateStub("MANAGES_GROUP", ["group-1"]);
 
-    await createRolesService(stub.prisma).update(TEAM, "role-1", {
-      placement: "TEAM_WIDE",
-    });
+    await createRolesService(stub.prisma).update(
+      TEAM,
+      "role-1",
+      { placement: "TEAM_WIDE" },
+      "admin-1"
+    );
 
     expect(stub.scopeDelete).toHaveBeenCalledWith({ where: { roleId: "role-1" } });
     expect(stub.scopeCreate).not.toHaveBeenCalled();
@@ -222,9 +272,12 @@ describe("updating role placement scopes", () => {
     const stub = updateStub("TEAM_WIDE", []);
 
     await expect(
-      createRolesService(stub.prisma).update(TEAM, "role-1", {
-        placement: "MANAGES_GROUP",
-      })
+      createRolesService(stub.prisma).update(
+        TEAM,
+        "role-1",
+        { placement: "MANAGES_GROUP" },
+        "admin-1"
+      )
     ).rejects.toBeInstanceOf(ConflictError);
 
     expect(stub.transaction).not.toHaveBeenCalled();
@@ -234,10 +287,12 @@ describe("updating role placement scopes", () => {
     const stub = updateStub("MANAGES_GROUP", ["group-1"]);
 
     await expect(
-      createRolesService(stub.prisma).update(TEAM, "role-1", {
-        placement: "TEAM_WIDE",
-        groupScopeIds: ["group-1"],
-      })
+      createRolesService(stub.prisma).update(
+        TEAM,
+        "role-1",
+        { placement: "TEAM_WIDE", groupScopeIds: ["group-1"] },
+        "admin-1"
+      )
     ).rejects.toBeInstanceOf(ConflictError);
 
     expect(stub.transaction).not.toHaveBeenCalled();
@@ -255,14 +310,21 @@ describe("granting a platform-only tool to a team role", () => {
 
   function permissionStub() {
     const createMany = vi.fn().mockResolvedValue({ count: 0 });
-    const transaction = vi.fn(async (operations: unknown[]) => Promise.all(operations));
+    const tx = {
+      rolePermission: {
+        findMany: async () => [],
+        deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+        createMany,
+      },
+      auditLog: { create: vi.fn() },
+    };
+    const transaction = vi.fn(async (work: (client: typeof tx) => unknown) => work(tx));
     const prisma = {
       role: { findFirst: async () => ({ id: "role-1" }) },
       tool: {
         findMany: async ({ where }: { where: { key: { in: string[] } } }) =>
           where.key.in.map((key) => ({ id: `tool-${key.toLowerCase()}`, key })),
       },
-      rolePermission: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }), createMany },
       $transaction: transaction,
     } as unknown as PrismaClient;
 
@@ -274,12 +336,17 @@ describe("granting a platform-only tool to a team role", () => {
       const stub = permissionStub();
 
       await expect(
-        createRolesService(stub.prisma).replacePermissions(TEAM, "role-1", {
-          permissions: [
-            { tool: "TASKS", ...NONE, canRead: true },
-            { tool: "TEAMS", ...NONE, [flag]: true },
-          ],
-        })
+        createRolesService(stub.prisma).replacePermissions(
+          TEAM,
+          "role-1",
+          {
+            permissions: [
+              { tool: "TASKS", ...NONE, canRead: true },
+              { tool: "TEAMS", ...NONE, [flag]: true },
+            ],
+          },
+          "admin-1"
+        )
       ).rejects.toBeInstanceOf(ConflictError);
 
       expect(stub.transaction).not.toHaveBeenCalled();
@@ -293,12 +360,17 @@ describe("granting a platform-only tool to a team role", () => {
     // every save in the app.
     const stub = permissionStub();
 
-    await createRolesService(stub.prisma).replacePermissions(TEAM, "role-1", {
-      permissions: [
-        { tool: "TASKS", ...NONE, canRead: true, canUpdate: true },
-        { tool: "TEAMS", ...NONE },
-      ],
-    });
+    await createRolesService(stub.prisma).replacePermissions(
+      TEAM,
+      "role-1",
+      {
+        permissions: [
+          { tool: "TASKS", ...NONE, canRead: true, canUpdate: true },
+          { tool: "TEAMS", ...NONE },
+        ],
+      },
+      "admin-1"
+    );
 
     expect(stub.transaction).toHaveBeenCalledOnce();
     expect(stub.createMany).toHaveBeenCalledWith({
@@ -321,6 +393,38 @@ describe("granting a platform-only tool to a team role", () => {
         },
       ],
     });
+  });
+
+  for (const flag of ["canCreate", "canUpdate", "canDelete"] as const) {
+    it(`refuses an AUDIT_LOG grant carrying ${flag}`, async () => {
+      const stub = permissionStub();
+
+      await expect(
+        createRolesService(stub.prisma).replacePermissions(
+          TEAM,
+          "role-1",
+          {
+            permissions: [{ tool: "AUDIT_LOG", ...NONE, canRead: true, [flag]: true }],
+          },
+          "admin-1"
+        )
+      ).rejects.toBeInstanceOf(ConflictError);
+
+      expect(stub.transaction).not.toHaveBeenCalled();
+    });
+  }
+
+  it("accepts AUDIT_LOG read without mutation flags", async () => {
+    const stub = permissionStub();
+
+    await createRolesService(stub.prisma).replacePermissions(
+      TEAM,
+      "role-1",
+      { permissions: [{ tool: "AUDIT_LOG", ...NONE, canRead: true }] },
+      "admin-1"
+    );
+
+    expect(stub.transaction).toHaveBeenCalledOnce();
   });
 });
 
@@ -351,10 +455,8 @@ describe("PUT /roles/:id/permissions platform boundary", () => {
 
   function routeApp() {
     const createMany = vi.fn().mockResolvedValue({ count: 2 });
-    const transaction = vi.fn(async (operations: unknown[]) => Promise.all(operations));
-    const prisma = {
+    const stub = {
       $disconnect: vi.fn(),
-      $transaction: transaction,
       account: { findUnique: async () => ACCOUNT },
       group: { findMany: async () => [] },
       groupTool: { findMany: async () => [] },
@@ -368,11 +470,19 @@ describe("PUT /roles/:id/permissions platform boundary", () => {
           where.key.in.map((key) => ({ id: `tool-${key.toLowerCase()}`, key })),
       },
       rolePermission: {
-        findMany: async () => [FULL],
+        findMany: async ({ where }: { where: { roleId?: unknown } }) =>
+          typeof where.roleId === "string" ? [] : [FULL],
         deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
         createMany,
       },
-    } as unknown as PrismaClient;
+      auditLog: { create: vi.fn() },
+    };
+    const transaction = vi.fn(async (work: unknown) =>
+      Array.isArray(work)
+        ? Promise.all(work)
+        : (work as (tx: typeof stub) => unknown)(stub)
+    );
+    const prisma = Object.assign(stub, { $transaction: transaction }) as unknown as PrismaClient;
 
     return { app: buildApp({ prisma }), createMany, transaction };
   }

@@ -12,6 +12,7 @@ export * from "./groups";
 export * from "./roles";
 export * from "./tools";
 export * from "./permissions";
+export * from "./audit-log";
 
 // Operational
 export * from "./seasons";

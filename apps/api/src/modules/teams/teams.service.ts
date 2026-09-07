@@ -3,12 +3,15 @@ import { randomBytes } from "node:crypto";
 import type { Prisma, PrismaClient } from "@breakpoint/db";
 import {
   generateTemporaryPassword,
+  isReadOnlyTool,
   slugifyTeamName,
   type CreateTeamInput,
+  type ToolKey,
   type UpdateTeamInput,
 } from "@breakpoint/types";
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
+import { writeAuditLog } from "../../lib/audit-log";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import { hashPassword } from "../../lib/password";
 import type { CreateTeamAdminInput, ListTeamsQuery } from "./teams.schema";
@@ -95,6 +98,19 @@ export function createTeamsService(prisma: PrismaClient) {
       data: { accountId: account.id, roleId: role.id, assignedById },
     });
 
+    await writeAuditLog(tx, {
+      teamId,
+      actorId: assignedById,
+      entityType: "ACCOUNT",
+      entityId: account.id,
+      action: "ACCOUNT_CREATED",
+      newValue: {
+        email: account.email,
+        fullName: account.fullName,
+        roles: [{ roleId: role.id, groupId: null }],
+      },
+    });
+
     return { account, password };
   };
 
@@ -164,17 +180,54 @@ export function createTeamsService(prisma: PrismaClient) {
         // opening new ones, which is why TEAMS is left out.
         const tools = await tx.tool.findMany({
           where: { key: { not: "TEAMS" } },
-          select: { id: true },
+          select: { id: true, key: true },
         });
-        await tx.rolePermission.createMany({
-          data: tools.map((tool) => ({
+        const permissions = tools
+          .map((tool) => ({
             roleId: role.id,
             toolId: tool.id,
+            tool: tool.key,
             canRead: true,
-            canCreate: true,
-            canUpdate: true,
-            canDelete: true,
+            // Audit entries are emitted internally by the transaction they
+            // describe. There is deliberately no client mutation authority.
+            canCreate: !isReadOnlyTool(tool.key as ToolKey),
+            canUpdate: !isReadOnlyTool(tool.key as ToolKey),
+            canDelete: !isReadOnlyTool(tool.key as ToolKey),
+          }))
+          .sort((left, right) => left.tool.localeCompare(right.tool));
+        await tx.rolePermission.createMany({
+          data: permissions.map((permission) => ({
+            roleId: permission.roleId,
+            toolId: permission.toolId,
+            canRead: permission.canRead,
+            canCreate: permission.canCreate,
+            canUpdate: permission.canUpdate,
+            canDelete: permission.canDelete,
           })),
+        });
+
+        await writeAuditLog(tx, {
+          teamId: created.id,
+          actorId: createdById,
+          entityType: "ROLE",
+          entityId: role.id,
+          action: "ROLE_CREATED",
+          newValue: {
+            key: "TEAM_ADMIN",
+            name: "Takim Yoneticisi",
+            description:
+              "Takimin tamamini yonetir: gruplar, roller, moduller, izinler ve hesaplar.",
+            placement: "TEAM_WIDE",
+            isSystemRole: true,
+            groupScopeIds: [],
+            permissions: permissions.map((permission) => ({
+              tool: permission.tool,
+              canRead: permission.canRead,
+              canCreate: permission.canCreate,
+              canUpdate: permission.canUpdate,
+              canDelete: permission.canDelete,
+            })),
+          },
         });
 
         const created_admin = await createAdmin(
