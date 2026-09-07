@@ -286,6 +286,27 @@ describe("validation", () => {
     expect(response.statusCode).toBe(400);
     await app.close();
   });
+
+  // #44: three candidate-list pickers (task assignee, group member, Gantt task)
+  // asked for pageSize=200 and got exactly the 400 above on every open, for
+  // real -- unlike pageSize=5000 above, this is the literal value the web app
+  // sent. A service-level unit test would miss it, since it calls the service
+  // directly and never goes through this schema; the bug only shows up on the
+  // real route, which is why it survived the existing test suite.
+  it("rejects pageSize=200, the exact value the candidate-list pickers used to send", async () => {
+    const app = buildWithPrisma(
+      stubClient({ account: { findUnique: async () => ADMIN }, ...authorizedStubs() })
+    );
+    await app.ready();
+
+    const auth = { authorization: `Bearer ${app.jwt.sign({ sub: ADMIN.id })}` };
+    const accounts = await app.inject({ method: "GET", url: "/accounts?pageSize=200", headers: auth });
+    const tasks = await app.inject({ method: "GET", url: "/tasks?pageSize=200", headers: auth });
+
+    expect(accounts.statusCode).toBe(400);
+    expect(tasks.statusCode).toBe(400);
+    await app.close();
+  });
 });
 
 describe("error handling", () => {
