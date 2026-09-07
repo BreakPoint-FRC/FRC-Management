@@ -42,7 +42,7 @@ describeIntegration("api guards", () => {
     expect(seasons).toBe(1);
   });
 
-  it("409 when the same name is unique per team but free in another", async () => {
+  it("allows the same season name in another team", async () => {
     // The other half of @@unique([teamId, name]): the constraint is scoped, so
     // the second team may keep its own season of the same name.
     const both = await ctx.prisma.season.count({ where: { name: ctx.fixture.alpha.seasonName } });
@@ -292,6 +292,22 @@ describeIntegration("api guards", () => {
     // The platform account, holding the same grant, is answered.
     const allowed = await ctx.app.inject({ method: "GET", url: "/teams", headers: platform() });
     expect(allowed.statusCode).toBe(200);
+
+    // Keep the fixture honest: production grants a platform account only the
+    // two global surfaces, not team-scoped modules it cannot exercise.
+    const platformMe = await ctx.app.inject({
+      method: "GET",
+      url: "/auth/me",
+      headers: platform(),
+    });
+    expect(platformMe.statusCode).toBe(200);
+    const granted = Object.entries(platformMe.json().permissions.global)
+      .filter(([, permission]) =>
+        Object.values(permission as Record<string, boolean>).some(Boolean)
+      )
+      .map(([tool]) => tool)
+      .sort();
+    expect(granted).toEqual(["TEAMS", "TOOLS"]);
   });
 
   async function signIn(): Promise<string> {

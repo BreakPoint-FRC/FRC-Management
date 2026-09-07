@@ -101,8 +101,13 @@ async function seedPlatformAdmin(prisma: PrismaClient, toolIds: Record<ToolKey, 
     select: { id: true },
   });
 
+  // The deployed SYSTEM_ADMIN is deliberately narrower than a team admin:
+  // TEAMS opens teams and TOOLS maintains the global catalogue. Granting every
+  // tool here would create a fixture state production migrations explicitly
+  // remove and could hide a platform-boundary regression.
+  const platformToolKeys = ["TEAMS", "TOOLS"] satisfies ToolKey[];
   await prisma.rolePermission.createMany({
-    data: TOOL_KEYS.map((key) => ({ roleId: role.id, toolId: toolIds[key], ...ALL })),
+    data: platformToolKeys.map((key) => ({ roleId: role.id, toolId: toolIds[key], ...ALL })),
   });
 
   const email = "platform@breakpoint.test";

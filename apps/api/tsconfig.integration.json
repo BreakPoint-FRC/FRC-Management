@@ -1,0 +1,14 @@
+{
+  "extends": "../../packages/config/base.json",
+  "compilerOptions": {
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "declaration": false,
+    "declarationMap": false,
+    "noEmit": true,
+    "rootDir": ".",
+    "types": ["node", "vitest/globals"]
+  },
+  "include": ["src", "test/integration"],
+  "exclude": ["src/**/*.test.ts"]
+}

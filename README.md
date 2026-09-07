@@ -194,13 +194,15 @@ Nothing is ever written to the database named in the URL, which is why
 `.env.example` can point it at the same local Postgres as `DATABASE_URL`
 without putting your development data near a `TRUNCATE`.
 
-Unset — or set to a server that does not answer — the suite **skips itself**
-with a warning naming this variable, and `pnpm test` still passes on the unit
-suites. That is deliberate: someone who has not started Docker yet should not
-get a red run. CI always has it, because the workflow copies `.env.example` and
-that file points it at the `postgres:16-alpine` service container, so the suite
-genuinely runs there. Local and CI behaviour are otherwise identical: same
-image major version, same migration chain, same database built from nothing.
+Locally, when the variable is unset — or points to a server that does not
+answer — the suite **skips itself** with a warning naming this variable, and
+`pnpm test` still passes on the unit suites. That is deliberate: someone who has
+not started Docker yet should not get a red local run. CI sets
+`INTEGRATION_TESTS_REQUIRED=true`, so a missing or unreachable integration
+database fails the job instead of silently dropping the 24 tests. The workflow
+copies `.env.example`, which points at its `postgres:16-alpine` service
+container. Local and CI behaviour are otherwise identical: same image major
+version, same migration chain, same database built from nothing.
 
 Building the database from empty on every run is the point as much as the tests
 are. [docs/migrations.md](docs/migrations.md) explains why a `db:deploy`

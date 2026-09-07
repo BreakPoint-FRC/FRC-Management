@@ -17,6 +17,7 @@ import {
 const harnessDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(harnessDir, "..", "..", "..", "..", "..");
 const dbPackageDir = join(repoRoot, "packages", "db");
+const integrationTestsRequiredVar = "INTEGRATION_TESTS_REQUIRED";
 
 // The repository keeps one .env at the root, shared by every workspace, and
 // `vitest run` -- unlike the dev scripts -- does not go through dotenv-cli. So
@@ -24,13 +25,20 @@ const dbPackageDir = join(repoRoot, "packages", "db");
 // environment (CI, or a one-off shell) wins over the file.
 loadEnvFile({ path: join(repoRoot, ".env") });
 
-function skip(reason: string): void {
-  console.warn(
-    `\n[integration] skipped: ${reason}\n` +
-      `[integration] These tests need a Postgres server. Start one with ` +
-      `\`docker compose up -d\` and set ${TEST_DATABASE_URL_VAR} in .env ` +
-      `(see .env.example and the README's Testing section).\n`
-  );
+function unavailable(reason: string): void {
+  const help =
+    `[integration] These tests need a Postgres server. Start one with ` +
+    `\`docker compose up -d\` and set ${TEST_DATABASE_URL_VAR} in .env ` +
+    `(see .env.example and the README's Testing section).`;
+
+  // A contributor may deliberately work without Postgres, but a green CI run
+  // must prove that the integration suite actually ran. Otherwise a broken URL
+  // or credential would silently remove the protection this suite exists for.
+  if (process.env[integrationTestsRequiredVar] === "true") {
+    throw new Error(`[integration] required but unavailable: ${reason}\n${help}`);
+  }
+
+  console.warn(`\n[integration] skipped: ${reason}\n${help}\n`);
 }
 
 /**
@@ -45,14 +53,14 @@ export default async function setup({ provide }: GlobalSetupContext) {
   const serverUrl = process.env[TEST_DATABASE_URL_VAR];
 
   if (!serverUrl) {
-    skip(`${TEST_DATABASE_URL_VAR} is not set`);
+    unavailable(`${TEST_DATABASE_URL_VAR} is not set`);
     provide("integrationDatabaseUrl", null);
     return;
   }
 
   const unreachable = await serverUnreachableReason(serverUrl);
   if (unreachable) {
-    skip(`${TEST_DATABASE_URL_VAR} is set but the server did not answer (${unreachable})`);
+    unavailable(`${TEST_DATABASE_URL_VAR} is set but the server did not answer (${unreachable})`);
     provide("integrationDatabaseUrl", null);
     return;
   }

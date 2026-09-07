@@ -57,5 +57,7 @@ jobs:
       # replays every migration into it from empty, and drops it at the end --
       # so the postgres service is genuinely queried, not merely migrated.
       - run: pnpm test
+        env:
+          INTEGRATION_TESTS_REQUIRED: "true"
 
       - run: pnpm build

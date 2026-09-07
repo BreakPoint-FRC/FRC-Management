@@ -66,9 +66,11 @@ pipeline. `pnpm typecheck` and `pnpm test` build `packages/*` first — that is
 deliberate, `apps/*` consume the built output, not the source.
 
 `pnpm test` also runs the API integration suite, which needs a Postgres server
-and skips itself with a warning when there is none. Start one — `docker compose
-up -d` — before trusting a green local run, because CI always has it. See the
-README's [Testing](README.md#testing) section for `TEST_DATABASE_URL`.
+and skips itself with a warning when there is none locally. Start one — `docker
+compose up -d` — before trusting a green local run. CI treats a missing or
+unreachable integration database as a failure, so it cannot pass by silently
+skipping this suite. See the README's [Testing](README.md#testing) section for
+`TEST_DATABASE_URL`.
 
 ## Code layout
 
