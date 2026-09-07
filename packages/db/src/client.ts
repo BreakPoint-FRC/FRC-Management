@@ -11,4 +11,16 @@ if (process.env.NODE_ENV !== "production") {
   globalForPrisma.prisma = prisma;
 }
 
+/**
+ * A client bound to a connection string given at call time.
+ *
+ * The singleton above reads DATABASE_URL once, when this module is first
+ * imported, which is right for the app and wrong for the API integration
+ * suite: that one creates a throwaway database per run and only learns its
+ * name after the import has happened. Everything else keeps using `prisma`.
+ */
+export function createPrismaClient(connectionString: string): PrismaClient {
+  return new PrismaClient({ adapter: new PrismaPg({ connectionString }) });
+}
+
 export * from "./generated/prisma/client";

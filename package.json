@@ -10,6 +10,7 @@
     "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm run build:libs && pnpm -r --if-present run typecheck",
     "test": "pnpm run build:libs && pnpm -r --if-present run test",
+    "test:integration": "pnpm run build:libs && pnpm --filter @breakpoint/api run test:integration",
     "db:generate": "pnpm -r --if-present run db:generate"
   },
   "devDependencies": {

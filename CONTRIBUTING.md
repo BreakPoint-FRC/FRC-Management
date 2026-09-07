@@ -65,6 +65,13 @@ All four must pass. CI runs exactly this, so a green local run means a green
 pipeline. `pnpm typecheck` and `pnpm test` build `packages/*` first — that is
 deliberate, `apps/*` consume the built output, not the source.
 
+`pnpm test` also runs the API integration suite, which needs a Postgres server
+and skips itself with a warning when there is none locally. Start one — `docker
+compose up -d` — before trusting a green local run. CI treats a missing or
+unreachable integration database as a failure, so it cannot pass by silently
+skipping this suite. See the README's [Testing](README.md#testing) section for
+`TEST_DATABASE_URL`.
+
 ## Code layout
 
 The structure is already consistent. Follow what is there instead of inventing a
@@ -192,10 +199,23 @@ Prisma internals and absolute file paths to the client.
 **Services take `prisma` as an argument.** That is what lets the tests inject a
 stub instead of standing up a database.
 
+**A test goes next to its module unless it needs a real database.** The module's
+`<feature>.test.ts` runs against `buildApp({ prisma: stub })`, and that is where
+almost everything belongs: it is fast, and a stub can be posed into states a
+fixture would take a page of setup to reach. What a stub cannot do is fail —
+it answers whatever the test told it to, so no suite built on one can be
+stopped by a `@@unique` constraint, an enum, a `Decimal` column, a transaction
+that rolls back, or two requests genuinely racing. Tests that need one of those
+go in [apps/api/test/integration/](apps/api/test/integration/), which runs
+against a Postgres migrated from empty. Keep it a smoke suite: one happy path
+per module and the cases that are about the database, not a second copy of the
+module tests.
+
 ## Pull request checklist
 
 - [ ] `pnpm lint && pnpm typecheck && pnpm test && pnpm build` passes locally
 - [ ] New or changed endpoints have tests in the module's `.test.ts`
+- [ ] A new module has a happy path in [apps/api/test/integration/](apps/api/test/integration/), and anything resting on a constraint, a transaction or a race is tested there rather than against a stub
 - [ ] Any schema change follows [docs/migrations.md](docs/migrations.md), and the generated SQL is in the diff and has been read
 - [ ] Any change to member roles keeps [docs/roles.md](docs/roles.md) true
 - [ ] Any new env var is in `.env.example`
