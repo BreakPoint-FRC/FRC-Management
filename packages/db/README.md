@@ -15,7 +15,10 @@ Prisma schema, migrations, and the shared `PrismaClient` singleton. Consumed by
   can be authorized for anything, so a freshly deployed database would be
   inert. The seed adds a team on top
 - Client: [src/client.ts](src/client.ts) — one instance, reused across hot
-  reloads in development
+  reloads in development. It reads `DATABASE_URL` once, at import; the
+  `createPrismaClient(url)` factory beside it is for callers that only learn
+  their connection string later, which today means the API integration suite
+  and its throwaway database
 - Seed: [prisma/seed.ts](prisma/seed.ts) — idempotent sample data
 
 **Before changing the schema, read [../../docs/migrations.md](../../docs/migrations.md).**

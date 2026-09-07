@@ -107,6 +107,19 @@ Two habits avoid the whole class of problem:
   `db:deploy` against a database that already has the tables proves nothing:
   the bug only exists on the path CI takes, which is from nothing.
 
+CI now walks that path on every run without anyone remembering to. The API
+integration suite ([apps/api/test/integration/](../apps/api/test/integration/))
+creates a throwaway database on the `postgres:16-alpine` service, applies the
+whole chain to it from empty with `prisma migrate deploy`, runs against it, and
+drops it — so a migration that cannot apply to nothing fails the pipeline as a
+red test rather than surfacing on somebody's fresh clone weeks later. Run it
+locally the same way with `pnpm test:integration`; see the README's
+[Testing](../README.md#testing) section for `TEST_DATABASE_URL`.
+
+That still leaves the manual replay above worth doing for a hand-written
+migration, because the suite runs the chain that is committed, and reading the
+SQL before it is committed is the part no test can do for you.
+
 ## Review checklist
 
 Read the SQL, not just the schema diff:
@@ -132,3 +145,10 @@ pnpm --filter @breakpoint/db db:seed
 It is idempotent — every row is an `upsert` on a fixed `seed-*` id — so running
 it twice is safe. When you add a model, add a couple of rows for it here too;
 the seed is the first thing a new contributor sees.
+
+The integration suite does **not** use it. It builds its own minimal fixture
+([apps/api/test/integration/harness/fixture.ts](../apps/api/test/integration/harness/fixture.ts))
+because the two answer different questions: the seed exists so the pages are not
+blank for a human, and a test fixture exists so an assertion has exactly the rows
+it is about and no others. Adding a model does not oblige you to touch the
+fixture — only a test that needs the model does.

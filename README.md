@@ -140,7 +140,8 @@ call `localhost`.
 | `pnpm dev:api` | Build `packages/*`, then run only the API in watch mode |
 | `pnpm dev:web` | Build `packages/*`, then run only the web app in watch mode |
 | `pnpm build` | Build every workspace in dependency order |
-| `pnpm test` | Run vitest suites |
+| `pnpm test` | Run every vitest suite, unit and integration |
+| `pnpm test:integration` | Run only the API integration suite (needs `TEST_DATABASE_URL`) |
 | `pnpm lint` | Lint every workspace |
 | `pnpm typecheck` | Type-check every workspace without emitting |
 | `pnpm --filter @breakpoint/db db:migrate` | Create/apply a migration (local only) |
@@ -161,6 +162,51 @@ Both scripts build `packages/*` first on purpose. `pnpm --filter
 gitignored and install only runs `prisma generate`, it fails with a
 module-not-found error on a freshly cloned repo.
 
+## Testing
+
+Two kinds of suite, and `pnpm test` runs both.
+
+**Unit suites** — everywhere. They build the app with `buildApp({ prisma: stub })`
+and drive it through `app.inject`, so they need neither a database nor a
+listening socket. That seam is why services take `prisma` as an argument
+(see [CONTRIBUTING.md](CONTRIBUTING.md)), and it is where nearly every test
+belongs: it is fast, and a stub can be posed into states a real database would
+take a fixture file to reach.
+
+**The API integration suite** — [apps/api/test/integration/](apps/api/test/integration/),
+against a real PostgreSQL. A stub answers whatever the test told it to, so
+nothing in the unit suites can fail on a `@@unique` constraint, an enum, a
+`Decimal` column, a rolled-back transaction, or two requests actually racing
+each other. Those are the cases this suite covers, and only those — it is a
+smoke suite, not a second copy of the module tests.
+
+```bash
+docker compose up -d          # the Postgres it needs
+pnpm test:integration
+```
+
+It reads **`TEST_DATABASE_URL`** and nothing else. That variable names a
+Postgres *server*, not the database under test: the suite creates a throwaway
+database beside it (`breakpoint_test_<pid>_<random>`), applies the whole
+migration chain to it from empty with the same `prisma migrate deploy` CI uses,
+empties every table between tests, and drops the database when the run ends.
+Nothing is ever written to the database named in the URL, which is why
+`.env.example` can point it at the same local Postgres as `DATABASE_URL`
+without putting your development data near a `TRUNCATE`.
+
+Unset — or set to a server that does not answer — the suite **skips itself**
+with a warning naming this variable, and `pnpm test` still passes on the unit
+suites. That is deliberate: someone who has not started Docker yet should not
+get a red run. CI always has it, because the workflow copies `.env.example` and
+that file points it at the `postgres:16-alpine` service container, so the suite
+genuinely runs there. Local and CI behaviour are otherwise identical: same
+image major version, same migration chain, same database built from nothing.
+
+Building the database from empty on every run is the point as much as the tests
+are. [docs/migrations.md](docs/migrations.md) explains why a `db:deploy`
+against a database that already has the tables proves nothing — CI now walks
+the path that does.
+
 ## Contributing
 
 - [CONTRIBUTING.md](CONTRIBUTING.md) — branches, commits, code layout, PR checklist
@@ -172,7 +218,9 @@ module-not-found error on a freshly cloned repo.
 - [docs/product/](docs/product/) — scope and roadmap
 
 Run `pnpm lint && pnpm typecheck && pnpm test && pnpm build` before pushing;
-that is exactly what CI runs.
+that is exactly what CI runs. `pnpm test` includes the integration suite, so
+start Postgres first or it will skip the part CI does not — see
+[Testing](#testing).
 
 ## License
 
