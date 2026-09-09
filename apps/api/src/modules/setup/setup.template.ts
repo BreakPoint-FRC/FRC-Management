@@ -48,8 +48,11 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
     above: ["LEAD"],
     // SPONSORS: "r" + FINANCE: "c" so the captain can turn a closed
     // sponsorship into a finance record (SPONSORS/read + FINANCE/create --
-    // see sponsors.routes.ts) without gaining the power to edit sponsorships
-    // themselves or the team's ledger.
+    // see sponsors.routes.ts) without gaining SPONSORS/update. FINANCE: "c" is
+    // deliberately not narrower than that: it is ordinary team-wide create on
+    // /finance too, same as any other role holding the grant, so a captain can
+    // enter finance records directly -- it just carries no "u" or "d", so
+    // existing records stay someone else's to change or remove.
     grants: { ACCOUNTS: "r", GROUPS: "r", SEASONS: "r", SPONSORS: "r", FINANCE: "rc" },
   },
   {
@@ -71,8 +74,10 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
       ACCOUNTS: "r",
       GROUPS: "r",
       // Same pair as TEAM_LEAD, for the same reason: a mentor can convert a
-      // SPONSOR-status sponsorship into income without editing the
-      // sponsorship or holding general finance write access.
+      // SPONSOR-status sponsorship into income without SPONSORS/update.
+      // FINANCE: "c" is ordinary team-wide create, same as TEAM_LEAD's --
+      // a mentor can enter finance records directly, but "c" alone carries no
+      // authority to change or remove a record once it exists.
       SPONSORS: "r",
       FINANCE: "rc",
     },
