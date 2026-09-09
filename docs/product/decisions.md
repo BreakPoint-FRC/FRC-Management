@@ -140,3 +140,64 @@ direction: someone who has since left the group keeps their recorded status
 and is flagged rather than silently dropped on the next whole-set `PUT` — an
 editor built from the current roster alone would erase that the moment they
 left.
+
+## Sponsorship -> finance income (#26)
+
+`Sponsorship` and `FinanceTransaction` had no relation to each other: a
+sponsor reaching `SPONSOR` status had to be entered a second time, by hand,
+into the finance ledger, and the two records could then drift apart with
+nothing to notice. Decided by the team during V1 closeout (2026-09-09).
+
+**Payment model: 0..1, not partial or multiple.** A sponsorship converts into
+at most one `FinanceTransaction`. Instalments, partial payments and refunds
+are out of scope for V1 and left as a V2 candidate — adding them later is a
+new relation shape, not a widening of this one.
+
+**Foreign key on the finance side.** `FinanceTransaction.sponsorshipId` is a
+nullable, `@unique` column pointing at `Sponsorship`, `onDelete: Restrict`.
+Not the other way around (`Sponsorship.financeTransactionId`, as first
+proposed in the issue): a finance row is what proves a conversion happened,
+so it is the row that should carry the reference, and `@unique` on that
+column is what makes "at most one transaction per sponsorship" a database
+guarantee — including under two requests racing each other — rather than an
+application-level promise nothing enforces.
+
+**Trigger and fixed fields.** "Finansa isle" only exists for a sponsorship
+already at `SPONSOR` status. The created row's `type` (`INCOME`), `category`
+(`Sponsorluk`) and `groupId` (`null` — sponsorships are not scoped to a
+department) are set by the server and are never accepted from the client, so
+a converted row cannot be made to look like an ordinary manual entry.
+`teamId` and `seasonId` come from the sponsorship being converted, not from
+whichever season happens to be active when someone clicks the button.
+
+**Authorization: `SPONSORS/read` + `FINANCE/create`, not `SPONSORS/update`.**
+The conversion never writes the `Sponsorship` row, so requiring
+`SPONSORS/update` would force a captain or mentor to hold edit rights over
+every sponsorship just to book income from one. The two grants are checked
+independently in the route, by permission only — nothing in `authorize()` or
+the route reads a role's name or key. `FINANCE/create` is checked with no
+`groupId`, matching the transaction's always-`null` group, which as a
+consequence means a role whose `FINANCE` grant is scoped to one department
+(`MANAGES_GROUP`) cannot use this endpoint even if it holds `create` — only a
+`TEAM_WIDE` or `EXTERNAL` role reaches a group-less check. `TEAM_LEAD` and
+`MENTOR` were widened in `setup.template.ts` to carry both grants so a
+captain or mentor can convert without becoming a full finance admin;
+`MENTOR` keeps its existing `EXTERNAL` placement; changing that was
+considered and rejected; see `setup.template.ts` for why `EXTERNAL` rather
+than `TEAM_WIDE` is deliberate for that role. An already-running team's roles
+are not migrated automatically — a team admin has to grant the two new
+permissions by hand from the Roller screen, because roles are data a team
+owns and may have already customised.
+
+**Editing a linked row.** `amount`, `transactionDate` and `description` stay
+editable after conversion — the pledge and the payment are different numbers
+on purpose, and a typo has to be fixable. `type`, `category` and `groupId`
+are rejected by *value*, not by presence: a form that round-trips the whole
+record unchanged is not treated as an edit to those fields. `seasonId` needs
+no such check — `PATCH /finance/:id` has never accepted it.
+
+**Deletion.** Deleting the finance row frees the sponsorship to be converted
+again — nothing on `Sponsorship` stores the link, so there is nothing to
+clear. Deleting a sponsorship that still has a linked transaction is refused
+with 409 before Postgres ever sees the `Restrict` foreign key, so the answer
+is a clear message instead of a raw constraint violation.
