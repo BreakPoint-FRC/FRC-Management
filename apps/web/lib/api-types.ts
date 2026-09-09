@@ -236,11 +236,16 @@ export interface FinanceSummaryRow {
   net: string;
 }
 
-/** Set once a sponsorship has been booked as income via "Finansa isle". */
+/**
+ * Set once a sponsorship has been booked as income via "Finansa isle".
+ *
+ * amount and transactionDate are null when the viewer has SPONSORS/read but
+ * not team-wide FINANCE/read -- the conversion is visible, the money is not.
+ */
 export interface SponsorshipFinanceLink {
   id: string;
-  amount: string;
-  transactionDate: string;
+  amount: string | null;
+  transactionDate: string | null;
 }
 
 export interface OrganizationRow {

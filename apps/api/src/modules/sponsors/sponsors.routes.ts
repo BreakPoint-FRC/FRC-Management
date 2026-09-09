@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 
-import { authorize } from "../../lib/authorize";
+import { authorize, canPerform } from "../../lib/authorize";
 import { requireTeam } from "../../lib/tenant";
 import { NotFoundError } from "../../lib/http-errors";
 import {
@@ -57,13 +57,26 @@ export async function sponsorsRoutes(app: FastifyInstance) {
   const require = (accountId: string, action: "read" | "create" | "update" | "delete") =>
     authorize(app.prisma, { accountId, tool: "SPONSORS", action });
 
+  // FINANCE is a different module from SPONSORS: the amount and date on a
+  // converted sponsorship are finance data, and an account with only
+  // SPONSORS/read must not learn them by asking here instead of /finance.
+  // Team-wide (no groupId) because a converted transaction always is -- see
+  // convertToFinanceTransaction. Whether the sponsorship was converted at all
+  // stays visible regardless; only the amount and date are withheld.
+  const mayReadFinance = (accountId: string) =>
+    canPerform(app.prisma, { accountId, tool: "FINANCE", action: "read" });
+
   // --- Organizations -------------------------------------------------------
 
   // -> 200 | 400 | 401 | 403
   app.get("/organizations", async (req) => {
     const query = listOrganizationsQuerySchema.parse(req.query);
     await require(req.account.id, "read");
-    return service.listOrganizations(requireTeam(req.account), query);
+    return service.listOrganizations(
+      requireTeam(req.account),
+      query,
+      await mayReadFinance(req.account.id)
+    );
   });
 
   // -> 200 | 401 | 403 | 404
@@ -71,7 +84,11 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "read");
 
-    const organization = await service.getOrganization(requireTeam(req.account), id);
+    const organization = await service.getOrganization(
+      requireTeam(req.account),
+      id,
+      await mayReadFinance(req.account.id)
+    );
     if (!organization) throw new NotFoundError("Firma bulunamadi");
     return organization;
   });
@@ -82,7 +99,8 @@ export async function sponsorsRoutes(app: FastifyInstance) {
 
     const organization = await service.createOrganization(
       requireTeam(req.account),
-      createOrganizationSchema.parse(req.body)
+      createOrganizationSchema.parse(req.body),
+      await mayReadFinance(req.account.id)
     );
     reply.code(201).send(organization);
   });
@@ -92,7 +110,12 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "update");
 
-    return service.updateOrganization(requireTeam(req.account), id, updateOrganizationSchema.parse(req.body));
+    return service.updateOrganization(
+      requireTeam(req.account),
+      id,
+      updateOrganizationSchema.parse(req.body),
+      await mayReadFinance(req.account.id)
+    );
   });
 
   // -> 204 | 401 | 403 | 404 | 409
@@ -110,7 +133,11 @@ export async function sponsorsRoutes(app: FastifyInstance) {
   app.get("/sponsorships", async (req) => {
     const query = listSponsorshipsQuerySchema.parse(req.query);
     await require(req.account.id, "read");
-    return service.listSponsorships(requireTeam(req.account), query);
+    return service.listSponsorships(
+      requireTeam(req.account),
+      query,
+      await mayReadFinance(req.account.id)
+    );
   });
 
   // -> 200 | 401 | 403 | 404
@@ -118,7 +145,11 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "read");
 
-    const sponsorship = await service.getSponsorship(requireTeam(req.account), id);
+    const sponsorship = await service.getSponsorship(
+      requireTeam(req.account),
+      id,
+      await mayReadFinance(req.account.id)
+    );
     if (!sponsorship) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
     return sponsorship;
   });
@@ -129,7 +160,8 @@ export async function sponsorsRoutes(app: FastifyInstance) {
 
     const sponsorship = await service.createSponsorship(
       requireTeam(req.account),
-      createSponsorshipSchema.parse(req.body)
+      createSponsorshipSchema.parse(req.body),
+      await mayReadFinance(req.account.id)
     );
     reply.code(201).send(sponsorship);
   });
@@ -139,7 +171,12 @@ export async function sponsorsRoutes(app: FastifyInstance) {
     const { id } = req.params as { id: string };
     await require(req.account.id, "update");
 
-    return service.updateSponsorship(requireTeam(req.account), id, updateSponsorshipSchema.parse(req.body));
+    return service.updateSponsorship(
+      requireTeam(req.account),
+      id,
+      updateSponsorshipSchema.parse(req.body),
+      await mayReadFinance(req.account.id)
+    );
   });
 
   // -> 204 | 401 | 403 | 404 | 409

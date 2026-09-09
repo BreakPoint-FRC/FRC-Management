@@ -25,10 +25,28 @@ const financeTransactionLinkSelect = {
   transactionDate: true,
 } satisfies Prisma.FinanceTransactionSelect;
 
+/**
+ * The finance summary is FINANCE data, not SPONSORS data, and this module is
+ * reachable on SPONSORS/read alone. Without gating this separately, an
+ * account with SPONSORS but no FINANCE grant -- a social lead who tracks
+ * relationships, say -- would learn the real amount collected and its date
+ * simply by asking the wrong endpoint, exactly the side door CALENDAR's
+ * per-source filtering (calendar.routes.ts) exists to close for meetings and
+ * tasks. `mayReadFinance` is the caller's team-wide FINANCE/read, resolved
+ * once per request in sponsors.routes.ts via `canPerform`. Whether a
+ * sponsorship has been converted stays visible either way -- only the amount
+ * and date are FINANCE's to withhold.
+ */
 function serializeFinanceLink(
-  link: Prisma.FinanceTransactionGetPayload<{ select: typeof financeTransactionLinkSelect }> | null
+  link: Prisma.FinanceTransactionGetPayload<{ select: typeof financeTransactionLinkSelect }> | null,
+  mayReadFinance: boolean
 ) {
-  return link && { id: link.id, amount: link.amount.toFixed(2), transactionDate: link.transactionDate };
+  if (!link) return null;
+  return {
+    id: link.id,
+    amount: mayReadFinance ? link.amount.toFixed(2) : null,
+    transactionDate: mayReadFinance ? link.transactionDate : null,
+  };
 }
 
 const organizationSelect = {
@@ -68,18 +86,18 @@ const sponsorshipSelect = {
 type OrganizationRow = Prisma.OrganizationGetPayload<{ select: typeof organizationSelect }>;
 type SponsorshipRow = Prisma.SponsorshipGetPayload<{ select: typeof sponsorshipSelect }>;
 
-function serializeOrganization(organization: OrganizationRow) {
+function serializeOrganization(organization: OrganizationRow, mayReadFinance: boolean) {
   return {
     ...organization,
     sponsorships: organization.sponsorships.map((entry) => ({
       ...entry,
       amount: entry.amount?.toFixed(2) ?? null,
-      financeTransaction: serializeFinanceLink(entry.financeTransaction),
+      financeTransaction: serializeFinanceLink(entry.financeTransaction, mayReadFinance),
     })),
   };
 }
 
-function serializeSponsorship(sponsorship: SponsorshipRow) {
+function serializeSponsorship(sponsorship: SponsorshipRow, mayReadFinance: boolean) {
   const { organization, season, financeTransaction, ...rest } = sponsorship;
   return {
     ...rest,
@@ -87,13 +105,17 @@ function serializeSponsorship(sponsorship: SponsorshipRow) {
     organizationName: organization.name,
     organization,
     seasonName: season.name,
-    financeTransaction: serializeFinanceLink(financeTransaction),
+    financeTransaction: serializeFinanceLink(financeTransaction, mayReadFinance),
   };
 }
 
 export function createSponsorsService(prisma: PrismaClient) {
   return {
-    listOrganizations: async (teamId: string, query: ListOrganizationsQuery) => {
+    listOrganizations: async (
+      teamId: string,
+      query: ListOrganizationsQuery,
+      mayReadFinance: boolean
+    ) => {
       const where: Prisma.OrganizationWhereInput = {
         teamId,
         ...(query.search ? { name: { contains: query.search, mode: "insensitive" } } : {}),
@@ -109,28 +131,41 @@ export function createSponsorsService(prisma: PrismaClient) {
         prisma.organization.count({ where }),
       ]);
 
-      return paginated(rows.map(serializeOrganization), total, query);
+      return paginated(
+        rows.map((row) => serializeOrganization(row, mayReadFinance)),
+        total,
+        query
+      );
     },
 
     // findFirst rather than findUnique: the team is half the identity now, and
     // (id, teamId) is not a unique index.
-    getOrganization: async (teamId: string, id: string) => {
+    getOrganization: async (teamId: string, id: string, mayReadFinance: boolean) => {
       const organization = await prisma.organization.findFirst({
         where: { id, teamId },
         select: organizationSelect,
       });
-      return organization && serializeOrganization(organization);
+      return organization && serializeOrganization(organization, mayReadFinance);
     },
 
-    createOrganization: async (teamId: string, input: CreateOrganizationInput) => {
+    createOrganization: async (
+      teamId: string,
+      input: CreateOrganizationInput,
+      mayReadFinance: boolean
+    ) => {
       const organization = await prisma.organization.create({
         data: { ...input, teamId },
         select: organizationSelect,
       });
-      return serializeOrganization(organization);
+      return serializeOrganization(organization, mayReadFinance);
     },
 
-    updateOrganization: async (teamId: string, id: string, input: UpdateOrganizationInput) => {
+    updateOrganization: async (
+      teamId: string,
+      id: string,
+      input: UpdateOrganizationInput,
+      mayReadFinance: boolean
+    ) => {
       const existing = await prisma.organization.count({ where: { id, teamId } });
       if (existing === 0) throw new NotFoundError("Firma bulunamadi");
 
@@ -139,7 +174,7 @@ export function createSponsorsService(prisma: PrismaClient) {
         data: input,
         select: organizationSelect,
       });
-      return serializeOrganization(organization);
+      return serializeOrganization(organization, mayReadFinance);
     },
 
     /**
@@ -163,7 +198,11 @@ export function createSponsorsService(prisma: PrismaClient) {
       await prisma.organization.delete({ where: { id } });
     },
 
-    listSponsorships: async (teamId: string, query: ListSponsorshipsQuery) => {
+    listSponsorships: async (
+      teamId: string,
+      query: ListSponsorshipsQuery,
+      mayReadFinance: boolean
+    ) => {
       const where: Prisma.SponsorshipWhereInput = {
         teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
@@ -185,15 +224,19 @@ export function createSponsorsService(prisma: PrismaClient) {
         prisma.sponsorship.count({ where }),
       ]);
 
-      return paginated(rows.map(serializeSponsorship), total, query);
+      return paginated(
+        rows.map((row) => serializeSponsorship(row, mayReadFinance)),
+        total,
+        query
+      );
     },
 
-    getSponsorship: async (teamId: string, id: string) => {
+    getSponsorship: async (teamId: string, id: string, mayReadFinance: boolean) => {
       const sponsorship = await prisma.sponsorship.findFirst({
         where: { id, teamId },
         select: sponsorshipSelect,
       });
-      return sponsorship && serializeSponsorship(sponsorship);
+      return sponsorship && serializeSponsorship(sponsorship, mayReadFinance);
     },
 
     /**
@@ -205,7 +248,8 @@ export function createSponsorsService(prisma: PrismaClient) {
      */
     createSponsorship: async (
       teamId: string,
-      { seasonId, amount, ...rest }: CreateSponsorshipInput
+      { seasonId, amount, ...rest }: CreateSponsorshipInput,
+      mayReadFinance: boolean
     ) => {
       const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
 
@@ -242,13 +286,14 @@ export function createSponsorsService(prisma: PrismaClient) {
         },
         select: sponsorshipSelect,
       });
-      return serializeSponsorship(sponsorship);
+      return serializeSponsorship(sponsorship, mayReadFinance);
     },
 
     updateSponsorship: async (
       teamId: string,
       id: string,
-      { amount, ...rest }: UpdateSponsorshipInput
+      { amount, ...rest }: UpdateSponsorshipInput,
+      mayReadFinance: boolean
     ) => {
       const existing = await prisma.sponsorship.count({ where: { id, teamId } });
       if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
@@ -267,7 +312,7 @@ export function createSponsorsService(prisma: PrismaClient) {
         },
         select: sponsorshipSelect,
       });
-      return serializeSponsorship(sponsorship);
+      return serializeSponsorship(sponsorship, mayReadFinance);
     },
 
     /**

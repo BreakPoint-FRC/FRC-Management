@@ -439,10 +439,15 @@ export default function SponsorsPage() {
                               {sponsorship.financeTransaction ? (
                                 <span className="row" style={{ gap: "4px" }}>
                                   <Badge tone="ok">Finansa islendi</Badge>
-                                  <span className="small muted">
-                                    {formatMoney(sponsorship.financeTransaction.amount)} —{" "}
-                                    {formatDate(sponsorship.financeTransaction.transactionDate)}
-                                  </span>
+                                  {/* amount/transactionDate are null without team-wide
+                                      FINANCE/read -- see SponsorshipFinanceLink. */}
+                                  {sponsorship.financeTransaction.amount &&
+                                  sponsorship.financeTransaction.transactionDate ? (
+                                    <span className="small muted">
+                                      {formatMoney(sponsorship.financeTransaction.amount)} —{" "}
+                                      {formatDate(sponsorship.financeTransaction.transactionDate)}
+                                    </span>
+                                  ) : null}
                                 </span>
                               ) : sponsorship.status === "SPONSOR" && mayConvert ? (
                                 <button
