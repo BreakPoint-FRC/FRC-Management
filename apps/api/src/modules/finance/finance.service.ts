@@ -1,7 +1,7 @@
 import { Prisma, type PrismaClient } from "@breakpoint/db";
 
 import { resolveSeasonId } from "../../lib/active-season";
-import { NotFoundError } from "../../lib/http-errors";
+import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import type {
   CreateTransactionInput,
@@ -21,11 +21,26 @@ const transactionSelect = {
   description: true,
   transactionDate: true,
   createdAt: true,
+  sponsorshipId: true,
   group: { select: { name: true } },
   createdBy: { select: { id: true, fullName: true } },
+  // Only populated for a row created by POST /sponsors/sponsorships/:id/
+  // finance-transaction. The finance table shows where the money came from
+  // through this relation -- never by guessing from `category === "Sponsorluk"`,
+  // which a manually entered row could also carry.
+  sponsorship: { select: { organizationId: true, organization: { select: { name: true } } } },
 } satisfies Prisma.FinanceTransactionSelect;
 
 type TransactionRow = Prisma.FinanceTransactionGetPayload<{ select: typeof transactionSelect }>;
+
+// Fields a converted row must keep forever, because they are what makes it a
+// faithful record of the sponsorship it came from rather than an ordinary
+// manual entry. Compared by value, not by presence, so a client that simply
+// resends the record it just loaded (type, category and all) is not rejected
+// for "changing" a field back to what it already was.
+// seasonId is not listed: updateTransactionSchema never accepts it at all, so
+// it is already impossible to change through PATCH /finance/:id.
+const PROTECTED_ON_LINKED_TRANSACTION = ["type", "category", "groupId"] as const;
 
 // Decimal on the way out becomes a string, not a number. Prisma hands back a
 // Decimal object; JSON.stringify would turn it into something lossy or into
@@ -36,11 +51,18 @@ type TransactionRow = Prisma.FinanceTransactionGetPayload<{ select: typeof trans
 // "4750.5". Money that changes shape depending on its value is money a client
 // has to normalise before it can line up a column of it.
 function serialize(transaction: TransactionRow) {
-  const { group, ...rest } = transaction;
+  const { group, sponsorship, ...rest } = transaction;
   return {
     ...rest,
     groupName: group?.name ?? null,
     amount: transaction.amount.toFixed(2),
+    source: sponsorship
+      ? {
+          sponsorshipId: transaction.sponsorshipId,
+          organizationId: sponsorship.organizationId,
+          organizationName: sponsorship.organization.name,
+        }
+      : null,
   };
 }
 
@@ -207,9 +229,33 @@ export function createFinanceService(prisma: PrismaClient) {
       return serialize(transaction);
     },
 
+    /**
+     * A row created by the sponsorship conversion keeps its type, category and
+     * group forever -- see PROTECTED_ON_LINKED_TRANSACTION. Amount, date and
+     * description stay editable: the pledge and the payment are allowed to
+     * differ (see convertToFinanceTransaction), and a typo in the amount or a
+     * corrected date must still be fixable.
+     *
+     * The check is by value rather than by field presence: a form that
+     * round-trips the whole record (type included, unchanged) must not be
+     * rejected for "editing" a field it never actually touched.
+     */
     update: async (teamId: string, id: string, { amount, ...rest }: UpdateTransactionInput) => {
-      const existing = await prisma.financeTransaction.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Kayit bulunamadi");
+      const existing = await prisma.financeTransaction.findFirst({
+        where: { id, teamId },
+        select: { sponsorshipId: true, type: true, category: true, groupId: true },
+      });
+      if (!existing) throw new NotFoundError("Kayit bulunamadi");
+
+      if (existing.sponsorshipId) {
+        for (const field of PROTECTED_ON_LINKED_TRANSACTION) {
+          if (field in rest && rest[field] !== existing[field]) {
+            throw new ConflictError(
+              "Sponsorluktan islenen bir kaydin turu, kategorisi ve grubu degistirilemez"
+            );
+          }
+        }
+      }
 
       const transaction = await prisma.financeTransaction.update({
         where: { id },
