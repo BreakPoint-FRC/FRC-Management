@@ -2,6 +2,8 @@ import { expect, it } from "vitest";
 import type { PrismaClient } from "@breakpoint/db";
 import type { RolePlacement } from "@breakpoint/types";
 
+import { createSetupService } from "../../src/modules/setup/setup.service";
+
 import { as, describeIntegration, useIntegrationDatabase } from "./harness";
 
 /**
@@ -363,5 +365,182 @@ describeIntegration("sponsorship -> finance conversion", () => {
       payload: { type: "INCOME", category: "Sponsorluk", amount: "25000.00" },
     });
     expect(response.statusCode).toBe(200);
+  });
+
+  // --- FINANCE is a separate grant from SPONSORS -----------------------------
+
+  it("SPONSORS/read without FINANCE/read sees that a sponsorship converted, not the amount or date", async () => {
+    const sponsorsOnly = await roleWithGrants(ctx.prisma, "TEST_SPONSORS_NO_FINANCE_READ", {
+      SPONSORS: "r",
+    });
+    const { sponsorshipId, organizationId } = await sponsorSponsorship();
+    await convert(admin(), sponsorshipId);
+
+    const list = await ctx.app.inject({
+      method: "GET",
+      url: "/sponsors/organizations?pageSize=100",
+      headers: as(ctx.app, sponsorsOnly),
+    });
+    expect(list.statusCode).toBe(200);
+    const org = list.json().items.find((item: { id: string }) => item.id === organizationId);
+    const linked = org.sponsorships.find((entry: { id: string }) => entry.id === sponsorshipId);
+    expect(linked.financeTransaction.id).toBeTruthy();
+    expect(linked.financeTransaction.amount).toBeNull();
+    expect(linked.financeTransaction.transactionDate).toBeNull();
+
+    const detail = await ctx.app.inject({
+      method: "GET",
+      url: `/sponsors/sponsorships/${sponsorshipId}`,
+      headers: as(ctx.app, sponsorsOnly),
+    });
+    expect(detail.json().financeTransaction.amount).toBeNull();
+
+    // The same rows, seen by an account that also holds FINANCE/read, carry
+    // the real numbers -- proving the redaction above is about the viewer's
+    // grant, not something missing from the data itself.
+    const withFinanceRead = await roleWithGrants(ctx.prisma, "TEST_SPONSORS_AND_FINANCE_READ", {
+      SPONSORS: "r",
+      FINANCE: "r",
+    });
+    const seenWithFinance = await ctx.app.inject({
+      method: "GET",
+      url: `/sponsors/sponsorships/${sponsorshipId}`,
+      headers: as(ctx.app, withFinanceRead),
+    });
+    expect(seenWithFinance.json().financeTransaction).toMatchObject({ amount: "25000.00" });
+  });
+
+  // --- The real FRC_ROLE_TEMPLATE, not a synthetic stand-in -------------------
+
+  it("FRC_ROLE_TEMPLATE grants TEAM_LEAD and MENTOR exactly SPONSORS:r + FINANCE:rc, and both work end to end", async () => {
+    // A fresh team, not the shared fixture: applyTemplate refuses a team that
+    // already has non-system roles, which fixture.ts's MEMBER role is.
+    const team = await ctx.prisma.team.create({
+      data: { name: "Sablon Takimi", slug: `sablon-${Date.now()}` },
+      select: { id: true },
+    });
+    // applyTemplate refuses a team with no groups yet; this one's id is never
+    // needed again since none of the roles this test cares about are
+    // MANAGES_GROUP-scoped.
+    await ctx.prisma.group.create({ data: { teamId: team.id, name: "Genel" } });
+    const season = await ctx.prisma.season.create({
+      data: {
+        teamId: team.id,
+        name: "2026 Sezonu",
+        startDate: new Date("2026-01-01T00:00:00.000Z"),
+        endDate: new Date("2026-12-31T00:00:00.000Z"),
+        isActive: true,
+      },
+      select: { id: true },
+    });
+
+    // The template itself, applied by the real setup service -- not hand-rolled
+    // RolePermission rows -- so this proves setup.template.ts actually produces
+    // what the sponsors/finance endpoints need, not just that the endpoints
+    // work when told the right permissions exist.
+    await createSetupService(ctx.prisma).applyTemplate(team.id, ctx.fixture.platform.accountId);
+
+    const teamLeadRole = await ctx.prisma.role.findFirstOrThrow({
+      where: { teamId: team.id, key: "TEAM_LEAD" },
+      select: {
+        id: true,
+        placement: true,
+        permissions: { select: { canRead: true, canCreate: true, canUpdate: true, canDelete: true, tool: { select: { key: true } } } },
+      },
+    });
+    const mentorRole = await ctx.prisma.role.findFirstOrThrow({
+      where: { teamId: team.id, key: "MENTOR" },
+      select: {
+        id: true,
+        placement: true,
+        permissions: { select: { canRead: true, canCreate: true, canUpdate: true, canDelete: true, tool: { select: { key: true } } } },
+      },
+    });
+
+    const grantOn = (role: typeof teamLeadRole, toolKey: string) =>
+      role.permissions.find((permission) => permission.tool.key === toolKey);
+
+    expect(teamLeadRole.placement).toBe("TEAM_WIDE");
+    expect(grantOn(teamLeadRole, "SPONSORS")).toMatchObject({
+      canRead: true,
+      canCreate: false,
+      canUpdate: false,
+      canDelete: false,
+    });
+    expect(grantOn(teamLeadRole, "FINANCE")).toMatchObject({
+      canRead: true,
+      canCreate: true,
+      canUpdate: false,
+      canDelete: false,
+    });
+
+    // EXTERNAL, unchanged by this PR -- see setup.template.ts's own comment on
+    // why a mentor is not TEAM_WIDE.
+    expect(mentorRole.placement).toBe("EXTERNAL");
+    expect(grantOn(mentorRole, "SPONSORS")).toMatchObject({ canRead: true, canCreate: false });
+    expect(grantOn(mentorRole, "FINANCE")).toMatchObject({ canRead: true, canCreate: true });
+
+    const teamLeadAccount = await ctx.prisma.account.create({
+      data: { teamId: team.id, email: "kaptan@sablon.test", fullName: "Kaptan", passwordHash: "x" },
+      select: { id: true },
+    });
+    await ctx.prisma.accountRole.create({ data: { accountId: teamLeadAccount.id, roleId: teamLeadRole.id } });
+
+    const mentorAccount = await ctx.prisma.account.create({
+      data: { teamId: team.id, email: "mentor@sablon.test", fullName: "Mentor", passwordHash: "x" },
+      select: { id: true },
+    });
+    await ctx.prisma.accountRole.create({ data: { accountId: mentorAccount.id, roleId: mentorRole.id } });
+
+    // TEAM_LEAD converts a real sponsorship through the real template's grants.
+    const organization = await ctx.prisma.organization.create({
+      data: { teamId: team.id, name: "Sablon Sponsoru" },
+      select: { id: true },
+    });
+    const sponsorship = await ctx.prisma.sponsorship.create({
+      data: {
+        teamId: team.id,
+        organizationId: organization.id,
+        seasonId: season.id,
+        status: "SPONSOR",
+        amount: "5000.00",
+      },
+      select: { id: true },
+    });
+    const converted = await convert(as(ctx.app, teamLeadAccount.id), sponsorship.id, {
+      amount: "5000.00",
+      transactionDate: "2026-09-09",
+    });
+    expect(converted.statusCode).toBe(201);
+
+    // Both TEAM_LEAD and MENTOR can also enter an ordinary, unlinked team-wide
+    // finance record -- FINANCE: "c" was never scoped to the conversion
+    // endpoint alone.
+    for (const accountId of [teamLeadAccount.id, mentorAccount.id]) {
+      const manual = await ctx.app.inject({
+        method: "POST",
+        url: "/finance",
+        headers: as(ctx.app, accountId),
+        payload: {
+          type: "EXPENSE",
+          category: "Malzeme",
+          amount: "150.00",
+          transactionDate: "2026-09-09",
+        },
+      });
+      expect(manual.statusCode).toBe(201);
+    }
+
+    // Not asserted here: whether MENTOR's team-wide FINANCE:create also
+    // authorizes a *department*-scoped record (POST /finance with a groupId).
+    // Checked directly against authorize()'s TEAM_WIDE/EXTERNAL bypass
+    // (apps/api/src/lib/authorize.ts): the bypass returns as soon as the
+    // account holds the grant in the team-wide bucket, before it ever looks at
+    // the request's groupId -- so today an EXTERNAL role's team-wide grant
+    // authorizes a group-scoped write exactly like a TEAM_WIDE role's does.
+    // That is pre-existing behavior of authorize(), not something this PR
+    // changes, and it is arguably in tension with EXTERNAL's own doc comment
+    // ("can only authorize team-wide requests") -- worth its own issue rather
+    // than a silent assumption baked into this test.
   });
 });
