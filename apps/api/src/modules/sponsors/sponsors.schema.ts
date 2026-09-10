@@ -47,9 +47,20 @@ export const listSponsorshipsQuerySchema = paginationSchema.extend({
     .default(false),
 });
 
+// "Finansa isle": the only fields a caller gets to choose for the
+// FinanceTransaction this creates. type, category, groupId, teamId, seasonId,
+// createdById and sponsorshipId are all set server-side -- see
+// sponsors.service.ts#convertToFinanceTransaction.
+export const convertSponsorshipToFinanceSchema = z.object({
+  amount: positiveDecimalStringSchema,
+  transactionDate: z.coerce.date(),
+  description: z.string().max(2000).nullish(),
+});
+
 export type CreateOrganizationInput = z.infer<typeof createOrganizationSchema>;
 export type UpdateOrganizationInput = z.infer<typeof updateOrganizationSchema>;
 export type CreateSponsorshipInput = z.infer<typeof createSponsorshipSchema>;
 export type UpdateSponsorshipInput = z.infer<typeof updateSponsorshipSchema>;
 export type ListOrganizationsQuery = z.infer<typeof listOrganizationsQuerySchema>;
 export type ListSponsorshipsQuery = z.infer<typeof listSponsorshipsQuerySchema>;
+export type ConvertSponsorshipToFinanceInput = z.infer<typeof convertSponsorshipToFinanceSchema>;

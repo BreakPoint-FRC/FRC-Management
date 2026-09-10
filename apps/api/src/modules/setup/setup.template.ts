@@ -46,12 +46,20 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
     description: "Gunluk isleyisi yurutur.",
     placement: "TEAM_WIDE",
     above: ["LEAD"],
-    grants: { ACCOUNTS: "r", GROUPS: "r", SEASONS: "r", FINANCE: "r" },
+    // SPONSORS: "r" + FINANCE: "c" so the captain can turn a closed
+    // sponsorship into a finance record (SPONSORS/read + FINANCE/create --
+    // see sponsors.routes.ts) without gaining SPONSORS/update. FINANCE: "c" is
+    // deliberately not narrower than that: it is ordinary team-wide create on
+    // /finance too, same as any other role holding the grant, so a captain can
+    // enter finance records directly -- it just carries no "u" or "d", so
+    // existing records stay someone else's to change or remove.
+    grants: { ACCOUNTS: "r", GROUPS: "r", SEASONS: "r", SPONSORS: "r", FINANCE: "rc" },
   },
   {
     key: "MENTOR",
     name: "Mentor",
-    description: "Takim disindan rehberlik eder, her seyi gorur, hicbir seyi degistirmez.",
+    description:
+      "Takimin tamamina rehberlik eder; calismalari ve sponsorlari gorur, finansa sponsorluk geliri isleyebilir.",
     // EXTERNAL rather than TEAM_WIDE: a mentor is attached to the team, not to
     // its structure, and holds no authority over any department.
     placement: "EXTERNAL",
@@ -65,6 +73,13 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
       CALENDAR: "r",
       ACCOUNTS: "r",
       GROUPS: "r",
+      // Same pair as TEAM_LEAD, for the same reason: a mentor can convert a
+      // SPONSOR-status sponsorship into income without SPONSORS/update.
+      // FINANCE: "c" is ordinary team-wide create, same as TEAM_LEAD's --
+      // a mentor can enter finance records directly, but "c" alone carries no
+      // authority to change or remove a record once it exists.
+      SPONSORS: "r",
+      FINANCE: "rc",
     },
   },
   {

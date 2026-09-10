@@ -148,7 +148,7 @@ model Account {
   taskActivities  TaskActivity[]
   transactions    FinanceTransaction[] @relation("TransactionAuthor")
   sponsorships    Sponsorship[]        @relation("SponsorshipOwner")
-  auditLogs        AuditLog[]
+  auditLogs       AuditLog[]
 
   @@index([teamId])
   @@index([isActive])
@@ -685,11 +685,18 @@ model FinanceTransaction {
   createdById     String
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
+  // Set only by POST /sponsors/sponsorships/:id/finance-transaction. @unique
+  // is what makes "at most one finance record per sponsorship" a database
+  // guarantee rather than an application-level promise that a race can break.
+  sponsorshipId   String?         @unique
 
-  team      Team    @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  season    Season  @relation(fields: [seasonId], references: [id], onDelete: Restrict)
-  group     Group?  @relation(fields: [groupId], references: [id], onDelete: Restrict)
-  createdBy Account @relation("TransactionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+  team        Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  season      Season       @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  group       Group?       @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  createdBy   Account      @relation("TransactionAuthor", fields: [createdById], references: [id], onDelete: Restrict)
+  // Restrict: a sponsorship with income already booked against it must not be
+  // deletable out from under that finance record.
+  sponsorship Sponsorship? @relation(fields: [sponsorshipId], references: [id], onDelete: Restrict)
 
   @@index([teamId])
   @@index([seasonId, transactionDate])
@@ -744,10 +751,13 @@ model Sponsorship {
   createdAt      DateTime          @default(now())
   updatedAt      DateTime          @updatedAt
 
-  team         Team         @relation(fields: [teamId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict)
-  season       Season       @relation(fields: [seasonId], references: [id], onDelete: Restrict)
-  assignedTo   Account?     @relation("SponsorshipOwner", fields: [assignedToId], references: [id], onDelete: SetNull)
+  team               Team                @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict)
+  season             Season              @relation(fields: [seasonId], references: [id], onDelete: Restrict)
+  assignedTo         Account?            @relation("SponsorshipOwner", fields: [assignedToId], references: [id], onDelete: SetNull)
+  // The other side of FinanceTransaction.sponsorshipId. Nothing on this model
+  // stores the link -- it exists only because the finance row points here.
+  financeTransaction FinanceTransaction?
 
   // One relationship row per company per season. Without this a firm could be
   // both NEGOTIATING and REJECTED in 2026 and neither would be wrong.

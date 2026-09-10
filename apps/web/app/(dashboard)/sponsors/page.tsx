@@ -28,10 +28,12 @@ import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { OrganizationRow, SeasonRow } from "@/lib/api-types";
 import { emptyToNull } from "@/lib/form-helpers";
-import { formatMoney } from "@/lib/format";
+import { formatDate, formatMoney, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 import { sponsorshipTone } from "@/lib/status";
+
+type SponsorshipEntry = OrganizationRow["sponsorships"][number];
 
 interface OrgDraft {
   name: string;
@@ -49,12 +51,19 @@ interface SponsorshipDraft {
   notes: string;
 }
 
+interface ConvertDraft {
+  amount: string;
+  transactionDate: string;
+  description: string;
+}
+
 const BLANK_ORG: OrgDraft = { name: "", website: "", email: "", phone: "", notes: "" };
 
 type Panel =
   | { kind: "closed" }
   | { kind: "org"; org: OrganizationRow | null }
-  | { kind: "sponsorship"; org: OrganizationRow; sponsorshipId: string | null };
+  | { kind: "sponsorship"; org: OrganizationRow; sponsorshipId: string | null }
+  | { kind: "convert"; org: OrganizationRow; sponsorship: SponsorshipEntry };
 
 /**
  * Organisations with their per-season relationship history.
@@ -81,6 +90,12 @@ export default function SponsorsPage() {
     notes: "",
   });
 
+  const [convertDraft, setConvertDraft] = useState<ConvertDraft>({
+    amount: "",
+    transactionDate: "",
+    description: "",
+  });
+
   const seasons = useApi<Paginated<SeasonRow>>(
     panel.kind === "sponsorship" ? "/seasons?pageSize=100" : null
   );
@@ -88,6 +103,9 @@ export default function SponsorsPage() {
   const mayCreate = can(permissions, "SPONSORS", "create");
   const mayUpdate = can(permissions, "SPONSORS", "update");
   const mayDelete = can(permissions, "SPONSORS", "delete");
+  // Deliberately not SPONSORS/update: converting never writes the sponsorship
+  // row, so a captain or mentor with only read access can still use it.
+  const mayConvert = can(permissions, "SPONSORS", "read") && can(permissions, "FINANCE", "create");
 
   function close() {
     setPanel({ kind: "closed" });
@@ -161,6 +179,34 @@ export default function SponsorsPage() {
             organizationId: sponsorshipDraft.organizationId,
             seasonId: sponsorshipDraft.seasonId || undefined,
           })
+    );
+    if (ok) {
+      close();
+      organizations.reload();
+    }
+  }
+
+  function openConvert(org: OrganizationRow, sponsorship: SponsorshipEntry) {
+    setConvertDraft({
+      // Pre-filled from the pledge, but a genuinely separate value: the amount
+      // actually received can differ from what was promised.
+      amount: sponsorship.amount ?? "",
+      transactionDate: toDateInput(new Date()),
+      description: "",
+    });
+    setPanel({ kind: "convert", org, sponsorship });
+    mutation.reset();
+  }
+
+  async function submitConvert() {
+    if (panel.kind !== "convert") return;
+
+    const ok = await mutation.run(() =>
+      apiClient.post(`/sponsors/sponsorships/${panel.sponsorship.id}/finance-transaction`, {
+        amount: convertDraft.amount.trim(),
+        transactionDate: convertDraft.transactionDate,
+        description: emptyToNull(convertDraft.description),
+      })
     );
     if (ok) {
       close();
@@ -298,6 +344,48 @@ export default function SponsorsPage() {
         </FormPanel>
       ) : null}
 
+      {panel.kind === "convert" ? (
+        <FormPanel
+          title={`${panel.org.name} — finansa isle`}
+          error={mutation.error}
+          saving={mutation.saving}
+          onSubmit={submitConvert}
+          onCancel={close}
+        >
+          <p className="small muted" style={{ margin: 0 }}>
+            {panel.sponsorship.season.name} sezonu icin bir gelir kaydi olusturulacak. Tur ve
+            kategori sunucu tarafindan belirlenir ve sonradan degistirilemez.
+          </p>
+          <div className="row">
+            <TextField
+              label="Tutar"
+              value={convertDraft.amount}
+              required
+              inputMode="decimal"
+              placeholder="25000.00"
+              hint="Gercekten alinan tutar; taahhut edilenden farkli olabilir."
+              onChange={(amount) => setConvertDraft({ ...convertDraft, amount })}
+              error={issueFor(mutation.error, "amount")}
+            />
+            <TextField
+              label="Odeme tarihi"
+              type="date"
+              value={convertDraft.transactionDate}
+              required
+              onChange={(transactionDate) => setConvertDraft({ ...convertDraft, transactionDate })}
+              error={issueFor(mutation.error, "transactionDate")}
+            />
+          </div>
+          <TextAreaField
+            label="Aciklama"
+            rows={2}
+            value={convertDraft.description}
+            onChange={(description) => setConvertDraft({ ...convertDraft, description })}
+            error={issueFor(mutation.error, "description")}
+          />
+        </FormPanel>
+      ) : null}
+
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
       <AsyncSection state={organizations}>
@@ -347,6 +435,28 @@ export default function SponsorsPage() {
                                 <span className="small muted">
                                   {formatMoney(sponsorship.amount)}
                                 </span>
+                              ) : null}
+                              {sponsorship.financeTransaction ? (
+                                <span className="row" style={{ gap: "4px" }}>
+                                  <Badge tone="ok">Finansa islendi</Badge>
+                                  {/* amount/transactionDate are null without team-wide
+                                      FINANCE/read -- see SponsorshipFinanceLink. */}
+                                  {sponsorship.financeTransaction.amount &&
+                                  sponsorship.financeTransaction.transactionDate ? (
+                                    <span className="small muted">
+                                      {formatMoney(sponsorship.financeTransaction.amount)} —{" "}
+                                      {formatDate(sponsorship.financeTransaction.transactionDate)}
+                                    </span>
+                                  ) : null}
+                                </span>
+                              ) : sponsorship.status === "SPONSOR" && mayConvert ? (
+                                <button
+                                  className="btn btn-sm"
+                                  type="button"
+                                  onClick={() => openConvert(organization, sponsorship)}
+                                >
+                                  Finansa isle
+                                </button>
                               ) : null}
                               {mayUpdate ? (
                                 <button
