@@ -17,7 +17,16 @@ test("a saved role permission appears in the real audit trail", async ({ page })
   await page.getByRole("link", { name: "Roller", exact: true }).click();
   const rolesResponse = await rolesLoaded;
   const roles: Paginated<RoleRow> = await rolesResponse.json();
-  const roleId = roles.items.find((role) => role.key === "MEMBER")!.id;
+  const memberRole = roles.items.find((role) => role.key === "MEMBER");
+  expect(memberRole).toBeTruthy();
+  const roleId = memberRole!.id;
+  const originalPermissions = memberRole!.permissions.map((permission) => ({
+    tool: permission.tool,
+    canRead: permission.canRead,
+    canCreate: permission.canCreate,
+    canUpdate: permission.canUpdate,
+    canDelete: permission.canDelete,
+  }));
   const roleRow = page.locator("tr").filter({ has: page.getByRole("cell", { name: "MEMBER", exact: true }) });
   await roleRow.getByRole("button", { name: "Yetkiler" }).click();
   const permissionsUrl = new URL(`/roles/${roleId}/permissions`, rolesResponse.url());
@@ -31,28 +40,41 @@ test("a saved role permission appears in the real audit trail", async ({ page })
   const tasks = page.locator("form tr").filter({ has: page.getByRole("cell", { name: "TASKS", exact: true }) });
   const update = tasks.getByRole("checkbox").nth(2);
   const previous = await update.isChecked();
-  await update.setChecked(!previous);
-  const saved = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().includes("/permissions"));
-  await page.getByRole("button", { name: "Kaydet", exact: true }).click();
-  const response = await saved;
-  expect(response.status()).toBe(204);
-  expect(new URL(response.url()).pathname).toBe(permissionsUrl.pathname);
-  const auditLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/audit-log?`) && response.request().method() === "GET");
-  await page.getByRole("link", { name: "Denetim kaydi" }).click();
-  const auditResponse = await auditLoaded;
-  expect(auditResponse.status()).toBe(200);
-  const history: Paginated<AuditLogRow> = await auditResponse.json();
-  const fresh = history.items.filter((row) => row.entityId === roleId &&
-    row.action === "ROLE_PERMISSIONS_REPLACED" && !existingIds.has(row.id));
-  expect(fresh).toHaveLength(1);
-  expect(fresh[0].newValue).toEqual(expect.arrayContaining([
-    expect.objectContaining({ tool: "TASKS", canUpdate: !previous }),
-  ]));
-  const audit = page.locator(`tbody tr[data-audit-id="${fresh[0].id}"]`);
-  await expect(audit).toContainText("Ada Yilmaz");
-  await expect(audit).toContainText("Rol izinleri degistirildi");
-  await expect(audit).toContainText("TASKS");
-  const sides = audit.locator(".audit-log-change > span");
-  await expect(sides.nth(previous ? 0 : 2)).toContainText("Guncelleme");
-  await expect(sides.nth(previous ? 2 : 0)).not.toContainText("Guncelleme");
+  let mutationAttempted = false;
+  try {
+    await update.setChecked(!previous);
+    const saved = page.waitForResponse((response) => response.request().method() === "PUT" && response.url().includes("/permissions"));
+    mutationAttempted = true;
+    await page.getByRole("button", { name: "Kaydet", exact: true }).click();
+    const response = await saved;
+    expect(response.status()).toBe(204);
+    expect(new URL(response.url()).pathname).toBe(permissionsUrl.pathname);
+    const auditLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/audit-log?`) && response.request().method() === "GET");
+    await page.getByRole("link", { name: "Denetim kaydi" }).click();
+    const auditResponse = await auditLoaded;
+    expect(auditResponse.status()).toBe(200);
+    const history: Paginated<AuditLogRow> = await auditResponse.json();
+    const fresh = history.items.filter((row) => row.entityId === roleId &&
+      row.action === "ROLE_PERMISSIONS_REPLACED" && !existingIds.has(row.id));
+    expect(fresh).toHaveLength(1);
+    expect(fresh[0].newValue).toEqual(expect.arrayContaining([
+      expect.objectContaining({ tool: "TASKS", canUpdate: !previous }),
+    ]));
+    const audit = page.locator(`tbody tr[data-audit-id="${fresh[0].id}"]`);
+    await expect(audit).toContainText("Ada Yilmaz");
+    await expect(audit).toContainText("Rol izinleri degistirildi");
+    await expect(audit).toContainText("TASKS");
+    const sides = audit.locator(".audit-log-change > span");
+    await expect(sides.nth(previous ? 0 : 2)).toContainText("Guncelleme");
+    await expect(sides.nth(previous ? 2 : 0)).not.toContainText("Guncelleme");
+  } finally {
+    // Restore even when the save response is lost after the server commits.
+    if (mutationAttempted) {
+      const restored = await page.request.put(permissionsUrl.toString(), {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        data: { permissions: originalPermissions },
+      });
+      expect(restored.status()).toBe(204);
+    }
+  }
 });

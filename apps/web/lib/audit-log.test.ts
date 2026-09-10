@@ -91,6 +91,38 @@ describe("summarizeAuditChange", () => {
     ).toEqual({ oldValue: "Ad: Member", newValue: "Ad: Lead" });
   });
 
+  it("shows same-sized role scope replacements instead of only their counts", () => {
+    expect(
+      summarizeAuditChange({
+        action: "ROLE_UPDATED",
+        oldValue: { groupScopeIds: ["mechanical"] },
+        newValue: { groupScopeIds: ["software"] },
+      })
+    ).toEqual({
+      oldValue: "Grup kapsami: mechanical",
+      newValue: "Grup kapsami: software",
+    });
+  });
+
+  it("shows active-state changes inside retired group collections", () => {
+    expect(
+      summarizeAuditChange({
+        action: "GROUP_RETIRED",
+        oldValue: {
+          groups: [{ id: "group-1", isActive: true }],
+          assignments: [{ id: "assignment-1", isActive: true }],
+        },
+        newValue: {
+          groups: [{ id: "group-1", isActive: false }],
+          assignments: [{ id: "assignment-1", isActive: false }],
+        },
+      })
+    ).toEqual({
+      oldValue: "Gruplar: 1 aktif, Atamalar: 1 aktif",
+      newValue: "Gruplar: 1 pasif, Atamalar: 1 pasif",
+    });
+  });
+
   it("caps long summaries and never emits raw JSON", () => {
     const summary = summarizeAuditChange({
       action: "GROUP_TOOLS_REPLACED",

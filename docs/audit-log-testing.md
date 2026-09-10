@@ -11,6 +11,9 @@ pnpm --filter @breakpoint/web exec playwright install chromium
 pnpm --filter @breakpoint/web test:e2e
 ```
 
+The test command builds the shared database and type packages before Playwright
+starts, so it also works directly after a clean install.
+
 Playwright starts the web app on port 3100 with API port 4100. The default suite
 stubs API responses, not the page: it exercises 26-row pagination, filter query
 names and inclusive local dates, invalid date ranges, clearing filters, empty
@@ -28,9 +31,10 @@ the old/new column can be scrolled into view on a phone.
 ## Real permission change
 
 The real test uses the existing role editor and makes no mocked requests. It
-toggles the seeded MEMBER role's TASKS update permission, then checks the resulting
-audit row's actor, role ID, action and old/new values. Use a separate disposable
-local database; this test intentionally changes that test role and writes history.
+temporarily toggles the seeded MEMBER role's TASKS update permission, checks the
+resulting audit row's actor, role ID, action and old/new values, then restores the
+original permission matrix in a `finally` cleanup. Use a separate disposable local
+database because the test still writes both the change and restoration to history.
 Before saving, it reads the role's recent audit IDs. After saving, it requires a
 new audit ID for that role and action, checks the saved permission value, and
 asserts against that exact rendered row. An older matching row cannot pass it.
@@ -57,12 +61,13 @@ does not certify the real role-edit flow or the visual acceptance criteria.
 ## Verification: 2026-09-10
 
 - `pnpm lint`, `pnpm typecheck`, `pnpm test` and `pnpm build` passed.
-- Unit suites: 318 tests passed (215 API, 102 web, 1 database).
+- Unit suites: 324 tests passed (215 API, 108 web, 1 database).
 - With `AUDIT_E2E_REAL=1`, all 14 browser tests passed, including a real permission
   change with previous audit history already present.
 - Light/dark screenshots at 360px and 1280px were inspected; the phone table's
   old/new column remained accessible by horizontal scrolling.
 - The real test used a temporary PostgreSQL 18.4 cluster on `127.0.0.1:55432`,
-  with all 22 migrations and the seed applied. No existing database was used.
+  with all 22 migrations then present and the seed applied. No existing database
+  was used.
 - This run used Windows, Node 24.15.0 and pnpm 9.12.0. The repository's pinned
   Node 20 environment was not exercised by this verification.

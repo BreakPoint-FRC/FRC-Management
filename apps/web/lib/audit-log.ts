@@ -63,6 +63,21 @@ function shortList(values: string[]): string {
   return shown.join(", ") + (values.length > shown.length ? ` (+${values.length - shown.length})` : "");
 }
 
+function arraySummary(value: unknown[]): string {
+  if (value.length === 0) return "Yok";
+  if (value.every((item) => typeof item === "string" || typeof item === "number")) {
+    return shortList(value.map(String));
+  }
+  if (value.every((item) => isRecord(item) && typeof item.isActive === "boolean")) {
+    const active = value.filter((item) => (item as JsonRecord).isActive === true).length;
+    const passive = value.length - active;
+    return [active ? `${active} aktif` : "", passive ? `${passive} pasif` : ""]
+      .filter(Boolean)
+      .join(", ");
+  }
+  return `${value.length} oge`;
+}
+
 function permissionSummary(value: unknown): string | null {
   if (!Array.isArray(value)) return null;
   const entries = value.flatMap((item) => {
@@ -116,7 +131,7 @@ function scalar(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Yok";
   if (typeof value === "boolean") return value ? "Evet" : "Hayir";
   if (["string", "number"].includes(typeof value)) return String(value);
-  if (Array.isArray(value)) return `${value.length} oge`;
+  if (Array.isArray(value)) return arraySummary(value);
   return "Deger";
 }
 
@@ -141,7 +156,7 @@ function summarizeSide(action: AuditAction, value: unknown, keys?: string[]): st
   if (action === "ACCOUNT_ROLES_REPLACED") {
     return roleAssignmentSummary(value) ?? scalar(value);
   }
-  if (Array.isArray(value)) return `${value.length} oge`;
+  if (Array.isArray(value)) return arraySummary(value);
   if (isRecord(value)) return objectSummary(value, keys);
   return scalar(value);
 }
