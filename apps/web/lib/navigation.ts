@@ -1,6 +1,6 @@
 import type { ToolKey } from "@breakpoint/types";
 
-import { canAnywhere, type PermissionMap } from "./permissions";
+import { can, canAnywhere, type PermissionMap } from "./permissions";
 
 export interface NavigationItem {
   href: string;
@@ -8,6 +8,8 @@ export interface NavigationItem {
   tool?: ToolKey;
   /** The route also requires an account outside every team. */
   platformOnly?: boolean;
+  /** The endpoint has no group context, so a group-scoped grant cannot open it. */
+  globalOnly?: boolean;
 }
 
 export const NAV_ITEMS: readonly NavigationItem[] = [
@@ -22,6 +24,8 @@ export const NAV_ITEMS: readonly NavigationItem[] = [
   { href: "/accounts", label: "Hesaplar", tool: "ACCOUNTS" },
   { href: "/groups", label: "Gruplar", tool: "GROUPS" },
   { href: "/roles", label: "Roller", tool: "ROLES" },
+  // #23 grants audit access independently of role editing; keep its own route.
+  { href: "/audit-log", label: "Denetim kaydi", tool: "AUDIT_LOG", globalOnly: true },
   { href: "/tools", label: "Moduller", tool: "TOOLS", platformOnly: true },
   { href: "/seasons", label: "Sezonlar", tool: "SEASONS" },
 ];
@@ -38,6 +42,9 @@ export function visibleNavigationItems(
   return NAV_ITEMS.filter(
     (item) =>
       (!item.platformOnly || teamId === null) &&
-      (!item.tool || canAnywhere(permissions, item.tool, "read"))
+      (!item.tool ||
+        (item.globalOnly
+          ? can(permissions, item.tool, "read")
+          : canAnywhere(permissions, item.tool, "read")))
   );
 }

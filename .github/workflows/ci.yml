@@ -60,4 +60,10 @@ jobs:
         env:
           INTEGRATION_TESTS_REQUIRED: "true"
 
+      - name: Install Playwright browser
+        run: pnpm --filter @breakpoint/web exec playwright install --with-deps chromium
+
+      - name: Run web browser acceptance tests
+        run: pnpm --filter @breakpoint/web test:e2e
+
       - run: pnpm build

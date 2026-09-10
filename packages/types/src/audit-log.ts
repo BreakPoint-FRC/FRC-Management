@@ -46,3 +46,28 @@ export const auditLogSchema = z.object({
 export type AuditEntityType = z.infer<typeof auditEntityTypeSchema>;
 export type AuditAction = z.infer<typeof auditActionSchema>;
 export type AuditLog = z.infer<typeof auditLogSchema>;
+
+/** Human-readable labels shared by every client that renders the audit trail. */
+export const AUDIT_ENTITY_TYPE_LABELS: Record<AuditEntityType, string> = {
+  ACCOUNT: "Hesap",
+  ROLE: "Rol",
+  GROUP: "Grup",
+  TEAM: "Takim",
+};
+
+export const AUDIT_ACTION_LABELS: Record<AuditAction, string> = {
+  ACCOUNT_CREATED: "Hesap olusturuldu",
+  ACCOUNT_ROLES_REPLACED: "Hesap rolleri degistirildi",
+  ROLE_CREATED: "Rol olusturuldu",
+  ROLE_UPDATED: "Rol guncellendi",
+  ROLE_DELETED: "Rol silindi",
+  ROLE_PERMISSIONS_REPLACED: "Rol izinleri degistirildi",
+  ROLE_HIERARCHY_LINKED: "Rol baglantisi eklendi",
+  ROLE_HIERARCHY_UNLINKED: "Rol baglantisi kaldirildi",
+  GROUP_CREATED: "Grup olusturuldu",
+  GROUP_PARENT_CHANGED: "Ust grup degistirildi",
+  GROUP_TOOLS_REPLACED: "Grup modulleri degistirildi",
+  GROUP_REMOVED: "Grup silindi",
+  GROUP_RETIRED: "Grup emekliye ayrildi",
+  TEMPLATE_APPLIED: "Rol sablonu uygulandi",
+};

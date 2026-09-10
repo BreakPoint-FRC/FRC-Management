@@ -1,4 +1,6 @@
 import type {
+  AuditAction,
+  AuditEntityType,
   AttendanceStatus,
   CalendarEntryKind,
   RolePlacement,
@@ -131,6 +133,20 @@ export interface RoleGraphRow {
   roles: Array<{ id: string; key: string; name: string; placement: RolePlacement; depth: number }>;
   edges: Array<{ parentRoleId: string; childRoleId: string }>;
   closure: Array<{ roleId: string; below: string[] }>;
+}
+
+/** A security audit row as GET /audit-log sends it over JSON. */
+export interface AuditLogRow {
+  id: string;
+  teamId: string;
+  actorId: string;
+  actor: { id: string; fullName: string };
+  entityType: AuditEntityType;
+  entityId: string;
+  action: AuditAction;
+  oldValue: unknown | null;
+  newValue: unknown | null;
+  createdAt: string;
 }
 
 /** GET /setup -- where the team is in its first-run flow. */

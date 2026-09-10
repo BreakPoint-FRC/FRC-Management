@@ -142,6 +142,7 @@ call `localhost`.
 | `pnpm build` | Build every workspace in dependency order |
 | `pnpm test` | Run every vitest suite, unit and integration |
 | `pnpm test:integration` | Run only the API integration suite (needs `TEST_DATABASE_URL`) |
+| `pnpm --filter @breakpoint/web test:e2e` | Run audit-screen browser acceptance tests; see [audit log testing](docs/audit-log-testing.md) |
 | `pnpm lint` | Lint every workspace |
 | `pnpm typecheck` | Type-check every workspace without emitting |
 | `pnpm --filter @breakpoint/db db:migrate` | Create/apply a migration (local only) |

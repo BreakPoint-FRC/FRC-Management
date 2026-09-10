@@ -7,7 +7,7 @@ const NONE = { canRead: false, canCreate: false, canUpdate: false, canDelete: fa
 const READ = { ...NONE, canRead: true };
 
 const ADMIN_PERMISSIONS: PermissionMap = {
-  global: { TEAMS: READ, TOOLS: READ, GROUPS: READ },
+  global: { TEAMS: READ, TOOLS: READ, GROUPS: READ, ROLES: READ },
   byGroup: {},
 };
 
@@ -32,5 +32,30 @@ describe("platform-only navigation", () => {
 
     expect(hrefs).not.toContain("/teams");
     expect(hrefs).not.toContain("/tools");
+  });
+});
+
+describe("audit-log navigation", () => {
+  it("uses AUDIT_LOG read independently of role-management access", () => {
+    const withoutAudit = visibleNavigationItems("team-1", ADMIN_PERMISSIONS).map(
+      (item) => item.href
+    );
+    const withAudit = visibleNavigationItems("team-1", {
+      ...ADMIN_PERMISSIONS,
+      global: { ...ADMIN_PERMISSIONS.global, AUDIT_LOG: READ },
+    }).map((item) => item.href);
+
+    expect(withoutAudit).toContain("/roles");
+    expect(withoutAudit).not.toContain("/audit-log");
+    expect(withAudit).toContain("/audit-log");
+  });
+
+  it("does not advertise the team-wide endpoint for a group-only grant", () => {
+    const hrefs = visibleNavigationItems("team-1", {
+      global: {},
+      byGroup: { "group-1": { AUDIT_LOG: READ } },
+    }).map((item) => item.href);
+
+    expect(hrefs).not.toContain("/audit-log");
   });
 });
