@@ -144,6 +144,7 @@ a {
 }
 
 .content {
+  min-width: 0;
   padding: calc(var(--space) * 3);
   max-width: 1100px;
 }
@@ -264,6 +265,72 @@ a {
 .table th.numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* --- audit log --------------------------------------------------------- */
+
+.audit-log-filters {
+  display: flex;
+  align-items: flex-end;
+  flex-wrap: wrap;
+  gap: calc(var(--space) * 2);
+  margin-bottom: calc(var(--space) * 2);
+}
+
+.audit-log-filters .field {
+  min-width: 160px;
+}
+
+.audit-log-filter-actions {
+  margin-left: auto;
+}
+
+.audit-log-table {
+  min-width: 760px;
+}
+
+.audit-log-date {
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+.audit-log-table td {
+  overflow-wrap: anywhere;
+}
+
+.audit-log-event {
+  gap: 2px;
+}
+
+.audit-log-id {
+  overflow-wrap: anywhere;
+}
+
+.audit-log-change {
+  overflow-wrap: anywhere;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: var(--space);
+  min-width: 320px;
+}
+
+.pagination {
+  justify-content: flex-end;
+}
+
+@media (max-width: 720px) {
+  .audit-log-filters .field {
+    flex: 1 1 140px;
+  }
+
+  .audit-log-filter-actions {
+    flex: 1 0 100%;
+    margin-left: 0;
+  }
+
+  .pagination {
+    justify-content: space-between;
+  }
 }
 
 /* --- badges ------------------------------------------------------------- */
