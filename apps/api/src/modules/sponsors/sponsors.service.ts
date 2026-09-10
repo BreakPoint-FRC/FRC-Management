@@ -6,6 +6,7 @@ import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { paginated, toPrismaPage } from "../../lib/pagination";
 import { assertAccountsBelongToTeam } from "../../lib/tenant";
 import type {
+  ConvertSponsorshipToFinanceInput,
   CreateOrganizationInput,
   CreateSponsorshipInput,
   ListOrganizationsQuery,
@@ -13,6 +14,40 @@ import type {
   UpdateOrganizationInput,
   UpdateSponsorshipInput,
 } from "./sponsors.schema";
+
+// The finance side of the link (issue #26): whether this sponsorship has
+// already been converted, and to what. Sponsorship carries no column of its
+// own for this -- it exists only because FinanceTransaction.sponsorshipId
+// points here, so the summary always comes in through the relation.
+const financeTransactionLinkSelect = {
+  id: true,
+  amount: true,
+  transactionDate: true,
+} satisfies Prisma.FinanceTransactionSelect;
+
+/**
+ * The finance summary is FINANCE data, not SPONSORS data, and this module is
+ * reachable on SPONSORS/read alone. Without gating this separately, an
+ * account with SPONSORS but no FINANCE grant -- a social lead who tracks
+ * relationships, say -- would learn the real amount collected and its date
+ * simply by asking the wrong endpoint, exactly the side door CALENDAR's
+ * per-source filtering (calendar.routes.ts) exists to close for meetings and
+ * tasks. `mayReadFinance` is the caller's team-wide FINANCE/read, resolved
+ * once per request in sponsors.routes.ts via `canPerform`. Whether a
+ * sponsorship has been converted stays visible either way -- only the amount
+ * and date are FINANCE's to withhold.
+ */
+function serializeFinanceLink(
+  link: Prisma.FinanceTransactionGetPayload<{ select: typeof financeTransactionLinkSelect }> | null,
+  mayReadFinance: boolean
+) {
+  if (!link) return null;
+  return {
+    id: link.id,
+    amount: mayReadFinance ? link.amount.toFixed(2) : null,
+    transactionDate: mayReadFinance ? link.transactionDate : null,
+  };
+}
 
 const organizationSelect = {
   id: true,
@@ -27,6 +62,7 @@ const organizationSelect = {
       status: true,
       amount: true,
       season: { select: { id: true, name: true } },
+      financeTransaction: { select: financeTransactionLinkSelect },
     },
     orderBy: { season: { startDate: "desc" } },
   },
@@ -44,35 +80,42 @@ const sponsorshipSelect = {
   organization: { select: { name: true, website: true, email: true, phone: true } },
   season: { select: { name: true } },
   assignedTo: { select: { id: true, fullName: true } },
+  financeTransaction: { select: financeTransactionLinkSelect },
 } satisfies Prisma.SponsorshipSelect;
 
 type OrganizationRow = Prisma.OrganizationGetPayload<{ select: typeof organizationSelect }>;
 type SponsorshipRow = Prisma.SponsorshipGetPayload<{ select: typeof sponsorshipSelect }>;
 
-function serializeOrganization(organization: OrganizationRow) {
+function serializeOrganization(organization: OrganizationRow, mayReadFinance: boolean) {
   return {
     ...organization,
     sponsorships: organization.sponsorships.map((entry) => ({
       ...entry,
       amount: entry.amount?.toFixed(2) ?? null,
+      financeTransaction: serializeFinanceLink(entry.financeTransaction, mayReadFinance),
     })),
   };
 }
 
-function serializeSponsorship(sponsorship: SponsorshipRow) {
-  const { organization, season, ...rest } = sponsorship;
+function serializeSponsorship(sponsorship: SponsorshipRow, mayReadFinance: boolean) {
+  const { organization, season, financeTransaction, ...rest } = sponsorship;
   return {
     ...rest,
     amount: sponsorship.amount?.toFixed(2) ?? null,
     organizationName: organization.name,
     organization,
     seasonName: season.name,
+    financeTransaction: serializeFinanceLink(financeTransaction, mayReadFinance),
   };
 }
 
 export function createSponsorsService(prisma: PrismaClient) {
   return {
-    listOrganizations: async (teamId: string, query: ListOrganizationsQuery) => {
+    listOrganizations: async (
+      teamId: string,
+      query: ListOrganizationsQuery,
+      mayReadFinance: boolean
+    ) => {
       const where: Prisma.OrganizationWhereInput = {
         teamId,
         ...(query.search ? { name: { contains: query.search, mode: "insensitive" } } : {}),
@@ -88,28 +131,41 @@ export function createSponsorsService(prisma: PrismaClient) {
         prisma.organization.count({ where }),
       ]);
 
-      return paginated(rows.map(serializeOrganization), total, query);
+      return paginated(
+        rows.map((row) => serializeOrganization(row, mayReadFinance)),
+        total,
+        query
+      );
     },
 
     // findFirst rather than findUnique: the team is half the identity now, and
     // (id, teamId) is not a unique index.
-    getOrganization: async (teamId: string, id: string) => {
+    getOrganization: async (teamId: string, id: string, mayReadFinance: boolean) => {
       const organization = await prisma.organization.findFirst({
         where: { id, teamId },
         select: organizationSelect,
       });
-      return organization && serializeOrganization(organization);
+      return organization && serializeOrganization(organization, mayReadFinance);
     },
 
-    createOrganization: async (teamId: string, input: CreateOrganizationInput) => {
+    createOrganization: async (
+      teamId: string,
+      input: CreateOrganizationInput,
+      mayReadFinance: boolean
+    ) => {
       const organization = await prisma.organization.create({
         data: { ...input, teamId },
         select: organizationSelect,
       });
-      return serializeOrganization(organization);
+      return serializeOrganization(organization, mayReadFinance);
     },
 
-    updateOrganization: async (teamId: string, id: string, input: UpdateOrganizationInput) => {
+    updateOrganization: async (
+      teamId: string,
+      id: string,
+      input: UpdateOrganizationInput,
+      mayReadFinance: boolean
+    ) => {
       const existing = await prisma.organization.count({ where: { id, teamId } });
       if (existing === 0) throw new NotFoundError("Firma bulunamadi");
 
@@ -118,7 +174,7 @@ export function createSponsorsService(prisma: PrismaClient) {
         data: input,
         select: organizationSelect,
       });
-      return serializeOrganization(organization);
+      return serializeOrganization(organization, mayReadFinance);
     },
 
     /**
@@ -142,7 +198,11 @@ export function createSponsorsService(prisma: PrismaClient) {
       await prisma.organization.delete({ where: { id } });
     },
 
-    listSponsorships: async (teamId: string, query: ListSponsorshipsQuery) => {
+    listSponsorships: async (
+      teamId: string,
+      query: ListSponsorshipsQuery,
+      mayReadFinance: boolean
+    ) => {
       const where: Prisma.SponsorshipWhereInput = {
         teamId,
         ...(query.seasonId ? { seasonId: query.seasonId } : {}),
@@ -164,15 +224,19 @@ export function createSponsorsService(prisma: PrismaClient) {
         prisma.sponsorship.count({ where }),
       ]);
 
-      return paginated(rows.map(serializeSponsorship), total, query);
+      return paginated(
+        rows.map((row) => serializeSponsorship(row, mayReadFinance)),
+        total,
+        query
+      );
     },
 
-    getSponsorship: async (teamId: string, id: string) => {
+    getSponsorship: async (teamId: string, id: string, mayReadFinance: boolean) => {
       const sponsorship = await prisma.sponsorship.findFirst({
         where: { id, teamId },
         select: sponsorshipSelect,
       });
-      return sponsorship && serializeSponsorship(sponsorship);
+      return sponsorship && serializeSponsorship(sponsorship, mayReadFinance);
     },
 
     /**
@@ -184,7 +248,8 @@ export function createSponsorsService(prisma: PrismaClient) {
      */
     createSponsorship: async (
       teamId: string,
-      { seasonId, amount, ...rest }: CreateSponsorshipInput
+      { seasonId, amount, ...rest }: CreateSponsorshipInput,
+      mayReadFinance: boolean
     ) => {
       const resolvedSeasonId = await resolveSeasonId(prisma, teamId, seasonId);
 
@@ -221,13 +286,14 @@ export function createSponsorsService(prisma: PrismaClient) {
         },
         select: sponsorshipSelect,
       });
-      return serializeSponsorship(sponsorship);
+      return serializeSponsorship(sponsorship, mayReadFinance);
     },
 
     updateSponsorship: async (
       teamId: string,
       id: string,
-      { amount, ...rest }: UpdateSponsorshipInput
+      { amount, ...rest }: UpdateSponsorshipInput,
+      mayReadFinance: boolean
     ) => {
       const existing = await prisma.sponsorship.count({ where: { id, teamId } });
       if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
@@ -246,13 +312,108 @@ export function createSponsorsService(prisma: PrismaClient) {
         },
         select: sponsorshipSelect,
       });
-      return serializeSponsorship(sponsorship);
+      return serializeSponsorship(sponsorship, mayReadFinance);
     },
 
+    /**
+     * A sponsorship with income already booked against it cannot be deleted:
+     * the finance record would be left pointing at nothing. The foreign key is
+     * RESTRICT for the same reason removeOrganization's is -- this checks first
+     * so the caller gets a 409 with an explanation instead of a raw P2003.
+     */
     removeSponsorship: async (teamId: string, id: string) => {
-      const existing = await prisma.sponsorship.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+      const existing = await prisma.sponsorship.findFirst({
+        where: { id, teamId },
+        select: { financeTransaction: { select: { id: true } } },
+      });
+      if (!existing) {
+        throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+      }
+      if (existing.financeTransaction) {
+        throw new ConflictError(
+          "Bu sponsorluk finans kaydina baglidir. Once bagli finans kaydini silin."
+        );
+      }
       await prisma.sponsorship.delete({ where: { id } });
+    },
+
+    /**
+     * "Finansa isle": books a SPONSOR-status sponsorship's amount as team-wide
+     * income, once.
+     *
+     * type, category and groupId are fixed here rather than accepted from the
+     * caller -- this is the one place a sponsorship becomes a finance record,
+     * and letting the client pick those would let a converted row masquerade
+     * as an ordinary manual entry. seasonId and teamId come from the
+     * sponsorship itself: the income belongs to the season the sponsorship was
+     * for, not whichever season happens to be active when someone clicks the
+     * button months later.
+     *
+     * The count check below gives a clear 409 in the ordinary case. It is not
+     * the real guard -- two requests racing both read "not yet converted"
+     * before either writes, so the actual protection is
+     * FinanceTransaction.sponsorshipId's unique constraint, and the P2002 it
+     * throws when the loser's insert lands is caught below and turned into the
+     * same 409.
+     */
+    convertToFinanceTransaction: async (
+      teamId: string,
+      sponsorshipId: string,
+      input: ConvertSponsorshipToFinanceInput,
+      actorId: string
+    ) => {
+      const sponsorship = await prisma.sponsorship.findFirst({
+        where: { id: sponsorshipId, teamId },
+        select: {
+          seasonId: true,
+          status: true,
+          financeTransaction: { select: { id: true } },
+        },
+      });
+      if (!sponsorship) {
+        throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+      }
+      if (sponsorship.status !== "SPONSOR") {
+        throw new ConflictError("Yalnizca SPONSOR durumundaki kayitlar finansa islenebilir");
+      }
+      if (sponsorship.financeTransaction) {
+        throw new ConflictError("Bu sponsorluk zaten bir finans kaydina baglanmis");
+      }
+
+      try {
+        const transaction = await prisma.financeTransaction.create({
+          data: {
+            teamId,
+            seasonId: sponsorship.seasonId,
+            groupId: null,
+            type: "INCOME",
+            category: "Sponsorluk",
+            amount: new Prisma.Decimal(input.amount),
+            transactionDate: input.transactionDate,
+            description: input.description ?? null,
+            createdById: actorId,
+            sponsorshipId,
+          },
+          select: {
+            id: true,
+            seasonId: true,
+            groupId: true,
+            type: true,
+            category: true,
+            amount: true,
+            description: true,
+            transactionDate: true,
+            sponsorshipId: true,
+            createdAt: true,
+          },
+        });
+        return { ...transaction, amount: transaction.amount.toFixed(2) };
+      } catch (error) {
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          throw new ConflictError("Bu sponsorluk zaten bir finans kaydina baglanmis");
+        }
+        throw error;
+      }
     },
   };
 }

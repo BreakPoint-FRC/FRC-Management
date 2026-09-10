@@ -87,6 +87,10 @@ export default function FinancePage() {
 
   const [editing, setEditing] = useState<TransactionRow | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(BLANK);
+  // type, category and group are locked once a row came from "Finansa isle"
+  // (sponsors page) -- see finance.service.ts#update. Editing "new" or a
+  // manual row leaves them open.
+  const linkedToSponsorship = editing !== "new" && editing !== null && editing.source !== null;
 
   const mayCreate = can(permissions, "FINANCE", "create", groupId || null);
 
@@ -175,11 +179,17 @@ export default function FinancePage() {
           onSubmit={submit}
           onCancel={close}
         >
+          {linkedToSponsorship ? (
+            <p className="small muted" style={{ margin: 0 }}>
+              Bu kayit bir sponsorluktan islendi: turu, kategorisi ve grubu degistirilemez.
+            </p>
+          ) : null}
           <div className="row">
             <SelectField
               label="Tur"
               value={draft.type}
               options={optionsFrom(transactionTypeLabels)}
+              disabled={linkedToSponsorship}
               onChange={(type) => setDraft({ ...draft, type })}
               error={issueFor(mutation.error, "type")}
             />
@@ -187,6 +197,7 @@ export default function FinancePage() {
               label="Kategori"
               value={draft.category}
               required
+              disabled={linkedToSponsorship}
               onChange={(category) => setDraft({ ...draft, category })}
               error={issueFor(mutation.error, "category")}
             />
@@ -215,6 +226,7 @@ export default function FinancePage() {
               value={draft.groupId}
               placeholder="Takim geneli"
               options={groups.map((group) => ({ value: group.id, label: group.name }))}
+              disabled={linkedToSponsorship}
               onChange={(value) => setDraft({ ...draft, groupId: value })}
               error={issueFor(mutation.error, "groupId")}
             />
@@ -286,7 +298,14 @@ export default function FinancePage() {
                         </Badge>
                       </td>
                       <td>{transaction.category}</td>
-                      <td className="muted">{transaction.description ?? "—"}</td>
+                      <td className="muted">
+                        {transaction.description ?? "—"}
+                        {transaction.source ? (
+                          <div className="small muted">
+                            Kaynak: Sponsor — {transaction.source.organizationName}
+                          </div>
+                        ) : null}
+                      </td>
                       <td>{transaction.groupName ?? <span className="muted">Takim geneli</span>}</td>
                       <td className="numeric">{formatMoney(transaction.amount)}</td>
                       <td>
@@ -302,7 +321,11 @@ export default function FinancePage() {
                           ) : null}
                           {can(permissions, "FINANCE", "delete", transaction.groupId) ? (
                             <ConfirmButton
-                              question="Bu kayit silinsin mi?"
+                              question={
+                                transaction.source
+                                  ? "Bu kayit silinirse sponsorluk yeniden finansa islenebilir. Silinsin mi?"
+                                  : "Bu kayit silinsin mi?"
+                              }
                               onConfirm={() => void remove(transaction.id)}
                             >
                               Sil

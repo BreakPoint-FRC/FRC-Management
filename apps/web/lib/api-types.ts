@@ -225,12 +225,27 @@ export interface TransactionRow {
   groupId: string | null;
   groupName: string | null;
   createdBy: { id: string; fullName: string };
+  sponsorshipId: string | null;
+  /** Set only when this row came from "Finansa isle" on a sponsorship. */
+  source: { sponsorshipId: string; organizationId: string; organizationName: string } | null;
 }
 
 export interface FinanceSummaryRow {
   income: string;
   expense: string;
   net: string;
+}
+
+/**
+ * Set once a sponsorship has been booked as income via "Finansa isle".
+ *
+ * amount and transactionDate are null when the viewer has SPONSORS/read but
+ * not team-wide FINANCE/read -- the conversion is visible, the money is not.
+ */
+export interface SponsorshipFinanceLink {
+  id: string;
+  amount: string | null;
+  transactionDate: string | null;
 }
 
 export interface OrganizationRow {
@@ -244,6 +259,7 @@ export interface OrganizationRow {
     status: SponsorshipStatus;
     amount: string | null;
     season: { id: string; name: string };
+    financeTransaction: SponsorshipFinanceLink | null;
   }>;
 }
 
