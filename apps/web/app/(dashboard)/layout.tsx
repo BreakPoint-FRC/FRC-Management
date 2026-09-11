@@ -6,6 +6,7 @@ import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Loading, NavLink } from "@/components/ui";
 import { visibleNavigationItems } from "@/lib/navigation";
+import { UnsavedChangesProvider, useLeaveGuard } from "@/components/unsaved-changes";
 
 /**
  * Each link carries the tool it leads to, so the nav is filtered by the same
@@ -14,6 +15,11 @@ import { visibleNavigationItems } from "@/lib/navigation";
  * roles and permissions.
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
+  return <UnsavedChangesProvider><DashboardShell>{children}</DashboardShell></UnsavedChangesProvider>;
+}
+
+function DashboardShell({ children }: { children: ReactNode }) {
+  const { requestLeave } = useLeaveGuard();
   const { status, account, team, permissions, signOut } = useAuth();
   const router = useRouter();
 
@@ -82,7 +88,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 point of the role -- saying so beats an empty line. */}
             <div className="muted">{team ? team.name : "Sistem yoneticisi"}</div>
           </div>
-          <button className="btn btn-sm" type="button" onClick={() => void signOut()}>
+          <button
+            className="btn btn-sm"
+            type="button"
+            onClick={() => requestLeave(() => {
+              // signOut clears the local session even when the logout request fails.
+              void signOut().catch(() => {});
+            })}
+          >
             Cikis yap
           </button>
         </div>

@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import type { Paginated } from "@breakpoint/types";
 
@@ -21,15 +20,10 @@ import { formatDate, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 import type { MeetingRow } from "@/lib/api-types";
+import { GuardedLink, useUnsavedChanges } from "@/components/unsaved-changes";
+import { isMeetingDraftDirty, type MeetingDraft } from "@/lib/meeting-draft";
 
-interface Draft {
-  title: string;
-  meetingDate: string;
-  groupId: string;
-  body: string;
-}
-
-const BLANK: Draft = { title: "", meetingDate: "", groupId: "", body: "" };
+const BLANK: MeetingDraft = { title: "", meetingDate: "", groupId: "", body: "" };
 
 export default function MeetingsPage() {
   const { groups = [], permissions } = useAuth();
@@ -40,33 +34,46 @@ export default function MeetingsPage() {
   const mutation = useMutation();
 
   const [editing, setEditing] = useState<MeetingRow | "new" | null>(null);
-  const [draft, setDraft] = useState<Draft>(BLANK);
+  const [draft, setDraft] = useState<MeetingDraft>(BLANK);
+  const [baseline, setBaseline] = useState<MeetingDraft>(BLANK);
+  const guard = useUnsavedChanges({
+    dirty: editing !== null && isMeetingDraftDirty(draft, baseline),
+    saving: mutation.saving,
+    discard: close,
+  });
 
   const mayCreate = can(permissions, "MEETINGS", "create", groupId || null);
 
   function close() {
+    guard.markClean();
     setEditing(null);
     mutation.reset();
   }
 
   function openCreate() {
-    setDraft({ ...BLANK, groupId, meetingDate: toDateInput(new Date()) });
+    const next = { ...BLANK, groupId, meetingDate: toDateInput(new Date()) };
+    setDraft(next);
+    setBaseline({ ...next });
     setEditing("new");
     mutation.reset();
   }
 
   function openEdit(meeting: MeetingRow) {
-    setDraft({
+    const next = {
       title: meeting.title,
       meetingDate: toDateInput(meeting.meetingDate),
       groupId: meeting.groupId ?? "",
       body: meeting.body ?? "",
-    });
+    };
+    setDraft(next);
+    setBaseline({ ...next });
     setEditing(meeting);
     mutation.reset();
   }
 
   async function submit() {
+    if (!editing || guard.isSaving()) return;
+    guard.setSaving(true);
     const body = {
       title: draft.title,
       meetingDate: draft.meetingDate,
@@ -79,6 +86,7 @@ export default function MeetingsPage() {
         ? apiClient.post("/meetings", body)
         : apiClient.patch(`/meetings/${(editing as MeetingRow).id}`, body)
     );
+    guard.setSaving(false);
     if (ok) {
       close();
       meetings.reload();
@@ -101,7 +109,12 @@ export default function MeetingsPage() {
           ))}
         </select>
         {mayCreate ? (
-          <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
+          <button
+            className="btn btn-primary btn-sm"
+            type="button"
+            disabled={mutation.saving}
+            onClick={() => guard.requestLeave(openCreate)}
+          >
             + Yeni toplanti
           </button>
         ) : null}
@@ -113,40 +126,43 @@ export default function MeetingsPage() {
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
-          onCancel={close}
+          onCancel={() => guard.requestLeave(close)}
+          cancelLabel="İptal"
         >
-          <TextField
-            label="Baslik"
-            value={draft.title}
-            required
-            onChange={(title) => setDraft({ ...draft, title })}
-            error={issueFor(mutation.error, "title")}
-          />
-          <div className="row">
+          <fieldset className="meeting-fields stack-sm" disabled={mutation.saving}>
             <TextField
-              label="Tarih"
-              type="date"
-              value={draft.meetingDate}
+              label="Baslik"
+              value={draft.title}
               required
-              onChange={(meetingDate) => setDraft({ ...draft, meetingDate })}
-              error={issueFor(mutation.error, "meetingDate")}
+              onChange={(title) => setDraft({ ...draft, title })}
+              error={issueFor(mutation.error, "title")}
             />
-            <SelectField
-              label="Grup"
-              value={draft.groupId}
-              placeholder="Takim geneli"
-              options={groups.map((group) => ({ value: group.id, label: group.name }))}
-              onChange={(value) => setDraft({ ...draft, groupId: value })}
-              error={issueFor(mutation.error, "groupId")}
+            <div className="row">
+              <TextField
+                label="Tarih"
+                type="date"
+                value={draft.meetingDate}
+                required
+                onChange={(meetingDate) => setDraft({ ...draft, meetingDate })}
+                error={issueFor(mutation.error, "meetingDate")}
+              />
+              <SelectField
+                label="Grup"
+                value={draft.groupId}
+                placeholder="Takim geneli"
+                options={groups.map((group) => ({ value: group.id, label: group.name }))}
+                onChange={(value) => setDraft({ ...draft, groupId: value })}
+                error={issueFor(mutation.error, "groupId")}
+              />
+            </div>
+            <TextAreaField
+              label="Rapor"
+              rows={6}
+              value={draft.body}
+              onChange={(value) => setDraft({ ...draft, body: value })}
+              error={issueFor(mutation.error, "body")}
             />
-          </div>
-          <TextAreaField
-            label="Rapor"
-            rows={6}
-            value={draft.body}
-            onChange={(value) => setDraft({ ...draft, body: value })}
-            error={issueFor(mutation.error, "body")}
-          />
+          </fieldset>
         </FormPanel>
       ) : null}
 
@@ -170,7 +186,7 @@ export default function MeetingsPage() {
                 {data.items.map((meeting) => (
                   <tr key={meeting.id}>
                     <td>
-                      <Link href={`/meetings/${meeting.id}`}>{meeting.title}</Link>
+                      <GuardedLink href={`/meetings/${meeting.id}`}>{meeting.title}</GuardedLink>
                     </td>
                     <td>{formatDate(meeting.meetingDate)}</td>
                     <td>{meeting.groupName ?? <span className="muted">Takim geneli</span>}</td>
@@ -184,13 +200,16 @@ export default function MeetingsPage() {
                           <button
                             className="btn btn-sm"
                             type="button"
-                            onClick={() => openEdit(meeting)}
+                            disabled={mutation.saving}
+                            onClick={() => guard.requestLeave(() => openEdit(meeting))}
                           >
                             Duzenle
                           </button>
                         ) : null}
                         {can(permissions, "MEETINGS", "delete", meeting.groupId) ? (
                           <ConfirmButton
+                            // Finish or discard the editor before deleting its backing record.
+                            disabled={mutation.saving || editing !== null}
                             question={`${meeting.title} silinsin mi? Yoklamasi da silinir.`}
                             onConfirm={() => void remove(meeting.id)}
                           >

@@ -18,6 +18,7 @@ export function FormPanel({
   error,
   saving,
   submitLabel = "Kaydet",
+  cancelLabel = "Vazgec",
   onSubmit,
   onCancel,
   children,
@@ -26,6 +27,7 @@ export function FormPanel({
   error: ApiError | null;
   saving: boolean;
   submitLabel?: string;
+  cancelLabel?: string;
   onSubmit: () => void;
   onCancel: () => void;
   children: ReactNode;
@@ -50,7 +52,7 @@ export function FormPanel({
           {saving ? "Kaydediliyor..." : submitLabel}
         </button>
         <button className="btn" type="button" onClick={onCancel} disabled={saving}>
-          Vazgec
+          {cancelLabel}
         </button>
       </div>
     </form>
