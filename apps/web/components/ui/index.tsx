@@ -1,6 +1,6 @@
 "use client";
 
-import Link from "next/link";
+import { GuardedLink } from "@/components/unsaved-changes";
 import { usePathname } from "next/navigation";
 import type { ReactNode } from "react";
 
@@ -13,9 +13,9 @@ export function NavLink({ href, children }: { href: string; children: ReactNode 
   const active = href === "/" ? pathname === "/" : pathname.startsWith(href);
 
   return (
-    <Link className="nav-link" href={href} aria-current={active ? "page" : undefined}>
+    <GuardedLink className="nav-link" href={href} aria-current={active ? "page" : undefined}>
       {children}
-    </Link>
+    </GuardedLink>
   );
 }
 
