@@ -38,7 +38,12 @@ export function FormPanel({
   }
 
   return (
-    <form className="card stack-sm" style={{ marginBottom: 16 }} onSubmit={handleSubmit}>
+    <form
+      className="card stack-sm"
+      style={{ marginBottom: 16 }}
+      aria-busy={saving}
+      onSubmit={handleSubmit}
+    >
       <p className="card-title">{title}</p>
 
       {/* Field-level messages render beside their inputs; only what has nowhere

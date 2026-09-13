@@ -47,40 +47,52 @@ async function setup(page: Page) {
   return { writes: () => writes, logouts: () => logouts };
 }
 
-test("native warning on reload preserves the draft when dismissed", async ({ page }) => {
-  await setup(page);
-  await report(page).fill("Unsaved report");
-  const warning = page.waitForEvent("dialog");
-  await page.evaluate(() => { setTimeout(() => window.location.reload(), 0); });
-  const native = await warning;
-  expect(native.type()).toBe("beforeunload");
-  await native.dismiss();
-  await expect(report(page)).toHaveValue("Unsaved report");
-  await expect(dialog(page)).toHaveCount(0);
-  // Leave a clean page for browser-context teardown after cancelling a native unload.
-  await cancel(page).click();
-  await page.getByRole("button", { name: discard }).click();
-});
+async function openDirtyEditor(page: Page, mode: "edit" | "create") {
+  const calls = await setup(page);
+  if (mode === "create") {
+    await page.getByRole("button", { name: "+ Yeni toplanti", exact: true }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    await expect(report(page)).toHaveValue("");
+  }
+  const value = mode === "edit" ? "Unsaved edit report" : "Unsaved create report";
+  await report(page).fill(value);
+  return { ...calls, value };
+}
 
-test("native warning on tab close supports staying and leaving", async ({ page }) => {
-  await setup(page);
-  // Keep a window alive while testing tab closure (also avoids Firefox's
-  // session-store teardown race when its last tab has shown beforeunload).
-  await page.context().newPage();
-  await page.bringToFront();
-  await report(page).fill("Unsaved report");
-  const warning = page.waitForEvent("dialog");
-  await page.close({ runBeforeUnload: true });
-  const native = await warning;
-  expect(native.type()).toBe("beforeunload");
-  await native.dismiss();
-  await expect(report(page)).toHaveValue("Unsaved report");
-  const secondWarning = page.waitForEvent("dialog");
-  await page.close({ runBeforeUnload: true });
-  const closed = page.waitForEvent("close");
-  await (await secondWarning).accept();
-  await closed;
-});
+for (const mode of ["edit", "create"] as const) {
+  test(`native warning on reload preserves a dirty ${mode} draft when dismissed`, async ({ page }) => {
+    const { value } = await openDirtyEditor(page, mode);
+    const warning = page.waitForEvent("dialog");
+    await page.evaluate(() => { setTimeout(() => window.location.reload(), 0); });
+    const native = await warning;
+    expect(native.type()).toBe("beforeunload");
+    await native.dismiss();
+    await expect(report(page)).toHaveValue(value);
+    await expect(dialog(page)).toHaveCount(0);
+    // Leave a clean page for browser-context teardown after cancelling a native unload.
+    await cancel(page).click();
+    await page.getByRole("button", { name: discard }).click();
+  });
+
+  test(`native warning on tab close supports staying and leaving with a dirty ${mode} draft`, async ({ page }) => {
+    await openDirtyEditor(page, mode);
+    // Keep a window alive while testing tab closure (also avoids Firefox's
+    // session-store teardown race when its last tab has shown beforeunload).
+    await page.context().newPage();
+    await page.bringToFront();
+    const warning = page.waitForEvent("dialog");
+    await page.close({ runBeforeUnload: true });
+    const native = await warning;
+    expect(native.type()).toBe("beforeunload");
+    await native.dismiss();
+    await expect(report(page)).toHaveValue(mode === "edit" ? "Unsaved edit report" : "Unsaved create report");
+    const secondWarning = page.waitForEvent("dialog");
+    await page.close({ runBeforeUnload: true });
+    const closed = page.waitForEvent("close");
+    await (await secondWarning).accept();
+    await closed;
+  });
+}
 
 for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as const) {
   test(`custom dialog guards ${action} without a browser confirm`, async ({ page }) => {
@@ -115,6 +127,110 @@ for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as
     else await expect(report(page)).toHaveCount(0);
     expect(nativeDialogs).toEqual([]);
     expect(calls.writes()).toBe(0);
+  });
+}
+
+for (const action of ["cancel", "navigation"] as const) {
+  test(`custom dialog guards dirty create ${action}`, async ({ page }) => {
+    const calls = await openDirtyEditor(page, "create");
+    const trigger = action === "cancel"
+      ? cancel(page)
+      : page.getByRole("link", { name: "Genel bakis", exact: true });
+
+    await trigger.click();
+    await expect(dialog(page)).toBeVisible();
+    await page.getByRole("button", { name: stay }).click();
+    await expect(page).toHaveURL(/\/meetings$/);
+    await expect(report(page)).toHaveValue(calls.value);
+
+    await trigger.click();
+    await page.getByRole("button", { name: discard }).click();
+    await expect(dialog(page)).toHaveCount(0);
+    if (action === "cancel") await expect(report(page)).toHaveCount(0);
+    else await expect(page).toHaveURL(/\/$/);
+    expect(calls.writes()).toBe(0);
+  });
+}
+
+test("browser Back supports staying and discarding a dirty draft", async ({ page }) => {
+  const { value } = await openDirtyEditor(page, "edit");
+
+  const firstBack = page.goBack().catch(() => null);
+  await expect(dialog(page)).toBeVisible();
+  await page.getByRole("button", { name: stay }).click();
+  await firstBack;
+  await expect(page).toHaveURL(/\/meetings$/);
+  await expect(report(page)).toHaveValue(value);
+
+  const secondBack = page.goBack().catch(() => null);
+  await expect(dialog(page)).toBeVisible();
+  await page.getByRole("button", { name: discard }).click();
+  await secondBack;
+  await expect(page).toHaveURL(/\/$/);
+});
+
+test("a repeated browser Back while the decision is open keeps history consistent", async ({ page }) => {
+  await openDirtyEditor(page, "edit");
+
+  const originalBack = page.goBack().catch(() => null);
+  await expect(dialog(page)).toBeVisible();
+  const repeatedBack = page.goBack().catch(() => null);
+  await repeatedBack;
+
+  // The second traversal is rolled back before this choice can be applied.
+  // The original requested destination remains the one being confirmed.
+  await page.getByRole("button", { name: discard }).click();
+  await originalBack;
+  await expect(page).toHaveURL(/\/$/);
+  await expect(dialog(page)).toHaveCount(0);
+
+  await page.goForward();
+  await expect(page).toHaveURL(/\/meetings$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/$/);
+});
+
+test("browser Forward supports staying and discarding a dirty draft", async ({ page }) => {
+  await setup(page);
+  await cancel(page).click();
+  await page.getByRole("link", { name: "Genel bakis", exact: true }).click();
+  await expect(page).toHaveURL(/\/$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/meetings$/);
+  await page.getByRole("button", { name: "Duzenle", exact: true }).first().click();
+  await report(page).fill("Unsaved forward report");
+
+  const firstForward = page.goForward().catch(() => null);
+  await expect(dialog(page)).toBeVisible();
+  await page.getByRole("button", { name: stay }).click();
+  await firstForward;
+  await expect(page).toHaveURL(/\/meetings$/);
+  await expect(report(page)).toHaveValue("Unsaved forward report");
+
+  const secondForward = page.goForward().catch(() => null);
+  await expect(dialog(page)).toBeVisible();
+  await page.getByRole("button", { name: discard }).click();
+  await secondForward;
+  await expect(page).toHaveURL(/\/$/);
+});
+
+for (const state of ["clean", "saved"] as const) {
+  test(`${state} editor leaves no ghost history entry`, async ({ page }) => {
+    await setup(page);
+    if (state === "clean") {
+      await cancel(page).click();
+    } else {
+      await report(page).fill("Saved without a ghost entry");
+      await page.getByRole("button", { name: "Kaydet", exact: true }).click();
+      await expect(report(page)).toHaveCount(0);
+    }
+
+    const nativeDialogs: string[] = [];
+    page.on("dialog", async (event) => { nativeDialogs.push(event.type()); await event.accept(); });
+    await page.goBack();
+    await expect(page).toHaveURL(/\/$/);
+    await expect(dialog(page)).toHaveCount(0);
+    expect(nativeDialogs).toEqual([]);
   });
 }
 
@@ -212,13 +328,18 @@ test("pending and failed saves preserve the draft and the browser protection", a
   await report(page).fill("Unsaved report");
   await page.getByRole("button", { name: "Kaydet", exact: true }).click();
   await expect(report(page)).toBeDisabled();
+  await expect(page.locator("form")).toHaveAttribute("aria-busy", "true");
   await expect(cancel(page)).toBeDisabled();
   await expect(page.getByRole("button", { name: "Duzenle" }).first()).toBeDisabled();
   await page.getByRole("link", { name: "Beta", exact: true }).click();
   await page.getByRole("link", { name: "Genel bakis", exact: true }).click();
   await page.getByRole("button", { name: "Cikis yap", exact: true }).click();
+  await expect(page.getByRole("status")).toHaveText(/Toplantı kaydediliyor/);
+  await page.goBack();
   await expect(page).toHaveURL(/\/meetings$/);
   await expect(dialog(page)).toHaveCount(0);
+  await expect(report(page)).toHaveValue("Unsaved report");
+  await expect(page.getByRole("status")).toBeVisible();
   const warning = page.waitForEvent("dialog");
   await page.evaluate(() => { setTimeout(() => window.location.reload(), 0); });
   const native = await warning;
@@ -226,6 +347,8 @@ test("pending and failed saves preserve the draft and the browser protection", a
   await native.dismiss();
   release();
   await expect(page.getByText("Save failed", { exact: true })).toBeVisible();
+  await expect(page.getByRole("status")).toHaveCount(0);
+  await expect(page.locator("form")).toHaveAttribute("aria-busy", "false");
   await expect(report(page)).toBeEnabled();
   await expect(report(page)).toHaveValue("Unsaved report");
   const failedSaveWarning = page.waitForEvent("dialog");
@@ -242,17 +365,15 @@ test("filtering and new-tab gestures preserve the current draft without a dialog
   await report(page).fill("Unsaved report");
   await page.locator("main > .row select").selectOption("group");
   await expect(report(page)).toHaveValue("Unsaved report");
-  // Check the browser's default action is left intact without depending on
-  // headless Chromium opening a background tab for a modifier click.
-  await page.evaluate(() => {
-    document.addEventListener("click", (event) => {
-      document.documentElement.dataset.modifierPrevented = String(event.defaultPrevented);
-    }, { once: true });
-  });
-  await page.getByRole("link", { name: "Beta", exact: true }).dispatchEvent("click", { ctrlKey: true, button: 0 });
-  await expect(page.locator("html")).toHaveAttribute("data-modifier-prevented", "false");
+  const openedPage = page.context().waitForEvent("page");
+  await page.getByRole("link", { name: "Beta", exact: true }).click({ modifiers: ["ControlOrMeta"] });
+  const nextPage = await openedPage;
+  await nextPage.waitForLoadState("domcontentloaded");
+  await expect(nextPage).toHaveURL(/\/meetings\/2$/);
+  await expect(page).toHaveURL(/\/meetings$/);
   await expect(dialog(page)).toHaveCount(0);
   await expect(report(page)).toHaveValue("Unsaved report");
+  await nextPage.close();
 });
 
 for (const colorScheme of ["light", "dark"] as const) {

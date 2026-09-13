@@ -6,7 +6,7 @@ import { useEffect, type ReactNode } from "react";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Loading, NavLink } from "@/components/ui";
 import { visibleNavigationItems } from "@/lib/navigation";
-import { UnsavedChangesProvider, useLeaveGuard } from "@/components/unsaved-changes";
+import { useLeaveGuard } from "@/components/unsaved-changes";
 
 /**
  * Each link carries the tool it leads to, so the nav is filtered by the same
@@ -15,10 +15,6 @@ import { UnsavedChangesProvider, useLeaveGuard } from "@/components/unsaved-chan
  * roles and permissions.
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  return <UnsavedChangesProvider><DashboardShell>{children}</DashboardShell></UnsavedChangesProvider>;
-}
-
-function DashboardShell({ children }: { children: ReactNode }) {
   const { requestLeave } = useLeaveGuard();
   const { status, account, team, permissions, signOut } = useAuth();
   const router = useRouter();

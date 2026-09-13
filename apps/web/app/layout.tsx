@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
+import { UnsavedChangesProvider } from "@/components/unsaved-changes";
 
 export const metadata: Metadata = {
   title: "BreakPoint",
@@ -40,7 +41,9 @@ export default function RootLayout({
     // messages the API sends back.
     <html lang="tr">
       <body>
-        <AuthProvider>{children}</AuthProvider>
+        <UnsavedChangesProvider>
+          <AuthProvider>{children}</AuthProvider>
+        </UnsavedChangesProvider>
       </body>
     </html>
   );
