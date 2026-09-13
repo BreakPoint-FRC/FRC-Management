@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import type { PrismaClient } from "@breakpoint/db";
+import { Prisma, type PrismaClient } from "@breakpoint/db";
 
 import { buildApp } from "../../app";
 
@@ -100,6 +100,12 @@ function statefulApp(options: {
   ];
 
   const createTool = vi.fn(async ({ data }: { data: Record<string, unknown> }) => {
+    if (tools.some((tool) => tool.key === data.key)) {
+      throw new Prisma.PrismaClientKnownRequestError(
+        "Unique constraint failed on the fields: (`key`)",
+        { code: "P2002", clientVersion: "7.9.1" }
+      );
+    }
     createdToolSequence += 1;
     const row = {
       id: `tool-created-${createdToolSequence}`,
@@ -289,6 +295,9 @@ describe("the global tool catalogue boundary", () => {
     const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
     await state.app.ready();
 
+    // GET is never behind requirePlatform -- confirm it still works here too.
+    expect((await inject(state.app, "GET", "/tools")).statusCode).toBe(200);
+
     const createResponse = await inject(state.app, "POST", "/tools", {
       key: "TODO",
       name: "Yapilacaklar",
@@ -325,6 +334,45 @@ describe("the global tool catalogue boundary", () => {
     expect((await inject(state.app, "DELETE", "/tools/tool-tasks")).statusCode).toBe(403);
     expect(state.createTool).not.toHaveBeenCalled();
     expect(state.updateTool).not.toHaveBeenCalled();
+
+    await state.app.close();
+  });
+});
+
+describe("the tool catalogue service branches", () => {
+  it("lists the full catalogue sorted by key", async () => {
+    const state = statefulApp({ grants: ["TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "GET", "/tools");
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(
+      [...BASE_TOOLS].sort((a, b) => a.key.localeCompare(b.key))
+    );
+
+    await state.app.close();
+  });
+
+  it("404s a GET for a tool id that does not exist", async () => {
+    const state = statefulApp({ grants: ["TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "GET", "/tools/does-not-exist");
+    expect(response.statusCode).toBe(404);
+
+    await state.app.close();
+  });
+
+  it("refuses to create a tool with a key that already exists, 409", async () => {
+    const state = statefulApp({ platform: true, grants: ["TEAMS", "TOOLS"] });
+    await state.app.ready();
+
+    const response = await inject(state.app, "POST", "/tools", {
+      key: "TASKS",
+      name: "Ikinci Gorevler",
+    });
+    expect(response.statusCode).toBe(409);
+    expect(state.tools.filter((tool) => tool.key === "TASKS")).toHaveLength(1);
 
     await state.app.close();
   });
