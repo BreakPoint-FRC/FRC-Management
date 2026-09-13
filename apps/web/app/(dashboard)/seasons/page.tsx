@@ -89,9 +89,10 @@ export default function SeasonsPage() {
       </PageHeader>
 
       <p className="small muted">
-        Gorevler, toplantilar, finans kayitlari ve sponsorluklar bir sezona baglidir. Gecmis
-        sezonlarin kayitlari boylece okunabilir kalir ve bu sezonun toplamlarina karismaz. Ayni
-        anda yalnizca bir sezon aktiftir; birini aktiflestirmek digerlerini pasife alir.
+        Gorevler, toplantilar, finans kayitlari, sponsorluklar ve Gantt panolari bir sezona
+        baglidir. Gecmis sezonlarin kayitlari boylece okunabilir kalir ve bu sezonun toplamlarina
+        karismaz. Ayni anda yalnizca bir sezon aktiftir; birini aktiflestirmek digerlerini pasife
+        alir.
       </p>
 
       {editing ? (
@@ -146,6 +147,7 @@ export default function SeasonsPage() {
                   <th className="numeric">Toplanti</th>
                   <th className="numeric">Finans</th>
                   <th className="numeric">Sponsorluk</th>
+                  <th className="numeric">Gantt</th>
                   <th>Durum</th>
                   <th />
                 </tr>
@@ -160,6 +162,7 @@ export default function SeasonsPage() {
                     <td className="numeric">{season._count.meetings}</td>
                     <td className="numeric">{season._count.transactions}</td>
                     <td className="numeric">{season._count.sponsorships}</td>
+                    <td className="numeric">{season._count.ganttBoards}</td>
                     <td>
                       {season.isActive ? <Badge tone="ok">Aktif</Badge> : <Badge>Gecmis</Badge>}
                     </td>
