@@ -11,7 +11,13 @@ const seasonSelect = {
   endDate: true,
   isActive: true,
   _count: {
-    select: { tasks: true, meetings: true, transactions: true, sponsorships: true },
+    select: {
+      tasks: true,
+      meetings: true,
+      transactions: true,
+      sponsorships: true,
+      ganttBoards: true,
+    },
   },
 } as const;
 
@@ -111,7 +117,8 @@ export function createSeasonsService(prisma: PrismaClient) {
         season._count.tasks +
         season._count.meetings +
         season._count.transactions +
-        season._count.sponsorships;
+        season._count.sponsorships +
+        season._count.ganttBoards;
 
       if (records > 0) {
         throw new ConflictError(
