@@ -187,7 +187,13 @@ export interface SeasonRow {
   startDate: string;
   endDate: string;
   isActive: boolean;
-  _count: { tasks: number; meetings: number; transactions: number; sponsorships: number };
+  _count: {
+    tasks: number;
+    meetings: number;
+    transactions: number;
+    sponsorships: number;
+    ganttBoards: number;
+  };
 }
 
 export interface TaskRow {
