@@ -17,14 +17,39 @@
 #    "api" hostname -- and it is baked into the web image at build time, so
 #    changing it later means rebuilding `web`, not just restarting it.
 # 3. `db:bootstrap` is NOT wired in here as a service that runs automatically.
-#    It resets the platform admin's password and revokes every live session
-#    on every run -- see docs/deployment.md for the one-time command.
+#    It resets the platform admin's password and revokes its live sessions --
+#    see docs/deployment.md for the one-time command and exactly what it does
+#    and does not revoke.
+# 4. `api`/`web` publish their ports on 127.0.0.1 only, not every interface.
+#    Reaching them from anywhere else has to go through the reverse proxy
+#    below -- that's also why `api` trusts one hop of X-Forwarded-For
+#    (TRUST_PROXY_HOPS): the only caller that can reach it at all is that
+#    proxy. Publishing these ports more broadly while leaving that trust in
+#    place would let any caller spoof its own rate-limit identity.
 #
 # Nothing here terminates TLS. Put a reverse proxy (Caddy, nginx, Traefik --
 # docs/deployment.md sketches a minimal Caddy config) in front of `api` and
 # `web`; both listen on plain HTTP.
 
 services:
+  # Rejects known-placeholder or structurally broken values (still the
+  # .env.example password, a POSTGRES_PASSWORD with characters that corrupt
+  # the connection string it gets built into, ...) before anything that could
+  # act on them runs. See scripts/check-deploy-env.mjs -- Compose's own
+  # `${VAR:?message}` guards below only catch a variable being unset, not one
+  # that is set to something that will quietly misbehave.
+  preflight:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: api-preflight
+    environment:
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before deploying -- see docs/deployment.md}"
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before deploying -- generate one with `openssl rand -hex 32`}"
+      WEB_ORIGIN: "${WEB_ORIGIN:?Set WEB_ORIGIN in .env before deploying -- the public origin the web app is served from}"
+      NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env before deploying -- the browser-reachable API origin}"
+    restart: "no"
+
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
@@ -60,6 +85,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      preflight:
+        condition: service_completed_successfully
     restart: "no"
 
   api:
@@ -86,8 +113,21 @@ services:
       # The origin CORS accepts requests from -- the public web origin, same
       # value as WEB_ORIGIN in .env.
       WEB_ORIGIN: "${WEB_ORIGIN:?Set WEB_ORIGIN in .env before deploying -- the public origin the web app is served from}"
+      # Fastify trusts exactly this many hops of X-Forwarded-For before using
+      # it as the real client IP (rate limiting, request.ip). 1 because the
+      # only thing that can reach this container at all is the loopback-bound
+      # port below -- see this file's header and docs/deployment.md. Do not
+      # raise this, and do not set it while the port below is reachable from
+      # anywhere but localhost: trusting XFF from an untrusted caller lets it
+      # claim any IP it likes, which defeats /auth/login's rate limit outright.
+      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
     ports:
-      - "${API_PORT:-4000}:${API_PORT:-4000}"
+      # Bound to loopback, not "all interfaces": Caddy (or whatever terminates
+      # TLS, per docs/deployment.md) runs on this same host and reaches this
+      # port over 127.0.0.1. Without this, :4000 is reachable directly from
+      # the network on every interface, TLS and all -- HTTPS in front does not
+      # stop someone from just using HTTP straight to the container port.
+      - "127.0.0.1:${API_PORT:-4000}:${API_PORT:-4000}"
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -125,7 +165,8 @@ services:
     environment:
       WEB_PORT: ${WEB_PORT:-3000}
     ports:
-      - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+      # Loopback-only, same reasoning as api's port above.
+      - "127.0.0.1:${WEB_PORT:-3000}:${WEB_PORT:-3000}"
     depends_on:
       # Ordering only -- web never calls api from the server side (no route
       # handlers, no server actions; every fetch is client-side, straight

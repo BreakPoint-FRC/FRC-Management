@@ -65,6 +65,11 @@ RUN pnpm --filter @breakpoint/web deploy /app --prod --ignore-scripts
 FROM node:20-alpine AS web-runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=web-deploy /app .
+# Dedicated, unprivileged -- see apps/api/Dockerfile's api-runtime stage for
+# why. --chown covers .next/cache too, which `next start` can write to at
+# runtime (on-demand revalidation), not just the files it only reads.
+RUN addgroup -g 1001 -S app && adduser -S -u 1001 -G app app
+COPY --from=web-deploy --chown=app:app /app .
+USER app
 EXPOSE 3000
 CMD ["node", "scripts/run-next.mjs", "start"]

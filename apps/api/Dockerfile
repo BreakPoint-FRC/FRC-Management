@@ -28,6 +28,16 @@ RUN apk add --no-cache openssl
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
+# ---- preflight ------------------------------------------------------------
+# Validates .env values before anything that could act on bad ones runs
+# (docker-compose.prod.yml's migrate/api/web all depend on this exiting 0).
+# Deliberately built from api-base, before the workspace install: the check
+# itself has no dependencies, and this way a bad .env fails in seconds, not
+# after a multi-minute pnpm install + build.
+FROM api-base AS api-preflight
+COPY scripts/check-deploy-env.mjs ./scripts/check-deploy-env.mjs
+CMD ["node", "scripts/check-deploy-env.mjs"]
+
 # ---- deps -------------------------------------------------------------
 # Every workspace member's manifest (pnpm needs the whole workspace present
 # to reconcile an unfiltered `--frozen-lockfile` install) plus the one piece
@@ -81,6 +91,12 @@ FROM node:20-alpine AS api-runtime
 RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=api-deploy /app .
+# Dedicated, unprivileged: root in this container is still root on the host
+# kernel (containers share it, a chroot with extra steps, not a VM), so a
+# code-execution bug in a dependency reaches only what this user can touch --
+# app, not the container's PID 1 identity or anything running root-only.
+RUN addgroup -g 1001 -S app && adduser -S -u 1001 -G app app
+COPY --from=api-deploy --chown=app:app /app .
+USER app
 EXPOSE 4000
 CMD ["node", "dist/server.js"]
