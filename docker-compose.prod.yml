@@ -53,7 +53,7 @@ services:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
-      target: migrator
+      target: api-migrator
     command: ["pnpm", "--filter", "@breakpoint/db", "run", "db:deploy"]
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-breakpoint}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakpoint}

@@ -19,12 +19,16 @@
 # native dependency of its own, but the workspace install is shared with
 # @breakpoint/api's in spirit -- see that file's header for why the base
 # image is pinned identically throughout rather than slimmed per stage.
-FROM node:20-alpine AS base
+#
+# Every stage name here is prefixed web- so it cannot collide with
+# apps/api/Dockerfile's stage names -- see that file's header for why that
+# matters to `docker compose ... --build` specifically.
+FROM node:20-alpine AS web-base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
 # ---- deps -------------------------------------------------------------
-FROM base AS deps
+FROM web-base AS web-deps
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/web/package.json apps/web/package.json
 COPY apps/api/package.json apps/api/package.json
@@ -36,7 +40,7 @@ COPY packages/config/package.json packages/config/package.json
 RUN pnpm install --frozen-lockfile
 
 # ---- build --------------------------------------------------------------
-FROM deps AS build
+FROM web-deps AS web-build
 COPY . .
 ARG NEXT_PUBLIC_API_URL
 RUN test -n "$NEXT_PUBLIC_API_URL" || \
@@ -49,17 +53,18 @@ RUN echo "NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}" > .env
 RUN pnpm run build:libs && pnpm --filter @breakpoint/web build
 
 # ---- deploy ---------------------------------------------------------------
-# See apps/api/Dockerfile's deploy stage for what this does and why
+# See apps/api/Dockerfile's api-deploy stage for what this does and why
 # --ignore-scripts is safe here (nothing in @breakpoint/web's own postinstall
 # chain needs a devDependency). The .next build output lives inside
 # apps/web/ like any other source file, so it comes along with the rest of
 # the package -- no separate COPY needed for it.
+FROM web-build AS web-deploy
 RUN pnpm --filter @breakpoint/web deploy /app --prod --ignore-scripts
 
 # ---- runtime ----------------------------------------------------------
-FROM node:20-alpine AS runtime
+FROM node:20-alpine AS web-runtime
 ENV NODE_ENV=production
 WORKDIR /app
-COPY --from=deploy /app .
+COPY --from=web-deploy /app .
 EXPOSE 3000
 CMD ["node", "scripts/run-next.mjs", "start"]
