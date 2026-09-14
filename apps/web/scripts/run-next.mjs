@@ -30,6 +30,16 @@ const child = spawn(process.execPath, [nextBin, command, "-p", port], {
   stdio: "inherit",
 });
 
+// This process is Docker's PID 1 (apps/web/Dockerfile's CMD runs it
+// directly), and PID 1 gets no default signal behaviour from the kernel --
+// without a listener here, `docker stop` sending SIGTERM would do nothing at
+// all until the grace period expires and Docker SIGKILLs the whole
+// container, dropping every in-flight request instead of letting Next finish
+// them. Forwarding it to the child is what makes that grace period useful.
+for (const signal of ["SIGTERM", "SIGINT"]) {
+  process.on(signal, () => child.kill(signal));
+}
+
 child.on("exit", (code, signal) => {
   if (signal) {
     process.kill(process.pid, signal);

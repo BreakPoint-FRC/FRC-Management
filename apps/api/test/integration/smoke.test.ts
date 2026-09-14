@@ -19,6 +19,16 @@ import { FIXTURE_PASSWORD, as, describeIntegration, useIntegrationDatabase } fro
 describeIntegration("api smoke suite", () => {
   const ctx = useIntegrationDatabase();
 
+  // #24: the check a deployment's orchestrator/load balancer polls before
+  // routing traffic to a container. Real value in proving this against a real
+  // Postgres rather than a stub told to say yes -- $queryRaw either really
+  // reaches the database through the pg driver adapter or it does not.
+  it("GET /ready reports ready against a real, migrated database", async () => {
+    const response = await ctx.app.inject({ method: "GET", url: "/ready" });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "ready" });
+  });
+
   // Signing a token beats logging in for most of these: /auth/login is rate
   // limited to ten attempts a minute per IP, and app.inject is always the same
   // IP. The auth case below does the real thing once.

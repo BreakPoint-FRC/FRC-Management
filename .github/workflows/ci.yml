@@ -67,3 +67,98 @@ jobs:
         run: pnpm --filter @breakpoint/web test:e2e
 
       - run: pnpm build
+
+  # Independent of `build` above on purpose -- it builds its own images from
+  # source and does not need anything that job produces, so it runs in
+  # parallel rather than waiting on it.
+  #
+  # This exists because `build` never touches docker-compose.prod.yml or
+  # either Dockerfile at all: nothing before this job would have caught a
+  # Dockerfile with no error possible to lint or typecheck -- a missing
+  # `FROM ... AS <stage>` line, exactly what shipped in an earlier version of
+  # this PR and was only found by a human running `docker compose up` by
+  # hand. This runs the real thing instead: build both production images,
+  # start the full stack, and prove it actually serves traffic and a login
+  # works, the same way docs/deployment.md's first-deploy steps do.
+  docker-deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Deliberately not `cp .env.example .env`: docker-compose.prod.yml's
+      # preflight service (see scripts/check-deploy-env.mjs) refuses to start
+      # with .env.example's own placeholder values, on purpose -- generating
+      # real ones here is what actually exercises preflight passing, same as
+      # a real deploy, rather than working around it.
+      - name: Create a throwaway production .env
+        run: |
+          {
+            echo "POSTGRES_USER=breakpoint"
+            echo "POSTGRES_PASSWORD=$(openssl rand -hex 24)"
+            echo "POSTGRES_DB=breakpoint"
+            echo "API_PORT=4000"
+            echo "WEB_PORT=3000"
+            echo "WEB_ORIGIN=http://localhost:3000"
+            echo "NEXT_PUBLIC_API_URL=http://localhost:4000"
+            echo "JWT_SECRET=$(openssl rand -hex 32)"
+            echo "JWT_ACCESS_TTL=15m"
+            echo "REFRESH_TOKEN_TTL_DAYS=30"
+            echo "SYSTEM_ADMIN_EMAIL=ci-admin@example.test"
+            echo "SYSTEM_ADMIN_PASSWORD=$(openssl rand -hex 16)"
+          } > .env
+
+      - name: Build and start the production stack
+        run: docker compose -f docker-compose.prod.yml up -d --build
+
+      # preflight and migrate both have to exit 0, and api healthy, before
+      # this can succeed -- api's own healthcheck already polls /ready, but
+      # depends_on only gates when containers start, not this job, so it is
+      # polled here too rather than assumed.
+      - name: Wait for api to report ready
+        timeout-minutes: 5
+        run: |
+          until curl -sf http://127.0.0.1:4000/ready; do
+            echo "not ready yet, retrying..."
+            sleep 5
+          done
+
+      # web's container is running as soon as api reports healthy (that is
+      # only what depends_on: condition: service_healthy gates), but the
+      # Next.js server inside it still takes a moment past that to actually
+      # accept connections -- a one-shot curl here raced it and failed with
+      # curl's exit 56 (connection reset) on the first real run of this job.
+      # Retried the same way as api's readiness above instead of assumed.
+      - name: Wait for web to respond
+        timeout-minutes: 2
+        run: |
+          until curl -sf http://127.0.0.1:3000/ >/dev/null; do
+            echo "not ready yet, retrying..."
+            sleep 3
+          done
+
+      # The one-time bootstrap command from docs/deployment.md, then an
+      # actual login with the account it created -- the same walkthrough a
+      # real first deploy requires, run for real instead of asserted.
+      - name: Bootstrap the platform admin and sign in
+        run: |
+          set -a && source .env && set +a
+          docker compose -f docker-compose.prod.yml run --rm \
+            -e SYSTEM_ADMIN_EMAIL -e SYSTEM_ADMIN_PASSWORD \
+            migrate pnpm --filter @breakpoint/db run db:bootstrap
+
+          status=$(curl -s -o /tmp/login.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:4000/auth/login \
+            -H 'Content-Type: application/json' \
+            -d "{\"email\":\"$SYSTEM_ADMIN_EMAIL\",\"password\":\"$SYSTEM_ADMIN_PASSWORD\"}")
+          echo "login status: $status"
+          cat /tmp/login.json
+          test "$status" = "200"
+
+      - name: Compose logs
+        if: failure()
+        run: docker compose -f docker-compose.prod.yml logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose -f docker-compose.prod.yml down -v

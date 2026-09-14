@@ -78,8 +78,43 @@ function isZodError(error: unknown): error is ZodError {
   );
 }
 
+/**
+ * Number of reverse-proxy hops to trust when reading X-Forwarded-For for
+ * `request.ip` (what the /auth/login rate limit keys on). Defaults to 0 --
+ * trust nobody, use the raw socket address -- so a deployment that forgets to
+ * set this can only under- rather than over-trust: every caller lands in the
+ * same bucket (annoying) instead of every caller picking its own rate-limit
+ * identity by sending its own X-Forwarded-For (a bypass). Set to 1 only
+ * behind exactly one reverse proxy that is itself not reachable by anyone
+ * else -- see docker-compose.prod.yml's header and docs/deployment.md.
+ */
+export function trustProxyHops(): number {
+  const raw = process.env.TRUST_PROXY_HOPS;
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+
+const READY_TIMEOUT_MS = 2000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err as Error);
+      }
+    );
+  });
+}
+
 export function buildApp(opts: { prisma?: PrismaClient } = {}) {
-  const app = Fastify({ logger: true });
+  const app = Fastify({ logger: true, trustProxy: trustProxyHops() });
 
   app.setErrorHandler((error, request, reply) => {
     if (isZodError(error)) {
@@ -142,7 +177,32 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.register(rateLimit, { global: false });
   app.register(authPlugin);
 
+  // Liveness only: the process can accept a request, nothing more. A container
+  // orchestrator restarting on this failing would be reacting to the database
+  // being briefly slow, not to this process being broken -- that is what
+  // /ready is for. #24.
   app.get("/health", async () => ({ status: "ok" }));
+
+  // Readiness: can this process actually do its job right now. A real query,
+  // not a ping -- $queryRaw goes through the same pg driver adapter every
+  // request does (see packages/db/src/client.ts), so this fails exactly when
+  // a real request would. Unauthenticated on purpose: an orchestrator's health
+  // probe carries no session, and what it needs to know ("route traffic here
+  // or not") is not itself sensitive. Bounded by READY_TIMEOUT_MS so a
+  // database that is hanging rather than erroring can't hold requests (and
+  // the connections they use) open indefinitely -- an orchestrator polling
+  // this on an interval is exactly the caller a slow query would pile up
+  // against. Meant to be called by that orchestrator only: docs/deployment.md
+  // keeps it out of the public reverse-proxy route on top of this.
+  app.get("/ready", async (_req, reply) => {
+    try {
+      await withTimeout(app.prisma.$queryRaw`SELECT 1`, READY_TIMEOUT_MS);
+      return { status: "ready" };
+    } catch (err) {
+      app.log.error(err, "readiness check failed: database unreachable");
+      return reply.code(503).send({ status: "not ready" });
+    }
+  });
 
   app.register(authRoutes, { prefix: "/auth" });
 

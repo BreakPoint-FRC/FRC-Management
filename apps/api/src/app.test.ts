@@ -79,6 +79,112 @@ describe("health", () => {
   });
 });
 
+describe("readiness", () => {
+  it("reports ready when the database answers, without a token", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ "?column?": 1 }]);
+    const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));
+
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "ready" });
+    expect(queryRaw).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  // The one case /health cannot report: the process is up but the database it
+  // depends on is not -- a container orchestrator should stop routing traffic
+  // here without killing the process for it.
+  it("reports 503 when the database is unreachable, and does not leak the driver error", async () => {
+    const queryRaw = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:5432"));
+    const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));
+
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ status: "not ready" });
+    expect(response.body).not.toMatch(/ECONNREFUSED|5432/);
+    await app.close();
+  });
+
+  // A hung query is not the same failure as a rejected one -- nothing throws,
+  // so without its own bound this would hold the request (and a pool
+  // connection) open forever instead of reporting not-ready.
+  it("reports 503 if the database hangs instead of erroring, rather than waiting forever", async () => {
+    vi.useFakeTimers();
+    try {
+      const queryRaw = vi.fn().mockImplementation(() => new Promise(() => {}));
+      const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));
+
+      const responsePromise = app.inject({ method: "GET", url: "/ready" });
+      await vi.advanceTimersByTimeAsync(2000);
+      const response = await responsePromise;
+
+      expect(response.statusCode).toBe(503);
+      expect(response.json()).toEqual({ status: "not ready" });
+      await app.close();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+});
+
+describe("rate limiting behind a trusted proxy", () => {
+  afterEach(() => {
+    delete process.env.TRUST_PROXY_HOPS;
+  });
+
+  function stubLoginPrisma() {
+    return stubClient({ account: { findUnique: async () => null } });
+  }
+
+  function attempt(app: ReturnType<typeof buildWithPrisma>, forwardedFor: string) {
+    return app.inject({
+      method: "POST",
+      url: "/auth/login",
+      headers: { "x-forwarded-for": forwardedFor },
+      payload: { email: "a@breakpoint.test", password: "wrong-password" },
+    });
+  }
+
+  // The default (TRUST_PROXY_HOPS unset) has to stay safe on its own: every
+  // request here shares light-my-request's default remote address, same as
+  // every real caller would share Caddy's single socket peer address in
+  // docker-compose.prod.yml. If an unset default trusted X-Forwarded-For
+  // anyway, a caller could reset its own bucket just by sending a new one --
+  // this proves it cannot.
+  it("does not let a spoofed X-Forwarded-For bypass the limit when trust is not configured", async () => {
+    delete process.env.TRUST_PROXY_HOPS;
+    const app = buildWithPrisma(stubLoginPrisma());
+
+    for (let i = 0; i < 10; i++) {
+      await attempt(app, `10.0.0.${i}`);
+    }
+    const eleventh = await attempt(app, "10.0.0.99");
+
+    expect(eleventh.statusCode).toBe(429);
+    await app.close();
+  });
+
+  // The bug this exists to fix: behind Caddy, every real user's request has
+  // the same socket peer address (Caddy's). Without reading TRUST_PROXY_HOPS,
+  // the whole team shares one 10-per-minute bucket. With it set to 1, each
+  // distinct X-Forwarded-For gets its own bucket again.
+  it("keys the limit on X-Forwarded-For when TRUST_PROXY_HOPS=1, so distinct callers do not share one bucket", async () => {
+    process.env.TRUST_PROXY_HOPS = "1";
+    const app = buildWithPrisma(stubLoginPrisma());
+
+    for (let i = 0; i < 10; i++) {
+      const response = await attempt(app, `10.0.0.${i}`);
+      expect(response.statusCode).not.toBe(429);
+    }
+    const eleventh = await attempt(app, "10.0.0.99");
+
+    expect(eleventh.statusCode).not.toBe(429);
+    await app.close();
+  });
+});
+
 describe("authentication", () => {
   it("refuses a protected route with no token", async () => {
     const app = buildWithPrisma(stubClient({}));

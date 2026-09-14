@@ -64,6 +64,25 @@ bare `PORT` is read by *both* apps, and `next dev` would bind the API's port —
 on Windows both servers bind successfully and requests are answered by whichever
 one wins the race, which is a genuinely confusing thing to debug.
 
+## Deployment
+
+`pnpm dev` on a laptop is a development workflow, not a way to run this
+during a competition. `docker-compose.prod.yml` builds `apps/api/Dockerfile`
+and `apps/web/Dockerfile` and runs Postgres, a migration step, the API and
+the web app as containers:
+
+```bash
+cp .env.example .env    # then set the production values -- see below
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+See [docs/deployment.md](docs/deployment.md) for the full walkthrough: which
+`.env` values have no safe default, the platform admin bootstrap step (run
+once, by hand — running it again resets its password and logs out every live
+session), TLS/reverse proxy, and a backup-and-restore procedure that was
+verified against this repository's own dev database while it was written,
+not just asserted to work.
+
 ## Authentication
 
 Two tokens. The access token is a short-lived JWT the client sends in an
@@ -217,6 +236,7 @@ the path that does.
 - [docs/teams.md](docs/teams.md) — creating a team, the two kinds of admin, the setup wizard
 - [docs/roles.md](docs/roles.md) — the role model and the rules behind it
 - [docs/migrations.md](docs/migrations.md) — database change rules
+- [docs/deployment.md](docs/deployment.md) — running this somewhere other than a laptop
 - [docs/documentation.md](docs/documentation.md) — what to document, and where
 - [docs/product/](docs/product/) — scope and roadmap
 

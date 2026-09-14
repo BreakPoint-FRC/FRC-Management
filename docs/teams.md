@@ -64,9 +64,15 @@ created an admin would put a known-password account in every deployment that
 ever ran it; a seed that created one is a file with the password printed in it.
 
 It is idempotent: running it again resets the password, clears the temporary
-password flag, revokes every live refresh token and restores the single role
-assignment in one transaction. That is the recovery path when nobody can sign
-in any more, without leaving a session issued under the old password alive.
+password flag, revokes that admin's live refresh tokens, and restores the
+single role assignment in one transaction. That is the recovery path when
+nobody can sign in any more, without leaving a session issued under the old
+password alive. Two things it refuses to do, also inside that transaction:
+hijack an existing account that is not already the platform admin (an
+unrelated team member's address does not become one just by appearing in
+`SYSTEM_ADMIN_EMAIL`), and leave more than one platform admin active --
+naming a different address than last time moves the role, and revokes the
+previous holder's sessions too, rather than adding a second admin beside it.
 
 ## Opening a team
 
