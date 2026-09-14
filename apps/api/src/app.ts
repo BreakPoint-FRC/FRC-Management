@@ -142,7 +142,27 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.register(rateLimit, { global: false });
   app.register(authPlugin);
 
+  // Liveness only: the process can accept a request, nothing more. A container
+  // orchestrator restarting on this failing would be reacting to the database
+  // being briefly slow, not to this process being broken -- that is what
+  // /ready is for. #24.
   app.get("/health", async () => ({ status: "ok" }));
+
+  // Readiness: can this process actually do its job right now. A real query,
+  // not a ping -- $queryRaw goes through the same pg driver adapter every
+  // request does (see packages/db/src/client.ts), so this fails exactly when
+  // a real request would. Unauthenticated on purpose: an orchestrator's health
+  // probe carries no session, and what it needs to know ("route traffic here
+  // or not") is not itself sensitive.
+  app.get("/ready", async (_req, reply) => {
+    try {
+      await app.prisma.$queryRaw`SELECT 1`;
+      return { status: "ready" };
+    } catch (err) {
+      app.log.error(err, "readiness check failed: database unreachable");
+      return reply.code(503).send({ status: "not ready" });
+    }
+  });
 
   app.register(authRoutes, { prefix: "/auth" });
 

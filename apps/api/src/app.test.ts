@@ -79,6 +79,35 @@ describe("health", () => {
   });
 });
 
+describe("readiness", () => {
+  it("reports ready when the database answers, without a token", async () => {
+    const queryRaw = vi.fn().mockResolvedValue([{ "?column?": 1 }]);
+    const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));
+
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ status: "ready" });
+    expect(queryRaw).toHaveBeenCalledOnce();
+    await app.close();
+  });
+
+  // The one case /health cannot report: the process is up but the database it
+  // depends on is not -- a container orchestrator should stop routing traffic
+  // here without killing the process for it.
+  it("reports 503 when the database is unreachable, and does not leak the driver error", async () => {
+    const queryRaw = vi.fn().mockRejectedValue(new Error("connect ECONNREFUSED 127.0.0.1:5432"));
+    const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));
+
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(503);
+    expect(response.json()).toEqual({ status: "not ready" });
+    expect(response.body).not.toMatch(/ECONNREFUSED|5432/);
+    await app.close();
+  });
+});
+
 describe("authentication", () => {
   it("refuses a protected route with no token", async () => {
     const app = buildWithPrisma(stubClient({}));
