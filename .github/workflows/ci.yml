@@ -123,8 +123,19 @@ jobs:
             sleep 5
           done
 
-      - name: Check web responds
-        run: curl -sf http://127.0.0.1:3000/ >/dev/null
+      # web's container is running as soon as api reports healthy (that is
+      # only what depends_on: condition: service_healthy gates), but the
+      # Next.js server inside it still takes a moment past that to actually
+      # accept connections -- a one-shot curl here raced it and failed with
+      # curl's exit 56 (connection reset) on the first real run of this job.
+      # Retried the same way as api's readiness above instead of assumed.
+      - name: Wait for web to respond
+        timeout-minutes: 2
+        run: |
+          until curl -sf http://127.0.0.1:3000/ >/dev/null; do
+            echo "not ready yet, retrying..."
+            sleep 3
+          done
 
       # The one-time bootstrap command from docs/deployment.md, then an
       # actual login with the account it created -- the same walkthrough a
