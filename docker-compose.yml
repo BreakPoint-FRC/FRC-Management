@@ -1,3 +1,9 @@
+# Local development only: `pnpm dev` runs api/web directly on the host, and
+# this starts the one thing they need that isn't a node process. For running
+# api and web themselves in containers (a real deployment), see
+# docker-compose.prod.yml and docs/deployment.md instead -- that file does
+# not reuse this one, on purpose: production's Postgres credentials should
+# not default to "breakpoint"/"breakpoint".
 services:
   postgres:
     image: postgres:16-alpine

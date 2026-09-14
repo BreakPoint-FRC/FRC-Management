@@ -1,0 +1,139 @@
+# Production stack: Postgres + a one-shot migration step + the API + the web
+# app. docker-compose.yml (no suffix) is dev-only -- it starts Postgres alone,
+# because `pnpm dev` runs the apps directly on the host. This file is the
+# opposite: it builds and runs everything in containers.
+#
+#   cp .env.example .env                     # then edit it -- see below
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# Read docs/deployment.md before the first real deploy. Three things below are
+# easy to get wrong silently:
+#
+# 1. POSTGRES_PASSWORD, in .env, has no default here on purpose -- Compose
+#    refuses to start rather than run production on the same password every
+#    clone of this repository would otherwise share.
+# 2. NEXT_PUBLIC_API_URL must be the address a BROWSER can reach the API at
+#    (the public one behind your reverse proxy/TLS), never the Docker-internal
+#    "api" hostname -- and it is baked into the web image at build time, so
+#    changing it later means rebuilding `web`, not just restarting it.
+# 3. `db:bootstrap` is NOT wired in here as a service that runs automatically.
+#    It resets the platform admin's password and revokes every live session
+#    on every run -- see docs/deployment.md for the one-time command.
+#
+# Nothing here terminates TLS. Put a reverse proxy (Caddy, nginx, Traefik --
+# docs/deployment.md sketches a minimal Caddy config) in front of `api` and
+# `web`; both listen on plain HTTP.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-breakpoint}
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before deploying -- see docs/deployment.md}"
+      POSTGRES_DB: ${POSTGRES_DB:-breakpoint}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    # Not exposed to the host on purpose: api/migrate reach it over the
+    # compose network by service name. Run `docker compose -f
+    # docker-compose.prod.yml exec postgres pg_dump ...` for a backup rather
+    # than opening the port -- see docs/deployment.md.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-breakpoint} -d ${POSTGRES_DB:-breakpoint}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Applies pending migrations and exits. Runs on every `up`, but
+  # `prisma migrate deploy` only ever applies what is not already applied --
+  # an already-current database is a fast no-op, not a re-run. `api` will not
+  # start until this exits 0. This is also the image to use for the one-off
+  # admin commands (`db:bootstrap`, `db:seed`) -- see docs/deployment.md.
+  migrate:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: migrator
+    command: ["pnpm", "--filter", "@breakpoint/db", "run", "db:deploy"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-breakpoint}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakpoint}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: "no"
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    # Named one by one rather than `env_file: .env`: that file also holds
+    # SYSTEM_ADMIN_EMAIL/PASSWORD (only db:bootstrap reads those -- see
+    # `migrate` above) and NEXT_PUBLIC_API_URL (web's build-time value). This
+    # process has no legitimate use for either, and hands a compromised
+    # container one less credential to find.
+    environment:
+      # Overrides whatever DATABASE_URL is in .env: that file's value points
+      # at localhost for local dev, which inside this container is the api
+      # container itself, not the postgres one. Built from the same
+      # POSTGRES_* vars as the postgres service above so the two cannot
+      # disagree with each other.
+      DATABASE_URL: postgresql://${POSTGRES_USER:-breakpoint}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakpoint}
+      API_PORT: ${API_PORT:-4000}
+      JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before deploying -- generate one with `openssl rand -hex 32`}"
+      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
+      REFRESH_TOKEN_TTL_DAYS: ${REFRESH_TOKEN_TTL_DAYS:-30}
+      # The origin CORS accepts requests from -- the public web origin, same
+      # value as WEB_ORIGIN in .env.
+      WEB_ORIGIN: "${WEB_ORIGIN:?Set WEB_ORIGIN in .env before deploying -- the public origin the web app is served from}"
+    ports:
+      - "${API_PORT:-4000}:${API_PORT:-4000}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      # No curl/wget dependency: Node 20 has global fetch. Reads API_PORT
+      # from its own environment so a custom port never falls out of sync
+      # with what the server actually bound.
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:'+(process.env.API_PORT||4000)+'/ready').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Build-time only -- see this file's header. Required; the Dockerfile
+        # refuses to build without it rather than silently baking in
+        # localhost.
+        NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env before deploying -- the browser-reachable API origin, not the Docker service name}"
+    restart: unless-stopped
+    # No JWT_SECRET, no database credentials, nothing api-only here: this
+    # process serves static assets and client JS, and NEXT_PUBLIC_API_URL is
+    # already baked into that JS at build time (this file's header) -- there
+    # is nothing left for it to read from the environment at runtime except
+    # its own port.
+    environment:
+      WEB_PORT: ${WEB_PORT:-3000}
+    ports:
+      - "${WEB_PORT:-3000}:${WEB_PORT:-3000}"
+    depends_on:
+      # Ordering only -- web never calls api from the server side (no route
+      # handlers, no server actions; every fetch is client-side, straight
+      # from the browser to NEXT_PUBLIC_API_URL). api being down does not
+      # stop this container from starting, it just means every page a
+      # visitor opens shows a fetch error until api is healthy again.
+      api:
+        condition: service_healthy
+
+volumes:
+  postgres_data:
