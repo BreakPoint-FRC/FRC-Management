@@ -33,7 +33,7 @@ services:
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before deploying -- see docs/deployment.md}"
       POSTGRES_DB: ${POSTGRES_DB:-breakpoint}
     volumes:
-      - postgres_data:/var/lib/postgresql/data
+      - postgres_data_prod:/var/lib/postgresql/data
     # Not exposed to the host on purpose: api/migrate reach it over the
     # compose network by service name. Run `docker compose -f
     # docker-compose.prod.yml exec postgres pg_dump ...` for a backup rather
@@ -136,4 +136,14 @@ services:
         condition: service_healthy
 
 volumes:
-  postgres_data:
+  # Named differently from docker-compose.yml's postgres_data on purpose.
+  # Both files otherwise use the same top-level key, and Compose names a
+  # volume "<project>_<key>" where <project> defaults to the directory
+  # name -- run dev compose and this file from the same clone (a normal
+  # thing to do while testing) and an unqualified "postgres_data" resolves
+  # to the SAME volume in both. Postgres only applies POSTGRES_PASSWORD
+  # while initializing a brand-new data directory, so the second compose
+  # file to start silently inherits the first one's credentials instead of
+  # the ones in .env -- migrate then fails with P1000: Authentication
+  # failed, not an obviously-volume-related error. See docs/deployment.md.
+  postgres_data_prod:

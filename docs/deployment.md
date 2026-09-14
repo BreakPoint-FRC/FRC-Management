@@ -180,6 +180,38 @@ this restore procedure against a scratch database on a schedule (monthly is
 a reasonable floor), not only when something has already gone wrong and the
 restore has to work on the first try.
 
+## Troubleshooting
+
+**`migrate` exits 1 with `P1000: Authentication failed against database
+server`, right after `postgres` reported healthy.** Almost always means a
+Postgres data volume already exists with *different* credentials than what's
+in `.env` right now — commonly because `docker-compose.yml` (dev) was run
+from the same directory at some point first. Postgres only applies
+`POSTGRES_PASSWORD` while initializing a brand-new, empty data directory; an
+existing volume keeps whatever credentials it was first created with; and
+`pg_isready` (what the `postgres` healthcheck runs) doesn't check
+credentials at all, so the container reports healthy right up until
+`migrate` actually tries to authenticate. Confirm with:
+
+```bash
+docker volume ls | grep postgres
+```
+
+If a volume from an earlier dev-compose run shows up, remove it (this
+deletes that volume's data — fine for a stale local test database, not
+something to run against a volume with real data):
+
+```bash
+docker compose -f docker-compose.prod.yml down
+docker volume rm <name-from-the-list-above>
+docker compose -f docker-compose.prod.yml up -d --build
+```
+
+`docker-compose.prod.yml`'s Postgres volume is named `postgres_data_prod`
+specifically so this can't happen going forward between dev and prod
+compose in the same clone — but it doesn't retroactively fix a volume that
+already exists from before that name changed.
+
 ## Health, readiness, and what the difference is for
 
 ```
