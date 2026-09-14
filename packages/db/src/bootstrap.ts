@@ -18,6 +18,11 @@ interface BootstrapDependencies {
 
 const defaultDependencies: BootstrapDependencies = { hashPassword: hash };
 
+// Literal defaults from .env.example. Never valid to bootstrap with -- their
+// only legitimate appearance is in a file nobody has edited yet.
+const PLACEHOLDER_EMAIL = "admin@breakpoint.test";
+const PLACEHOLDER_PASSWORD = "change-me-at-least-ten-chars";
+
 /**
  * Creates or recovers the platform administrator.
  *
@@ -25,6 +30,23 @@ const defaultDependencies: BootstrapDependencies = { hashPassword: hash };
  * password and temporary-password flag, all live refresh tokens, and the role
  * assignment. A failed rerun therefore leaves either the old administrator or
  * the completely recovered one, never a mixture of both.
+ *
+ * Two things this transaction refuses to do silently, both found in review
+ * before this shipped:
+ *
+ * 1. Hijack an unrelated account. `email` is globally unique (see
+ *    schema.prisma), not scoped to "platform admins" -- without this check,
+ *    pointing SYSTEM_ADMIN_EMAIL at an existing team member's address would
+ *    upsert straight into their account: rip it out of its team (`teamId:
+ *    null`), overwrite its password, and hand it the platform role. Refused
+ *    instead, with an error that says whose account it collided with.
+ * 2. Leave a second platform admin behind. Bootstrapping with a *different*
+ *    email than last time is a legitimate recovery (the old admin's inbox is
+ *    gone), but upsert alone only ever grants -- it never looks at who else
+ *    already holds the role. Every other active holder of
+ *    PLATFORM_SYSTEM_ADMIN_ROLE_ID is deactivated and has its sessions
+ *    revoked in the same transaction, so bootstrapping always leaves exactly
+ *    one platform admin, matching what docs/deployment.md promises.
  */
 export async function bootstrapSystemAdmin(
   prisma: PrismaClient,
@@ -37,6 +59,11 @@ export async function bootstrapSystemAdmin(
   if (input.password.length < 10) {
     throw new Error("SYSTEM_ADMIN_PASSWORD must be at least 10 characters.");
   }
+  if (input.email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
+    throw new Error(
+      "SYSTEM_ADMIN_EMAIL/SYSTEM_ADMIN_PASSWORD are still the .env.example placeholders. Set real values before running this."
+    );
+  }
 
   const passwordHash = await dependencies.hashPassword(input.password);
 
@@ -48,6 +75,25 @@ export async function bootstrapSystemAdmin(
     if (!role) {
       throw new Error(
         "The platform SYSTEM_ADMIN role is missing. Run pnpm --filter @breakpoint/db db:deploy first."
+      );
+    }
+
+    const existingByEmail = await tx.account.findUnique({
+      where: { email: input.email },
+      select: {
+        id: true,
+        teamId: true,
+        roles: { where: { roleId: role.id, groupId: null, isActive: true }, select: { id: true } },
+      },
+    });
+    const isAlreadyThisPlatformAdmin =
+      existingByEmail !== null && existingByEmail.teamId === null && existingByEmail.roles.length > 0;
+
+    if (existingByEmail && !isAlreadyThisPlatformAdmin) {
+      throw new Error(
+        `An account already exists with ${input.email}, and it is not the platform admin -- it belongs to ` +
+          `${existingByEmail.teamId ? "a team" : "the platform but without the SYSTEM_ADMIN role"}. ` +
+          "Refusing to convert it: use a different SYSTEM_ADMIN_EMAIL, or remove that account first if this really is intended."
       );
     }
 
@@ -82,15 +128,34 @@ export async function bootstrapSystemAdmin(
     // findFirst then create, not upsert: Postgres treats NULLs as distinct in a
     // unique index, so @@unique([accountId, roleId, groupId]) cannot identify
     // this assignment when groupId is null.
-    const existing = await tx.accountRole.findFirst({
+    const existingAssignment = await tx.accountRole.findFirst({
       where: { accountId: account.id, roleId: role.id, groupId: null },
       select: { id: true },
     });
 
-    if (existing) {
-      await tx.accountRole.update({ where: { id: existing.id }, data: { isActive: true } });
+    if (existingAssignment) {
+      await tx.accountRole.update({ where: { id: existingAssignment.id }, data: { isActive: true } });
     } else {
       await tx.accountRole.create({ data: { accountId: account.id, roleId: role.id } });
+    }
+
+    // Exactly one platform admin after this returns: anyone else still
+    // holding the role -- the previous admin, if this call just moved the
+    // identity to a new email -- loses it, and every session it had open.
+    const otherAdmins = await tx.accountRole.findMany({
+      where: { roleId: role.id, groupId: null, isActive: true, accountId: { not: account.id } },
+      select: { id: true, accountId: true },
+    });
+
+    if (otherAdmins.length > 0) {
+      await tx.accountRole.updateMany({
+        where: { id: { in: otherAdmins.map((a) => a.id) } },
+        data: { isActive: false },
+      });
+      await tx.refreshToken.updateMany({
+        where: { accountId: { in: otherAdmins.map((a) => a.accountId) }, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
     }
 
     return account;
