@@ -6,17 +6,44 @@
 // break something (a POSTGRES_PASSWORD with characters that corrupt the
 // DATABASE_URL it gets interpolated into). This is the check for that.
 //
-// Deliberately narrow: it rejects exact known-placeholder values and
-// structural problems, not "looks like a dev value" in general -- WEB_ORIGIN
-// and NEXT_PUBLIC_API_URL pointing at localhost is completely legitimate for
-// a real single-machine deployment, and this must not fail that.
+// Deliberately narrow: it rejects exact known-placeholder values and values
+// that cannot safely be interpolated into this repository's raw Postgres URL.
+// WEB_ORIGIN and NEXT_PUBLIC_API_URL pointing at localhost is legitimate for a
+// real single-machine deployment, and this must not fail that.
 //
 // No dependencies on purpose: it runs from apps/api/Dockerfile's api-base
 // stage, before the workspace install, so it only has what plain Node ships
 // with.
 
+const POSTGRES_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]*$/;
+const POSTGRES_PASSWORD = /^[A-Za-z0-9_-]+$/;
+
+/** @param {string} value */
+function validateHttpOrigin(value) {
+  try {
+    const url = new URL(value);
+    if (!['http:', 'https:'].includes(url.protocol)) {
+      return "must use http:// or https://.";
+    }
+    if (value !== url.origin) {
+      return "must be an origin only (no credentials, path, query, fragment, or trailing slash).";
+    }
+    return null;
+  } catch {
+    return "is not a valid URL origin.";
+  }
+}
+
 /** @type {{ name: string, check: (value: string) => string | null }[]} */
 const RULES = [
+  {
+    name: "POSTGRES_USER",
+    check(value) {
+      return POSTGRES_IDENTIFIER.test(value)
+        ? null
+        : "must start with a letter or underscore and contain only letters, numbers, underscores, or hyphens.";
+    },
+  },
   {
     name: "POSTGRES_PASSWORD",
     check(value) {
@@ -26,16 +53,21 @@ const RULES = [
       if (value.length < 12) {
         return "shorter than 12 characters -- generate one with `openssl rand -hex 24`.";
       }
-      // These characters corrupt postgresql://user:PASSWORD@host:port/db when
-      // interpolated raw (docker-compose.prod.yml does not URL-encode it):
-      // a password containing '@' or '/' shifts what the driver reads as the
-      // host and database entirely, silently, and the failure it produces
-      // (migrate's P1000 authentication error) does not point back here.
-      const unsafe = value.match(/[:/?#[\]@]/);
-      if (unsafe) {
-        return `contains '${unsafe[0]}', which breaks the connection string it gets built into -- regenerate with \`openssl rand -hex 24\` (URL-safe characters only).`;
+      // Compose constructs DATABASE_URL without percent-encoding components.
+      // A denylist is not enough: for example "%40" is decoded to "@" by the
+      // URL parser while Postgres initialized the literal "%40" password.
+      if (!POSTGRES_PASSWORD.test(value)) {
+        return "must contain only letters, numbers, underscores, or hyphens -- regenerate with `openssl rand -hex 24`.";
       }
       return null;
+    },
+  },
+  {
+    name: "POSTGRES_DB",
+    check(value) {
+      return POSTGRES_IDENTIFIER.test(value)
+        ? null
+        : "must start with a letter or underscore and contain only letters, numbers, underscores, or hyphens.";
     },
   },
   {
@@ -52,21 +84,11 @@ const RULES = [
   },
   {
     name: "WEB_ORIGIN",
-    check(value) {
-      if (!/^https?:\/\/.+/.test(value)) {
-        return "does not look like a URL (expected it to start with http:// or https://).";
-      }
-      return null;
-    },
+    check: validateHttpOrigin,
   },
   {
     name: "NEXT_PUBLIC_API_URL",
-    check(value) {
-      if (!/^https?:\/\/.+/.test(value)) {
-        return "does not look like a URL (expected it to start with http:// or https://).";
-      }
-      return null;
-    },
+    check: validateHttpOrigin,
   },
 ];
 

@@ -61,7 +61,7 @@ export function useIntegrationDatabase(): IntegrationContext {
     await context.db.connect();
 
     context.prisma = createPrismaClient(url);
-    context.app = buildApp({ prisma: context.prisma });
+    context.app = buildApp({ prisma: context.prisma, readinessDatabaseUrl: url });
     await context.app.ready();
   });
 
@@ -71,8 +71,8 @@ export function useIntegrationDatabase(): IntegrationContext {
   });
 
   afterAll(async () => {
-    // app.close() runs the prisma plugin's onClose hook, which disconnects the
-    // client above. Closing both would disconnect twice.
+    // app.close() disconnects both the Prisma client and the isolated
+    // readiness pool. Closing either here again would be a double close.
     await context.app?.close();
     await context.db?.close();
   });

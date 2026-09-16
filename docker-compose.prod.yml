@@ -6,7 +6,7 @@
 #   cp .env.example .env                     # then edit it -- see below
 #   docker compose -f docker-compose.prod.yml up -d --build
 #
-# Read docs/deployment.md before the first real deploy. Three things below are
+# Read docs/deployment.md before the first real deploy. Four things below are
 # easy to get wrong silently:
 #
 # 1. POSTGRES_PASSWORD, in .env, has no default here on purpose -- Compose
@@ -16,10 +16,10 @@
 #    (the public one behind your reverse proxy/TLS), never the Docker-internal
 #    "api" hostname -- and it is baked into the web image at build time, so
 #    changing it later means rebuilding `web`, not just restarting it.
-# 3. `db:bootstrap` is NOT wired in here as a service that runs automatically.
-#    It resets the platform admin's password and revokes its live sessions --
-#    see docs/deployment.md for the one-time command and exactly what it does
-#    and does not revoke.
+# 3. `bootstrap` exists under the `admin` profile, so routine `up` never runs
+#    it. Invoking that profile resets the platform admin's password and revokes
+#    refresh tokens -- see docs/deployment.md for the one-time command and the
+#    short-lived access-token caveat.
 # 4. `api`/`web` publish their ports on 127.0.0.1 only, not every interface.
 #    Reaching them from anywhere else has to go through the reverse proxy
 #    below -- that's also why `api` trusts one hop of X-Forwarded-For
@@ -44,7 +44,9 @@ services:
       dockerfile: apps/api/Dockerfile
       target: api-preflight
     environment:
+      POSTGRES_USER: ${POSTGRES_USER:-breakpoint}
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before deploying -- see docs/deployment.md}"
+      POSTGRES_DB: ${POSTGRES_DB:-breakpoint}
       JWT_SECRET: "${JWT_SECRET:?Set JWT_SECRET in .env before deploying -- generate one with `openssl rand -hex 32`}"
       WEB_ORIGIN: "${WEB_ORIGIN:?Set WEB_ORIGIN in .env before deploying -- the public origin the web app is served from}"
       NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env before deploying -- the browser-reachable API origin}"
@@ -53,6 +55,9 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    depends_on:
+      preflight:
+        condition: service_completed_successfully
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-breakpoint}
       POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env before deploying -- see docs/deployment.md}"
@@ -72,9 +77,13 @@ services:
   # Applies pending migrations and exits. Runs on every `up`, but
   # `prisma migrate deploy` only ever applies what is not already applied --
   # an already-current database is a fast no-op, not a re-run. `api` will not
-  # start until this exits 0. This is also the image to use for the one-off
-  # admin commands (`db:bootstrap`, `db:seed`) -- see docs/deployment.md.
+  # start until this exits 0. The profile-only `bootstrap` service below uses
+  # the same image for the one break-glass admin command.
   migrate:
+    # bootstrap uses this exact project-scoped image too. Without an explicit
+    # shared tag Compose exports the same large api-migrator target a second
+    # time the first time the admin profile is invoked.
+    image: ${COMPOSE_PROJECT_NAME:-frc-management}-migrator
     build:
       context: .
       dockerfile: apps/api/Dockerfile
@@ -89,14 +98,34 @@ services:
         condition: service_completed_successfully
     restart: "no"
 
+  # Explicitly profile-gated: routine `up` never resets an administrator.
+  # The empty defaults let SYSTEM_ADMIN_PASSWORD be removed from .env after
+  # first use; the bootstrap code itself refuses an empty or placeholder value.
+  bootstrap:
+    profiles: ["admin"]
+    image: ${COMPOSE_PROJECT_NAME:-frc-management}-migrator
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+      target: api-migrator
+    command: ["pnpm", "--filter", "@breakpoint/db", "run", "db:bootstrap"]
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-breakpoint}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-breakpoint}
+      SYSTEM_ADMIN_EMAIL: "${SYSTEM_ADMIN_EMAIL:-}"
+      SYSTEM_ADMIN_PASSWORD: "${SYSTEM_ADMIN_PASSWORD:-}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    restart: "no"
+
   api:
     build:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
     # Named one by one rather than `env_file: .env`: that file also holds
-    # SYSTEM_ADMIN_EMAIL/PASSWORD (only db:bootstrap reads those -- see
-    # `migrate` above) and NEXT_PUBLIC_API_URL (web's build-time value). This
+    # SYSTEM_ADMIN_EMAIL/PASSWORD (only the profile-gated `bootstrap` service
+    # reads those) and NEXT_PUBLIC_API_URL (web's build-time value). This
     # process has no legitimate use for either, and hands a compromised
     # container one less credential to find.
     environment:
@@ -120,7 +149,7 @@ services:
       # raise this, and do not set it while the port below is reachable from
       # anywhere but localhost: trusting XFF from an untrusted caller lets it
       # claim any IP it likes, which defeats /auth/login's rate limit outright.
-      TRUST_PROXY_HOPS: ${TRUST_PROXY_HOPS:-1}
+      TRUST_PROXY_HOPS: "1"
     ports:
       # Bound to loopback, not "all interfaces": Caddy (or whatever terminates
       # TLS, per docs/deployment.md) runs on this same host and reaches this
@@ -177,14 +206,9 @@ services:
         condition: service_healthy
 
 volumes:
-  # Named differently from docker-compose.yml's postgres_data on purpose.
-  # Both files otherwise use the same top-level key, and Compose names a
-  # volume "<project>_<key>" where <project> defaults to the directory
-  # name -- run dev compose and this file from the same clone (a normal
-  # thing to do while testing) and an unqualified "postgres_data" resolves
-  # to the SAME volume in both. Postgres only applies POSTGRES_PASSWORD
-  # while initializing a brand-new data directory, so the second compose
-  # file to start silently inherits the first one's credentials instead of
-  # the ones in .env -- migrate then fails with P1000: Authentication
-  # failed, not an obviously-volume-related error. See docs/deployment.md.
+  # Explicitly named so moving the checkout or changing Compose's project name
+  # cannot make a live database appear to vanish. Choose a different name in
+  # .env before first start when hosting multiple instances on one machine;
+  # never change it after data exists without migrating the volume too.
   postgres_data_prod:
+    name: ${POSTGRES_VOLUME_NAME:-frc-management-postgres-data-prod}

@@ -11,8 +11,9 @@
 // and leaves nothing behind.
 //
 // Idempotent: running it again on an existing account resets the password,
-// revokes its sessions and re-grants the role rather than failing or creating a
-// second one. That is the recovery path when nobody can sign in any more.
+// revokes its refresh tokens and re-grants the role rather than failing or
+// creating a second one. Already-issued access JWTs remain valid until their
+// short expiry. This is the recovery path when nobody can sign in any more.
 import { prisma } from "../src/client";
 import { bootstrapSystemAdmin } from "../src/bootstrap";
 

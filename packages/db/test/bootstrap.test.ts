@@ -29,6 +29,7 @@ function createFakeTx() {
   }
 
   const tx = {
+    $executeRaw: async () => 1,
     role: {
       findUnique: async ({ where }: { where: { id: string } }) =>
         where.id === PLATFORM_SYSTEM_ADMIN_ROLE_ID ? { id: PLATFORM_SYSTEM_ADMIN_ROLE_ID } : null,
@@ -45,8 +46,7 @@ function createFakeTx() {
               (r) =>
                 r.accountId === account.id &&
                 r.roleId === PLATFORM_SYSTEM_ADMIN_ROLE_ID &&
-                r.groupId === null &&
-                r.isActive
+                r.groupId === null
             )
             .map((r) => ({ id: r.id })),
         };
@@ -174,6 +174,11 @@ function createFakeTx() {
         (r) => r.accountId === accountId && r.roleId === PLATFORM_SYSTEM_ADMIN_ROLE_ID && r.groupId === null && r.isActive
       );
     },
+    activeAdminCount() {
+      return accountRoles.filter(
+        (r) => r.roleId === PLATFORM_SYSTEM_ADMIN_ROLE_ID && r.groupId === null && r.isActive
+      ).length;
+    },
     isTokenRevoked(tokenId: string) {
       return refreshTokens.find((t) => t.id === tokenId)?.revokedAt !== null;
     },
@@ -216,7 +221,7 @@ describe("system administrator bootstrap", () => {
     expect(fake.isActiveAdmin(member.id)).toBe(false);
   });
 
-  it("moving the admin to a new email deactivates the old admin's role and revokes its sessions", async () => {
+  it("moves A to B and back to inactive A while keeping one admin and revoking refresh tokens", async () => {
     const fake = createFakeTx();
     const prisma = fakePrisma(fake.tx);
 
@@ -239,6 +244,19 @@ describe("system administrator bootstrap", () => {
     // left holding the role (and its old sessions) alongside the new one.
     expect(fake.isActiveAdmin(original.id)).toBe(false);
     expect(fake.isTokenRevoked(originalToken.id)).toBe(true);
+
+    const replacementToken = fake.seedRefreshToken(replacement.id);
+    const recoveredOriginal = await bootstrapSystemAdmin(
+      prisma,
+      { email: "old-admin@example.test", password: "recovered-password" },
+      hashPassword
+    );
+
+    expect(recoveredOriginal.id).toBe(original.id);
+    expect(fake.isActiveAdmin(original.id)).toBe(true);
+    expect(fake.isActiveAdmin(replacement.id)).toBe(false);
+    expect(fake.isTokenRevoked(replacementToken.id)).toBe(true);
+    expect(fake.activeAdminCount()).toBe(1);
   });
 
   it("refuses the literal .env.example placeholder credentials", async () => {

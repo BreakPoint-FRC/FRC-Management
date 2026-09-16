@@ -7,6 +7,12 @@ import type { PrismaClient } from "./generated/prisma/client";
 // no team.
 export const PLATFORM_SYSTEM_ADMIN_ROLE_ID = "rl00000000000000systemadmin";
 
+// Serializes the manual bootstrap operation across processes. The role's
+// groupId is null, and Postgres considers null values distinct in a unique
+// constraint, so the schema alone cannot prevent two concurrent A/B recovery
+// commands from both deciding they are the sole administrator.
+const PLATFORM_ADMIN_BOOTSTRAP_LOCK_ID = 671_324_519;
+
 export interface BootstrapSystemAdminInput {
   email: string;
   password: string;
@@ -44,9 +50,10 @@ const PLACEHOLDER_PASSWORD = "change-me-at-least-ten-chars";
  *    email than last time is a legitimate recovery (the old admin's inbox is
  *    gone), but upsert alone only ever grants -- it never looks at who else
  *    already holds the role. Every other active holder of
- *    PLATFORM_SYSTEM_ADMIN_ROLE_ID is deactivated and has its sessions
- *    revoked in the same transaction, so bootstrapping always leaves exactly
- *    one platform admin, matching what docs/deployment.md promises.
+ *    PLATFORM_SYSTEM_ADMIN_ROLE_ID is deactivated and has its refresh tokens
+ *    revoked in the same transaction. A transaction-scoped advisory lock also
+ *    serializes simultaneous recovery commands, so bootstrapping leaves
+ *    exactly one platform admin, matching what docs/deployment.md promises.
  */
 export async function bootstrapSystemAdmin(
   prisma: PrismaClient,
@@ -68,6 +75,11 @@ export async function bootstrapSystemAdmin(
   const passwordHash = await dependencies.hashPassword(input.password);
 
   return prisma.$transaction(async (tx) => {
+    // $executeRaw intentionally ignores the SELECT result. $queryRaw tries to
+    // deserialize PostgreSQL's `void` return type and Prisma rejects it before
+    // the transaction can continue, even though the lock was acquired.
+    await tx.$executeRaw`SELECT pg_advisory_xact_lock(${PLATFORM_ADMIN_BOOTSTRAP_LOCK_ID}::bigint)`;
+
     const role = await tx.role.findUnique({
       where: { id: PLATFORM_SYSTEM_ADMIN_ROLE_ID },
       select: { id: true },
@@ -83,13 +95,16 @@ export async function bootstrapSystemAdmin(
       select: {
         id: true,
         teamId: true,
-        roles: { where: { roleId: role.id, groupId: null, isActive: true }, select: { id: true } },
+        // An inactive assignment is deliberate history: it proves this
+        // platform account held the role before and may be recovered after an
+        // A -> B -> A handover. An unrelated platform account has no such row.
+        roles: { where: { roleId: role.id, groupId: null }, select: { id: true } },
       },
     });
-    const isAlreadyThisPlatformAdmin =
+    const hasHeldThisPlatformAdminRole =
       existingByEmail !== null && existingByEmail.teamId === null && existingByEmail.roles.length > 0;
 
-    if (existingByEmail && !isAlreadyThisPlatformAdmin) {
+    if (existingByEmail && !hasHeldThisPlatformAdminRole) {
       throw new Error(
         `An account already exists with ${input.email}, and it is not the platform admin -- it belongs to ` +
           `${existingByEmail.teamId ? "a team" : "the platform but without the SYSTEM_ADMIN role"}. ` +
@@ -118,8 +133,9 @@ export async function bootstrapSystemAdmin(
       select: { id: true, email: true },
     });
 
-    // A password reset is also an account recovery operation. No token issued
-    // under the old password may survive it.
+    // A password reset is also an account recovery operation. Refresh tokens
+    // issued under the old password must not survive it. Stateless access JWTs
+    // can remain valid until JWT_ACCESS_TTL; docs/deployment.md calls that out.
     await tx.refreshToken.updateMany({
       where: { accountId: account.id, revokedAt: null },
       data: { revokedAt: new Date() },
@@ -141,7 +157,7 @@ export async function bootstrapSystemAdmin(
 
     // Exactly one platform admin after this returns: anyone else still
     // holding the role -- the previous admin, if this call just moved the
-    // identity to a new email -- loses it, and every session it had open.
+    // identity to a new email -- loses it, and its refresh tokens are revoked.
     const otherAdmins = await tx.accountRole.findMany({
       where: { roleId: role.id, groupId: null, isActive: true, accountId: { not: account.id } },
       select: { id: true, accountId: true },

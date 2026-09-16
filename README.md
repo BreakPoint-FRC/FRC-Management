@@ -26,16 +26,17 @@ pnpm install                   # also runs `prisma generate` via db postinstall
 docker compose up -d           # starts local Postgres
 pnpm --filter @breakpoint/db db:migrate
 pnpm --filter @breakpoint/db db:seed   # sample data, so the pages aren't empty
-pnpm --filter @breakpoint/db db:bootstrap  # the platform system admin
 pnpm dev                       # builds packages, then runs api + web
 ```
 
 Then open http://localhost:3000, which redirects to the sign-in page.
 
-`db:bootstrap` reads `SYSTEM_ADMIN_EMAIL` and `SYSTEM_ADMIN_PASSWORD` from
-`.env` and creates the **platform** administrator: the account that opens teams
-and creates the administrator who runs each one. It belongs to no team, which is
-the point of it — see [docs/teams.md](docs/teams.md).
+The seed is enough for normal local work. To test the platform team-creation
+flow too, replace **both** `SYSTEM_ADMIN_EMAIL` and `SYSTEM_ADMIN_PASSWORD` in
+`.env` (the literal example values are refused), then run
+`pnpm --filter @breakpoint/db db:bootstrap`. That creates the platform
+administrator: the account that opens teams and creates the administrator who
+runs each one. It belongs to no team — see [docs/teams.md](docs/teams.md).
 
 Every seeded account uses the password **`Breakpoint2026!`**. Sign in as
 `ada@breakpoint.test` for a `TEAM_ADMIN`, `kerem@breakpoint.test` for a
@@ -78,8 +79,9 @@ docker compose -f docker-compose.prod.yml up -d --build
 
 See [docs/deployment.md](docs/deployment.md) for the full walkthrough: which
 `.env` values have no safe default, the platform admin bootstrap step (run
-once, by hand — running it again resets its password and logs out every live
-session), TLS/reverse proxy, and a backup-and-restore procedure that was
+once, by hand — running it again resets its password and revokes its refresh
+tokens; an access JWT can remain valid until its short TTL ends), TLS/reverse
+proxy, and a backup-and-restore procedure that was
 verified against this repository's own dev database while it was written,
 not just asserted to work.
 
@@ -160,6 +162,7 @@ call `localhost`.
 | `pnpm dev:web` | Build `packages/*`, then run only the web app in watch mode |
 | `pnpm build` | Build every workspace in dependency order |
 | `pnpm test` | Run every vitest suite, unit and integration |
+| `pnpm test:deploy-env` | Test production `.env` preflight validation |
 | `pnpm test:integration` | Run only the API integration suite (needs `TEST_DATABASE_URL`) |
 | `pnpm --filter @breakpoint/web test:e2e` | Run audit-screen browser acceptance tests; see [audit log testing](docs/audit-log-testing.md) |
 | `pnpm lint` | Lint every workspace |

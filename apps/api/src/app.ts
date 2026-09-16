@@ -12,6 +12,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "./lib/http-errors";
+import { createReadinessProbe, type ReadinessProbe } from "./lib/readiness";
 
 import { authRoutes } from "./modules/auth/auth.routes";
 import { teamsRoutes } from "./modules/teams/teams.routes";
@@ -113,8 +114,34 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
   });
 }
 
-export function buildApp(opts: { prisma?: PrismaClient } = {}) {
+export interface BuildAppOptions {
+  prisma?: PrismaClient;
+  /** Production and integration tests use the isolated pg probe. */
+  readinessDatabaseUrl?: string;
+  /** Test seam for timeout/error/cleanup behavior without a socket. */
+  readinessProbe?: ReadinessProbe;
+}
+
+export function buildApp(opts: BuildAppOptions = {}) {
   const app = Fastify({ logger: true, trustProxy: trustProxyHops() });
+
+  if (opts.readinessDatabaseUrl && opts.readinessProbe) {
+    throw new Error("Pass readinessDatabaseUrl or readinessProbe, not both");
+  }
+
+  const readinessProbe =
+    opts.readinessProbe ??
+    (opts.readinessDatabaseUrl
+      ? createReadinessProbe(opts.readinessDatabaseUrl, (error) => {
+          app.log.error(error, "idle readiness database client failed");
+        })
+      : undefined);
+
+  if (readinessProbe) {
+    app.addHook("onClose", async () => {
+      await readinessProbe.close();
+    });
+  }
 
   app.setErrorHandler((error, request, reply) => {
     if (isZodError(error)) {
@@ -183,20 +210,16 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   // /ready is for. #24.
   app.get("/health", async () => ({ status: "ok" }));
 
-  // Readiness: can this process actually do its job right now. A real query,
-  // not a ping -- $queryRaw goes through the same pg driver adapter every
-  // request does (see packages/db/src/client.ts), so this fails exactly when
-  // a real request would. Unauthenticated on purpose: an orchestrator's health
-  // probe carries no session, and what it needs to know ("route traffic here
-  // or not") is not itself sensitive. Bounded by READY_TIMEOUT_MS so a
-  // database that is hanging rather than erroring can't hold requests (and
-  // the connections they use) open indefinitely -- an orchestrator polling
-  // this on an interval is exactly the caller a slow query would pile up
-  // against. Meant to be called by that orchestrator only: docs/deployment.md
-  // keeps it out of the public reverse-proxy route on top of this.
+  // Readiness: can this process actually do its job right now. Production uses
+  // a dedicated, one-connection pg pool with driver/server timeouts; tests that
+  // do not supply that probe fall back to the injected Prisma client. The
+  // outer two-second deadline remains a last guard for either implementation.
+  // Unauthenticated on purpose: an orchestrator's probe carries no session.
+  // docs/deployment.md keeps this route out of the public reverse-proxy path.
   app.get("/ready", async (_req, reply) => {
     try {
-      await withTimeout(app.prisma.$queryRaw`SELECT 1`, READY_TIMEOUT_MS);
+      const query = readinessProbe?.check() ?? app.prisma.$queryRaw`SELECT 1`;
+      await withTimeout(query, READY_TIMEOUT_MS);
       return { status: "ready" };
     } catch (err) {
       app.log.error(err, "readiness check failed: database unreachable");

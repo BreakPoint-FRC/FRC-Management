@@ -80,6 +80,22 @@ describe("health", () => {
 });
 
 describe("readiness", () => {
+  it("uses and closes an isolated readiness probe when one is supplied", async () => {
+    const check = vi.fn().mockResolvedValue(undefined);
+    const close = vi.fn().mockResolvedValue(undefined);
+    const app = buildApp({
+      prisma: stubClient({}) as PrismaClient,
+      readinessProbe: { check, close },
+    });
+
+    const response = await app.inject({ method: "GET", url: "/ready" });
+
+    expect(response.statusCode).toBe(200);
+    expect(check).toHaveBeenCalledOnce();
+    await app.close();
+    expect(close).toHaveBeenCalledOnce();
+  });
+
   it("reports ready when the database answers, without a token", async () => {
     const queryRaw = vi.fn().mockResolvedValue([{ "?column?": 1 }]);
     const app = buildWithPrisma(stubClient({ $queryRaw: queryRaw }));

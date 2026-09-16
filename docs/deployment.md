@@ -24,9 +24,9 @@ from what's in `.env.example`:
 
 | Variable | Why |
 | --- | --- |
-| `POSTGRES_PASSWORD` | Compose refuses to start without it — see its own file |
+| `POSTGRES_PASSWORD` | generate with `openssl rand -hex 24`; raw connection-string components are deliberately restricted to URL-safe characters |
 | `JWT_SECRET` | generate with `openssl rand -hex 32`; every clone of this repo otherwise shares one |
-| `SYSTEM_ADMIN_EMAIL` / `SYSTEM_ADMIN_PASSWORD` | the platform admin — see [teams.md](teams.md) |
+| `SYSTEM_ADMIN_EMAIL` / `SYSTEM_ADMIN_PASSWORD` | the platform admin; generate the temporary password with `openssl rand -hex 16` — see [teams.md](teams.md) |
 | `WEB_ORIGIN` | the public web origin, e.g. `https://frc1234.example` — CORS refuses everything else |
 | `NEXT_PUBLIC_API_URL` | the public API origin a **browser** can reach — see [Two origins, one confusion](#two-origins-one-confusion) below |
 
@@ -37,8 +37,10 @@ docker compose -f docker-compose.prod.yml up -d --build
 This builds every image, runs `preflight` first (rejects `.env` values that
 are still `.env.example`'s placeholders, or structurally broken -- see
 [scripts/check-deploy-env.mjs](../scripts/check-deploy-env.mjs); a real value
-Compose's own `${VAR:?message}` guards would happily accept), starts
-Postgres, waits for it to report healthy, runs `migrate` (applies every
+Compose's own `${VAR:?message}` guards would happily accept). Postgres itself
+depends on that successful check, so a rejected first run cannot initialize a
+persistent volume with bad credentials. Compose then starts Postgres, waits
+for it to report healthy, runs `migrate` (applies every
 pending migration, then exits 0), and only then starts `api` and `web`.
 `docker compose -f docker-compose.prod.yml ps` should settle with `postgres`
 and `api` both `healthy`; `preflight` and `migrate` show `exited (0)`, which
@@ -47,8 +49,9 @@ is success, not a crash.
 If `preflight` fails, `docker compose -f docker-compose.prod.yml logs
 preflight` names exactly which variable and why -- fix it in `.env` and run
 `up -d --build` again. It only rejects values that are provably wrong
-(the literal `.env.example` placeholder, a password with characters that
-break the connection string, an obviously-too-short secret); it does not
+(the literal `.env.example` placeholder, a user/password/database name that
+cannot safely form the connection URL, a non-origin URL, or a too-short
+secret); it does not
 object to `localhost` origins, which is exactly right for a real
 single-machine deployment.
 
@@ -64,30 +67,34 @@ to it is that same reverse proxy.
 Nothing above created an account yet. Run the bootstrap once:
 
 ```bash
-set -a && source .env && set +a
-docker compose -f docker-compose.prod.yml run --rm \
-  -e SYSTEM_ADMIN_EMAIL -e SYSTEM_ADMIN_PASSWORD \
-  migrate pnpm --filter @breakpoint/db run db:bootstrap
+docker compose -f docker-compose.prod.yml --profile admin run --rm bootstrap
 ```
 
 That's the platform admin from `.env` — the account that opens the team's
 first real team and its `TEAM_ADMIN` (see [teams.md](teams.md)). Sign in with
-it, open a team, and hand the generated admin password (shown once, on
-screen) to whoever is actually running the team.
+it, open a team, and hand the generated admin password (shown once, on screen)
+to whoever is actually running the team. After confirming the platform login,
+remove `SYSTEM_ADMIN_PASSWORD` from `.env`; keep the real login password in a
+password manager. The profile is inactive during every routine `up`, and the
+bootstrap code refuses an empty value if somebody invokes it accidentally.
 
 **Do not run `db:bootstrap` again as part of a routine deploy.** It is
 idempotent in the sense that it always produces exactly one platform admin —
-but running it again *resets that admin's password* to whatever is in `.env`
-at that moment and *revokes that admin's live sessions* as its recovery
-mechanism (see teams.md). Team members are untouched; this is not a
-platform-wide logout. It also refuses to run at all if `SYSTEM_ADMIN_EMAIL`
+but running it again *resets that admin's password* and revokes that account's
+refresh tokens as its recovery mechanism (see teams.md). A stateless access
+JWT already issued to the same account can continue until `JWT_ACCESS_TTL`
+expires (15 minutes by default), but cannot be refreshed afterward. Team
+members are untouched; this is not a platform-wide logout. It also refuses to
+run at all if `SYSTEM_ADMIN_EMAIL`
 belongs to an existing account that is not already the platform admin (a
 team member's address, say) — recovery is not a way to annex someone else's
 account. If `SYSTEM_ADMIN_EMAIL` names a *different* address than last time,
-the previous one loses the platform role and its sessions in the same
-transaction, so there is still only ever one. Wire this into a deploy script
-and every deploy resets the platform admin's password for no reason — it is
-a break-glass command, run by hand, only when someone actually needs it.
+the previous one loses the platform role immediately and its refresh tokens
+are revoked in the same transaction, so there is still only ever one. For a
+recovery, put a fresh temporary password in `.env`, run the command, verify the
+login, then remove the value again. Wire this into a deploy script and every
+deploy resets the platform admin's password for no reason — it is a break-glass
+command, run by hand, only when someone actually needs it.
 
 `db:seed` (sample data — fake accounts, a fake sponsor) exists for local
 development only. Do not run it against a production database; there is
@@ -161,24 +168,28 @@ is then `https://api.frc1234.example`, and `WEB_ORIGIN` is
 
 ## Secrets on the server
 
-`.env` holds real credentials once this is a real deployment (`JWT_SECRET`,
-`POSTGRES_PASSWORD`, `SYSTEM_ADMIN_PASSWORD`). It is already gitignored, and
-that is necessary but not sufficient on a shared server:
+`.env` holds real credentials once this is a real deployment (`JWT_SECRET` and
+`POSTGRES_PASSWORD`; `SYSTEM_ADMIN_PASSWORD` only during bootstrap/recovery).
+It is already gitignored, and that is necessary but not sufficient on a shared
+server:
 
 - Keep it readable only by whoever runs `docker compose` (`chmod 600 .env`).
 - It is a plain file on disk, not a secrets manager — reasonable for a team
   running this off one small server, and worth revisiting (Docker secrets, a
   managed secrets store) only if that stops being true.
-- Back the file up somewhere other than the server it configures. Losing the
-  server and this file in the same event means every session is dead and the
-  platform admin's password is gone with it.
+- Store an encrypted copy somewhere other than the server it configures.
+  Losing the server and this file in the same event otherwise also loses the
+  database credential and token-signing key. Store the administrator's actual
+  login password in a password manager, not in this file or its backup.
 
 ## Backups
 
 ```bash
 docker compose -f docker-compose.prod.yml exec postgres sh -c \
   'pg_dump -U "$POSTGRES_USER" -Fc -f /tmp/backup.dump "$POSTGRES_DB"'
-docker compose -f docker-compose.prod.yml cp postgres:/tmp/backup.dump ./backup-$(date +%F).dump
+backup="backup-$(date -u +%Y%m%dT%H%M%SZ).dump"
+docker compose -f docker-compose.prod.yml cp postgres:/tmp/backup.dump "./$backup"
+chmod 600 "./$backup"
 ```
 
 `postgres` deliberately has no port published to the host (see
@@ -190,14 +201,21 @@ with. Put the resulting file somewhere that is not the same disk as the
 database (object storage, another machine) — a backup that lives next to
 what it backs up survives every failure except the one it exists for.
 
+Minimum operating policy for an active team: take a nightly backup and one
+immediately before every deploy that includes migrations; retain at least 7
+daily, 4 weekly, and 6 monthly copies; encrypt the off-host storage and alert
+someone when a scheduled backup fails. Run the restore drill below against a
+scratch database monthly and record the result. Adjust upward for your risk,
+but do not leave frequency and retention as an unwritten intention.
+
 The single quotes around the inner command are load-bearing: `$POSTGRES_USER`
 and `$POSTGRES_DB` are expanded by the *container's* shell, from the
 `POSTGRES_USER`/`POSTGRES_DB` `docker-compose.prod.yml` already gives the
 `postgres` service — not by your own shell. Without the quotes your shell
 expands them first, using whatever is (or, in a terminal that never ran
-`source .env`, is not) currently exported on your machine; a fresh terminal
+an earlier export, is not) currently present on your machine; a fresh terminal
 would silently run `pg_dump -U "" -Fc -f /tmp/backup.dump ""` and fail in a
-way that has nothing obviously to do with a missing `source .env`.
+way that has nothing obviously to do with the variables being absent.
 
 **Restoring is not "run pg_restore" — the target database already has this
 repo's schema in it**, from `migrate`, and `pg_restore`'s custom format does
@@ -214,7 +232,7 @@ docker compose -f docker-compose.prod.yml stop api web
 docker compose -f docker-compose.prod.yml exec postgres sh -c \
   'pg_dump -U "$POSTGRES_USER" -Fc -f /tmp/pre-restore.dump "$POSTGRES_DB"'
 docker compose -f docker-compose.prod.yml cp postgres:/tmp/pre-restore.dump \
-  ./pre-restore-$(date +%F-%H%M).dump
+  ./pre-restore-$(date -u +%Y%m%dT%H%M%SZ).dump
 
 # 3. Drop and recreate the target database empty. This is the destructive
 #    step -- everything currently in it is gone after this line.
@@ -261,34 +279,37 @@ restore has to work on the first try.
 ## Troubleshooting
 
 **`migrate` exits 1 with `P1000: Authentication failed against database
-server`, right after `postgres` reported healthy.** Almost always means a
-Postgres data volume already exists with *different* credentials than what's
-in `.env` right now — commonly because `docker-compose.yml` (dev) was run
-from the same directory at some point first. Postgres only applies
+server`, right after `postgres` reported healthy.** Almost always means the
+named production volume already exists with *different* credentials than
+what's in `.env` right now. Postgres only applies
 `POSTGRES_PASSWORD` while initializing a brand-new, empty data directory; an
 existing volume keeps whatever credentials it was first created with; and
 `pg_isready` (what the `postgres` healthcheck runs) doesn't check
 credentials at all, so the container reports healthy right up until
-`migrate` actually tries to authenticate. Confirm with:
+`migrate` actually tries to authenticate. The exact default production volume
+is `frc-management-postgres-data-prod`; inspect it and take a backup before any
+destructive action:
 
 ```bash
-docker volume ls | grep postgres
+docker volume inspect frc-management-postgres-data-prod
 ```
 
-If a volume from an earlier dev-compose run shows up, remove it (this
-deletes that volume's data — fine for a stale local test database, not
-something to run against a volume with real data):
+If you customized `POSTGRES_VOLUME_NAME`, use that exact `.env` value instead.
+
+Only if you have verified that this is a disposable, empty/failed first-run
+volume may you remove it. This deletes its data; never do it to a live volume:
 
 ```bash
 docker compose -f docker-compose.prod.yml down
-docker volume rm <name-from-the-list-above>
+docker volume rm frc-management-postgres-data-prod  # or your exact custom name
 docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-`docker-compose.prod.yml`'s Postgres volume is named `postgres_data_prod`
-specifically so this can't happen going forward between dev and prod
-compose in the same clone — but it doesn't retroactively fix a volume that
-already exists from before that name changed.
+The explicit `POSTGRES_VOLUME_NAME` is stable across checkout directories and
+Compose `--project-name` values, so moving the repository cannot make the
+database appear empty. If one host runs multiple installations, choose a
+unique value for each **before its first start**. Changing it after data exists
+selects a different volume; it does not rename or migrate the old one.
 
 ## Health, readiness, and what the difference is for
 
@@ -303,10 +324,10 @@ orchestrator restarting the process because Postgres is briefly slow or
 restarting itself would make an outage worse, not better, which is exactly
 what would happen if the one health signal available conflated "the process
 is broken" with "a dependency is briefly down". `/ready` runs a real `SELECT
-1` through the same driver adapter every request goes through (see
-`packages/db/src/client.ts`), bounded to 2 seconds so a hanging database
-cannot hold the request (and the connection it holds) open indefinitely, and
-it is deliberately unauthenticated: a health probe carries no session, and
+1` through a dedicated pg pool limited to one connection. Driver and Postgres
+statement timeouts discard stuck work before the next probe, while an outer
+two-second deadline bounds the HTTP response itself. It is deliberately
+unauthenticated: a health probe carries no session, and
 "should traffic go here" is not sensitive information. Being unauthenticated
 is also exactly why it stays off the public route (see the Caddyfile above):
 the only caller with a real reason to hit it is the Compose healthcheck,
