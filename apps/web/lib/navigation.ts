@@ -13,20 +13,20 @@ export interface NavigationItem {
 }
 
 export const NAV_ITEMS: readonly NavigationItem[] = [
-  { href: "/", label: "Genel bakis" },
-  { href: "/teams", label: "Takimlar", tool: "TEAMS", platformOnly: true },
-  { href: "/tasks", label: "Gorevler", tool: "TASKS" },
-  { href: "/meetings", label: "Toplantilar", tool: "MEETINGS" },
+  { href: "/", label: "Genel bakış" },
+  { href: "/teams", label: "Takımlar", tool: "TEAMS", platformOnly: true },
+  { href: "/tasks", label: "Görevler", tool: "TASKS" },
+  { href: "/meetings", label: "Toplantılar", tool: "MEETINGS" },
   { href: "/calendar", label: "Takvim", tool: "CALENDAR" },
-  { href: "/gantt", label: "Zaman cizelgesi", tool: "GANTT" },
+  { href: "/gantt", label: "Zaman çizelgesi", tool: "GANTT" },
   { href: "/finance", label: "Finans", tool: "FINANCE" },
   { href: "/sponsors", label: "Sponsorlar", tool: "SPONSORS" },
   { href: "/accounts", label: "Hesaplar", tool: "ACCOUNTS" },
   { href: "/groups", label: "Gruplar", tool: "GROUPS" },
   { href: "/roles", label: "Roller", tool: "ROLES" },
   // #23 grants audit access independently of role editing; keep its own route.
-  { href: "/audit-log", label: "Denetim kaydi", tool: "AUDIT_LOG", globalOnly: true },
-  { href: "/tools", label: "Moduller", tool: "TOOLS", platformOnly: true },
+  { href: "/audit-log", label: "Denetim kaydı", tool: "AUDIT_LOG", globalOnly: true },
+  { href: "/tools", label: "Modüller", tool: "TOOLS", platformOnly: true },
   { href: "/seasons", label: "Sezonlar", tool: "SEASONS" },
 ];
 

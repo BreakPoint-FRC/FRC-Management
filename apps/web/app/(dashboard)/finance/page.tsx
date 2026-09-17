@@ -87,7 +87,7 @@ export default function FinancePage() {
 
   const [editing, setEditing] = useState<TransactionRow | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(BLANK);
-  // type, category and group are locked once a row came from "Finansa isle"
+  // type, category and group are locked once a row came from "Finansa işle"
   // (sponsors page) -- see finance.service.ts#update. Editing "new" or a
   // manual row leaves them open.
   const linkedToSponsorship = editing !== "new" && editing !== null && editing.source !== null;
@@ -155,7 +155,7 @@ export default function FinancePage() {
     <>
       <PageHeader title="Finans">
         <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tum takim</option>
+          <option value="">Tüm takım</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -166,14 +166,14 @@ export default function FinancePage() {
         <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni kayit
+            + Yeni kayıt
           </button>
         ) : null}
       </PageHeader>
 
       {editing ? (
         <FormPanel
-          title={editing === "new" ? "Yeni kayit" : "Kaydi duzenle"}
+          title={editing === "new" ? "Yeni kayıt" : "Kaydı düzenle"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -181,12 +181,12 @@ export default function FinancePage() {
         >
           {linkedToSponsorship ? (
             <p className="small muted" style={{ margin: 0 }}>
-              Bu kayit bir sponsorluktan islendi: turu, kategorisi ve grubu degistirilemez.
+              Bu kayıt bir sponsorluktan işlendi: türü, kategorisi ve grubu değiştirilemez.
             </p>
           ) : null}
           <div className="row">
             <SelectField
-              label="Tur"
+              label="Tür"
               value={draft.type}
               options={optionsFrom(transactionTypeLabels)}
               disabled={linkedToSponsorship}
@@ -207,7 +207,7 @@ export default function FinancePage() {
               required
               inputMode="decimal"
               placeholder="4750.50"
-              hint="Nokta ile ayirin, virgul ile degil."
+              hint="Nokta ile ayırın, virgül ile değil."
               onChange={(amount) => setDraft({ ...draft, amount })}
               error={issueFor(mutation.error, "amount")}
             />
@@ -224,7 +224,7 @@ export default function FinancePage() {
             <SelectField
               label="Grup"
               value={draft.groupId}
-              placeholder="Takim geneli"
+              placeholder="Takım geneli"
               options={groups.map((group) => ({ value: group.id, label: group.name }))}
               disabled={linkedToSponsorship}
               onChange={(value) => setDraft({ ...draft, groupId: value })}
@@ -232,7 +232,7 @@ export default function FinancePage() {
             />
           </div>
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             rows={2}
             value={draft.description}
             onChange={(description) => setDraft({ ...draft, description })}
@@ -261,28 +261,28 @@ export default function FinancePage() {
         </AsyncSection>
 
         <div className="card">
-          <p className="card-title">Aylik gelir ve gider</p>
+          <p className="card-title">Aylık gelir ve gider</p>
           <AsyncSection state={monthly}>
             {(data) => <FinanceMonthlyChart items={data.items} />}
           </AsyncSection>
         </div>
 
         <p className="small muted">
-          Tutarlar veritabaninda ondalik sayi olarak tutulur ve API ile metin olarak tasinir.
-          JSON sayilari kayan noktali oldugu icin, butcenin arada bir kurus kaybetmesinin yolu
+          Tutarlar veritabanında ondalık sayı olarak tutulur ve API ile metin olarak taşınır.
+          JSON sayıları kayan noktalı olduğu için, bütçenin arada bir kuruş kaybetmesinin yolu
           tam olarak budur.
         </p>
 
-        <AsyncSection state={transactions} empty="Bu filtrelerle kayit yok.">
+        <AsyncSection state={transactions} empty="Bu filtrelerle kayıt yok.">
           {(data) => (
             <div className="table-wrap">
               <table className="table">
                 <thead>
                   <tr>
                     <th>Tarih</th>
-                    <th>Tur</th>
+                    <th>Tür</th>
                     <th>Kategori</th>
-                    <th>Aciklama</th>
+                    <th>Açıklama</th>
                     <th>Grup</th>
                     <th className="numeric">Tutar</th>
                     <th />
@@ -306,7 +306,7 @@ export default function FinancePage() {
                           </div>
                         ) : null}
                       </td>
-                      <td>{transaction.groupName ?? <span className="muted">Takim geneli</span>}</td>
+                      <td>{transaction.groupName ?? <span className="muted">Takım geneli</span>}</td>
                       <td className="numeric">{formatMoney(transaction.amount)}</td>
                       <td>
                         <RowActions>
@@ -316,15 +316,15 @@ export default function FinancePage() {
                               type="button"
                               onClick={() => openEdit(transaction)}
                             >
-                              Duzenle
+                              Düzenle
                             </button>
                           ) : null}
                           {can(permissions, "FINANCE", "delete", transaction.groupId) ? (
                             <ConfirmButton
                               question={
                                 transaction.source
-                                  ? "Bu kayit silinirse sponsorluk yeniden finansa islenebilir. Silinsin mi?"
-                                  : "Bu kayit silinsin mi?"
+                                  ? "Bu kayıt silinirse sponsorluk yeniden finansa işlenebilir. Silinsin mi?"
+                                  : "Bu kayıt silinsin mi?"
                               }
                               onConfirm={() => void remove(transaction.id)}
                             >

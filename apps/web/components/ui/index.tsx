@@ -39,10 +39,10 @@ export function Card({ title, children }: { title?: string; children: ReactNode 
 }
 
 export function Loading() {
-  return <p className="loading">Yukleniyor...</p>;
+  return <p className="loading">Yükleniyor...</p>;
 }
 
-export function Empty({ children = "Kayit yok." }: { children?: ReactNode }) {
+export function Empty({ children = "Kayıt yok." }: { children?: ReactNode }) {
   return <p className="empty">{children}</p>;
 }
 
@@ -134,7 +134,7 @@ export function ConfirmButton({
   );
 }
 
-/** The Duzenle / Sil pair that sits at the end of a list row. */
+/** The Düzenle / Sil pair that sits at the end of a list row. */
 export function RowActions({ children }: { children: ReactNode }) {
   return (
     <div className="row" style={{ gap: 4, justifyContent: "flex-end" }}>

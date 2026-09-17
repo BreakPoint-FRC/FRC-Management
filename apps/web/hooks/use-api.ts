@@ -50,7 +50,7 @@ export function useApi<T>(path: string | null): ApiState<T> {
         if (cancelled) return;
         setData(null);
         setError(
-          cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+          cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
         );
       })
       .finally(() => {

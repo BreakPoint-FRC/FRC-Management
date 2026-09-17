@@ -151,11 +151,11 @@ export default function GanttPage() {
 
   return (
     <>
-      <PageHeader title="Zaman cizelgesi">
+      <PageHeader title="Zaman çizelgesi">
         <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
           {/* Offered only when a team-wide read would actually succeed. */}
-          {can(permissions, "GANTT", "read") ? <option value="">Tum panolar</option> : null}
-          <option value={TEAM_WIDE}>Takim geneli</option>
+          {can(permissions, "GANTT", "read") ? <option value="">Tüm panolar</option> : null}
+          <option value={TEAM_WIDE}>Takım geneli</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -170,14 +170,14 @@ export default function GanttPage() {
       </PageHeader>
 
       <p className="small muted">
-        Cubuklar gorevlerin kendi baslangic ve bitis tarihlerinden cizilir. Pano yalnizca hangi
-        gorevin hangi sirada oldugunu tutar, tarih saklamaz — bu yuzden gorev sayfasinda tarihi
-        degistirmek cizelgeyi de degistirir.
+        Çubuklar görevlerin kendi başlangıç ve bitiş tarihlerinden çizilir. Pano yalnızca hangi
+        görevin hangi sırada olduğunu tutar, tarih saklamaz — bu yüzden görev sayfasında tarihi
+        değiştirmek çizelgeyi de değiştirir.
       </p>
 
       {panel.kind === "form" ? (
         <FormPanel
-          title={panel.board ? "Panoyu duzenle" : "Yeni pano"}
+          title={panel.board ? "Panoyu düzenle" : "Yeni pano"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitForm}
@@ -193,7 +193,7 @@ export default function GanttPage() {
           <SelectField
             label="Grup"
             value={draft.groupId}
-            placeholder="Takim geneli"
+            placeholder="Takım geneli"
             options={groups.map((group) => ({ value: group.id, label: group.name }))}
             onChange={(groupId) => setDraft({ ...draft, groupId })}
             error={issueFor(mutation.error, "groupId")}
@@ -203,14 +203,14 @@ export default function GanttPage() {
 
       {panel.kind === "tasks" ? (
         <FormPanel
-          title={`${panel.board.name} — gorevler`}
+          title={`${panel.board.name} — görevler`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitTasks}
           onCancel={close}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            Sira, listedeki siradir. Listeden cikarilan gorev panodan cikar; gorevin kendisi
+            Sıra, listedeki sıradır. Listeden çıkarılan görev panodan çıkar; görevin kendisi
             silinmez.
           </p>
 
@@ -225,7 +225,7 @@ export default function GanttPage() {
                     disabled={index === 0}
                     onClick={() => move(index, -1)}
                   >
-                    Yukari
+                    Yukarı
                   </button>
                   <button
                     className="btn btn-sm"
@@ -233,7 +233,7 @@ export default function GanttPage() {
                     disabled={index === ordered.length - 1}
                     onClick={() => move(index, 1)}
                   >
-                    Asagi
+                    Aşağı
                   </button>
                   <span className="small">{task?.name ?? taskId}</span>
                   <button
@@ -241,7 +241,7 @@ export default function GanttPage() {
                     type="button"
                     onClick={() => setOrdered((current) => current.filter((id) => id !== taskId))}
                   >
-                    Cikar
+                    Çıkar
                   </button>
                 </div>
               );
@@ -272,9 +272,9 @@ export default function GanttPage() {
 
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={boards} empty="Henuz pano olusturulmamis.">
+      <AsyncSection state={boards} empty="Henüz pano oluşturulmamış.">
         {(data) => {
-          // "Takim geneli" is not a group the API can filter on, so it is
+          // "Takım geneli" is not a group the API can filter on, so it is
           // applied here -- see the comment on `scoped`.
           const visible =
             groupFilter === TEAM_WIDE
@@ -303,7 +303,7 @@ export default function GanttPage() {
                             </span>
                           </div>
                           <RowActions>
-                            <span className="small muted">{board.tasks.length} gorev</span>
+                            <span className="small muted">{board.tasks.length} görev</span>
                             {can(permissions, "GANTT", "update", board.groupId) ? (
                               <>
                                 <button
@@ -311,20 +311,20 @@ export default function GanttPage() {
                                   type="button"
                                   onClick={() => openTasks(board)}
                                 >
-                                  Gorevler
+                                  Görevler
                                 </button>
                                 <button
                                   className="btn btn-sm"
                                   type="button"
                                   onClick={() => openForm(board)}
                                 >
-                                  Duzenle
+                                  Düzenle
                                 </button>
                               </>
                             ) : null}
                             {can(permissions, "GANTT", "delete", board.groupId) ? (
                               <ConfirmButton
-                                question={`${board.name} panosu silinsin mi? Gorevler silinmez.`}
+                                question={`${board.name} panosu silinsin mi? Görevler silinmez.`}
                                 onConfirm={() => void remove(board.id)}
                               >
                                 Sil
@@ -334,7 +334,7 @@ export default function GanttPage() {
                         </div>
 
                         {board.tasks.length === 0 ? (
-                          <p className="empty">Panoda gorev yok.</p>
+                          <p className="empty">Panoda görev yok.</p>
                         ) : (
                           <GanttTimelineChart tasks={board.tasks} />
                         )}
@@ -358,7 +358,7 @@ export default function GanttPage() {
  * each bucket -- which a Map does, being insertion-ordered over a sorted list.
  */
 function groupBoards(boards: GanttBoardRow[]): Array<[string, GanttBoardRow[]]> {
-  const TEAM_LABEL = "Takim geneli";
+  const TEAM_LABEL = "Takım geneli";
   const buckets = new Map<string, GanttBoardRow[]>();
 
   for (const board of boards) {

@@ -240,7 +240,7 @@ export default function SponsorsPage() {
 
       {panel.kind === "org" ? (
         <FormPanel
-          title={panel.org ? "Firmayi duzenle" : "Yeni firma"}
+          title={panel.org ? "Firmayı düzenle" : "Yeni firma"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitOrg}
@@ -287,15 +287,15 @@ export default function SponsorsPage() {
 
       {panel.kind === "sponsorship" ? (
         <FormPanel
-          title={`${panel.org.name} — sezonluk kayit`}
+          title={`${panel.org.name} — sezonluk kayıt`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitSponsorship}
           onCancel={close}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            Her firma icin sezon basina tek kayit. Ayni firma 2026 sezonunda aday, 2027
-            sezonunda sponsor olabilir; ikisi birbirinin uzerine yazmaz.
+            Her firma için sezon başına tek kayıt. Aynı firma 2026 sezonunda aday, 2027
+            sezonunda sponsor olabilir; ikisi birbirinin üzerine yazmaz.
           </p>
           {!panel.sponsorshipId ? (
             <AsyncSection state={seasons}>
@@ -329,7 +329,7 @@ export default function SponsorsPage() {
               value={sponsorshipDraft.amount}
               inputMode="decimal"
               placeholder="25000.00"
-              hint="Bos birakilabilir."
+              hint="Boş bırakılabilir."
               onChange={(amount) => setSponsorshipDraft({ ...sponsorshipDraft, amount })}
               error={issueFor(mutation.error, "amount")}
             />
@@ -346,15 +346,15 @@ export default function SponsorsPage() {
 
       {panel.kind === "convert" ? (
         <FormPanel
-          title={`${panel.org.name} — finansa isle`}
+          title={`${panel.org.name} — finansa işle`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitConvert}
           onCancel={close}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            {panel.sponsorship.season.name} sezonu icin bir gelir kaydi olusturulacak. Tur ve
-            kategori sunucu tarafindan belirlenir ve sonradan degistirilemez.
+            {panel.sponsorship.season.name} sezonu için bir gelir kaydı oluşturulacak. Tür ve
+            kategori sunucu tarafından belirlenir ve sonradan değiştirilemez.
           </p>
           <div className="row">
             <TextField
@@ -363,12 +363,12 @@ export default function SponsorsPage() {
               required
               inputMode="decimal"
               placeholder="25000.00"
-              hint="Gercekten alinan tutar; taahhut edilenden farkli olabilir."
+              hint="Gerçekten alınan tutar; taahhüt edilenden farklı olabilir."
               onChange={(amount) => setConvertDraft({ ...convertDraft, amount })}
               error={issueFor(mutation.error, "amount")}
             />
             <TextField
-              label="Odeme tarihi"
+              label="Ödeme tarihi"
               type="date"
               value={convertDraft.transactionDate}
               required
@@ -377,7 +377,7 @@ export default function SponsorsPage() {
             />
           </div>
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             rows={2}
             value={convertDraft.description}
             onChange={(description) => setConvertDraft({ ...convertDraft, description })}
@@ -395,8 +395,8 @@ export default function SponsorsPage() {
               <thead>
                 <tr>
                   <th>Firma</th>
-                  <th>Iletisim</th>
-                  <th>Sezonlara gore durum</th>
+                  <th>İletişim</th>
+                  <th>Sezonlara göre durum</th>
                   <th />
                 </tr>
               </thead>
@@ -422,7 +422,7 @@ export default function SponsorsPage() {
                     </td>
                     <td>
                       {organization.sponsorships.length === 0 ? (
-                        <span className="muted">Kayit yok</span>
+                        <span className="muted">Kayıt yok</span>
                       ) : (
                         <div className="stack-sm">
                           {organization.sponsorships.map((sponsorship) => (
@@ -438,7 +438,7 @@ export default function SponsorsPage() {
                               ) : null}
                               {sponsorship.financeTransaction ? (
                                 <span className="row" style={{ gap: "4px" }}>
-                                  <Badge tone="ok">Finansa islendi</Badge>
+                                  <Badge tone="ok">Finansa işlendi</Badge>
                                   {/* amount/transactionDate are null without team-wide
                                       FINANCE/read -- see SponsorshipFinanceLink. */}
                                   {sponsorship.financeTransaction.amount &&
@@ -455,7 +455,7 @@ export default function SponsorsPage() {
                                   type="button"
                                   onClick={() => openConvert(organization, sponsorship)}
                                 >
-                                  Finansa isle
+                                  Finansa işle
                                 </button>
                               ) : null}
                               {mayUpdate ? (
@@ -464,12 +464,12 @@ export default function SponsorsPage() {
                                   type="button"
                                   onClick={() => openSponsorship(organization, sponsorship)}
                                 >
-                                  Duzenle
+                                  Düzenle
                                 </button>
                               ) : null}
                               {mayDelete ? (
                                 <ConfirmButton
-                                  question={`${sponsorship.season.name} kaydi silinsin mi?`}
+                                  question={`${sponsorship.season.name} kaydı silinsin mi?`}
                                   onConfirm={() => void removeSponsorship(sponsorship.id)}
                                 >
                                   Sil
@@ -497,7 +497,7 @@ export default function SponsorsPage() {
                             type="button"
                             onClick={() => openOrg(organization)}
                           >
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {mayDelete ? (

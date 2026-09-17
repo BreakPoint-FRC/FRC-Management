@@ -174,7 +174,7 @@ export default function GroupsPage() {
 
       {panel.kind === "form" ? (
         <FormPanel
-          title={panel.id ? "Grubu duzenle" : "Yeni grup"}
+          title={panel.id ? "Grubu düzenle" : "Yeni grup"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitForm}
@@ -188,16 +188,16 @@ export default function GroupsPage() {
             error={issueFor(mutation.error, "name")}
           />
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             rows={2}
             value={draft.description}
             onChange={(description) => setDraft({ ...draft, description })}
             error={issueFor(mutation.error, "description")}
           />
           <SelectField
-            label="Ust grup"
+            label="Üst grup"
             value={draft.parentId}
-            hint="Bos birakilirsa ana grup olur. Derinlik sinirli degil: Teknik > Mekanik > Tasarim."
+            hint="Boş bırakılırsa ana grup olur. Derinlik sınırlı değil: Teknik > Mekanik > Tasarım."
             options={[
               { value: "", label: "— Ana grup —" },
               ...flattenGroupTree(groups.data?.items ?? [])
@@ -222,7 +222,7 @@ export default function GroupsPage() {
 
       {panel.kind === "tools" ? (
         <FormPanel
-          title={`${panel.group.name} — acik moduller`}
+          title={`${panel.group.name} — açık modüller`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitTools}
@@ -238,7 +238,7 @@ export default function GroupsPage() {
 
       {panel.kind === "members" ? (
         <FormPanel
-          title={`${panel.group.name} — uyeler`}
+          title={`${panel.group.name} — üyeler`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitMembers}
@@ -251,8 +251,8 @@ export default function GroupsPage() {
               return (
                 <>
                   <p className="small muted" style={{ margin: 0 }}>
-                    Bu grupta rolu olanlar cikarilamaz — servis reddediyor, cunku rol uyelik
-                    olmadan kullanilamaz hale gelirdi. Once rolu kaldirin.
+                    Bu grupta rolü olanlar çıkarılamaz — servis reddediyor, çünkü rol üyelik
+                    olmadan kullanılamaz hale gelirdi. Önce rolü kaldırın.
                   </p>
                   <div className="stack-sm">
                     {data.items.map((account) => {
@@ -262,7 +262,7 @@ export default function GroupsPage() {
                         <CheckboxField
                           key={account.id}
                           label={account.fullName}
-                          hint={holdsRole ? "(bu grupta rolu var)" : undefined}
+                          hint={holdsRole ? "(bu grupta rolü var)" : undefined}
                           disabled={holdsRole}
                           checked={holdsRole || members.has(account.id)}
                           onChange={(checked) =>
@@ -299,24 +299,24 @@ export default function GroupsPage() {
                 <div className="stack-sm">
                   {group.parentId ? (
                     <p className="small muted" style={{ margin: 0 }}>
-                      Ust grup: {byId.get(group.parentId)?.name ?? "—"}
+                      Üst grup: {byId.get(group.parentId)?.name ?? "—"}
                       {depth > 1 ? ` (${depth}. seviye)` : ""}
                     </p>
                   ) : null}
                   <p className="muted small" style={{ margin: 0 }}>
-                    {group.description ?? "Aciklama yok."}
+                    {group.description ?? "Açıklama yok."}
                   </p>
 
                   <div className="row">
                     <Badge tone={group.isActive ? "ok" : "off"}>
                       {group.isActive ? "Aktif" : "Pasif"}
                     </Badge>
-                    <span className="small muted">{group.memberCount} uye</span>
+                    <span className="small muted">{group.memberCount} üye</span>
                   </div>
 
                   <div>
                     <p className="card-title" style={{ marginBottom: 4 }}>
-                      Acik moduller
+                      Açık modüller
                     </p>
                     {/* The effective set, not what this group states: a module
                         inherited from three levels up is just as open, and a
@@ -342,17 +342,17 @@ export default function GroupsPage() {
                         module on is TOOLS/update, which a lead does not have. */}
                     {can(permissions, "GROUPS", "update", group.id) ? (
                       <button className="btn btn-sm" type="button" onClick={() => openMembers(group)}>
-                        Uyeler
+                        Üyeler
                       </button>
                     ) : null}
                     {can(permissions, "TOOLS", "update") ? (
                       <button className="btn btn-sm" type="button" onClick={() => openTools(group)}>
-                        Moduller
+                        Modüller
                       </button>
                     ) : null}
                     {can(permissions, "GROUPS", "update") ? (
                       <button className="btn btn-sm" type="button" onClick={() => openEdit(group)}>
-                        Duzenle
+                        Düzenle
                       </button>
                     ) : null}
                     {mayDelete ? (
@@ -361,8 +361,8 @@ export default function GroupsPage() {
                           // Which of the two happens depends on what the
                           // department has done, and the person pressing it
                           // should know that before they press it.
-                          `${group.name} ve altindaki tum alt gruplar kaldirilsin mi? ` +
-                          "Gorev, toplanti veya finans kaydi varsa gecmis korunur ve grup pasife alinir; " +
+                          `${group.name} ve altındaki tüm alt gruplar kaldırılsın mı? ` +
+                          "Görev, toplantı veya finans kaydı varsa geçmiş korunur ve grup pasife alınır; " +
                           "yoksa tamamen silinir."
                         }
                         onConfirm={() => void remove(group.id)}

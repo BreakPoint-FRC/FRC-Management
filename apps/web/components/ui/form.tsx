@@ -1,6 +1,6 @@
 "use client";
 
-import type { FormEvent, ReactNode } from "react";
+import { useId, type FormEvent, type ReactNode } from "react";
 
 import type { ApiError } from "@/lib/api-client";
 import { isFormLevel } from "@/lib/issues";
@@ -18,7 +18,7 @@ export function FormPanel({
   error,
   saving,
   submitLabel = "Kaydet",
-  cancelLabel = "Vazgec",
+  cancelLabel = "Vazgeç",
   onSubmit,
   onCancel,
   children,
@@ -64,12 +64,23 @@ export function FormPanel({
   );
 }
 
+/**
+ * The label/input/hint/error group every *Field component below wraps its
+ * own input in.
+ *
+ * `id` is the same id the caller puts on its `<input>`/`<select>`/
+ * `<textarea>` -- that is what makes `htmlFor` actually point at anything,
+ * rather than a label that merely sits next to its control and does nothing
+ * for a screen reader or a click on the label text.
+ */
 export function Field({
+  id,
   label,
   error,
   hint,
   children,
 }: {
+  id: string;
   label: string;
   error?: string;
   hint?: string;
@@ -77,12 +88,36 @@ export function Field({
 }) {
   return (
     <div className="field">
-      <label>{label}</label>
+      <label htmlFor={id}>{label}</label>
       {children}
-      {hint ? <span className="small muted">{hint}</span> : null}
-      {error ? <span className="field-error">{error}</span> : null}
+      {hint ? (
+        <span className="small muted" id={fieldHintId(id)}>
+          {hint}
+        </span>
+      ) : null}
+      {error ? (
+        <span className="field-error" id={fieldErrorId(id)} role="alert">
+          {error}
+        </span>
+      ) : null}
     </div>
   );
+}
+
+function fieldHintId(id: string) {
+  return `${id}-hint`;
+}
+
+function fieldErrorId(id: string) {
+  return `${id}-error`;
+}
+
+/** What an input's own aria-describedby should read, given its Field's hint/error. */
+function describedBy(id: string, hint: string | undefined, error: string | undefined) {
+  const ids = [hint ? fieldHintId(id) : null, error ? fieldErrorId(id) : null].filter(
+    (value): value is string => value !== null
+  );
+  return ids.length > 0 ? ids.join(" ") : undefined;
 }
 
 export function TextField({
@@ -107,13 +142,18 @@ export function TextField({
   inputMode?: "decimal" | "text";
   placeholder?: string;
 }) {
+  const id = useId();
+
   return (
-    <Field label={label} error={error} hint={hint}>
+    <Field id={id} label={label} error={error} hint={hint}>
       <input
+        id={id}
         type={type}
         value={value}
         required={required}
         disabled={disabled}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(id, hint, error)}
         onChange={(event) => onChange(event.target.value)}
         {...rest}
       />
@@ -134,9 +174,18 @@ export function TextAreaField({
   error?: string;
   rows?: number;
 }) {
+  const id = useId();
+
   return (
-    <Field label={label} error={error}>
-      <textarea rows={rows} value={value} onChange={(event) => onChange(event.target.value)} />
+    <Field id={id} label={label} error={error}>
+      <textarea
+        id={id}
+        rows={rows}
+        value={value}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(id, undefined, error)}
+        onChange={(event) => onChange(event.target.value)}
+      />
     </Field>
   );
 }
@@ -161,11 +210,16 @@ export function SelectField({
   placeholder?: string;
   disabled?: boolean;
 }) {
+  const id = useId();
+
   return (
-    <Field label={label} error={error} hint={hint}>
+    <Field id={id} label={label} error={error} hint={hint}>
       <select
+        id={id}
         value={value}
         disabled={disabled}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={describedBy(id, hint, error)}
         onChange={(event) => onChange(event.target.value)}
       >
         {placeholder ? <option value="">{placeholder}</option> : null}

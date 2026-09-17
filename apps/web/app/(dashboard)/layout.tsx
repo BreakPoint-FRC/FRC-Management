@@ -82,7 +82,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             <div className="muted">{account?.email}</div>
             {/* A platform system admin belongs to no team, which is the whole
                 point of the role -- saying so beats an empty line. */}
-            <div className="muted">{team ? team.name : "Sistem yoneticisi"}</div>
+            <div className="muted">{team ? team.name : "Sistem yöneticisi"}</div>
           </div>
           <button
             className="btn btn-sm"
@@ -92,7 +92,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               void signOut().catch(() => {});
             })}
           >
-            Cikis yap
+            Çıkış yap
           </button>
         </div>
       </aside>

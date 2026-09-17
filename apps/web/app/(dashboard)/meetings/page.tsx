@@ -99,9 +99,9 @@ export default function MeetingsPage() {
 
   return (
     <>
-      <PageHeader title="Toplantilar">
+      <PageHeader title="Toplantılar">
         <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tum toplantilar</option>
+          <option value="">Tüm toplantılar</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -115,14 +115,14 @@ export default function MeetingsPage() {
             disabled={mutation.saving}
             onClick={() => guard.requestLeave(openCreate)}
           >
-            + Yeni toplanti
+            + Yeni toplantı
           </button>
         ) : null}
       </PageHeader>
 
       {editing ? (
         <FormPanel
-          title={editing === "new" ? "Yeni toplanti" : "Toplantiyi duzenle"}
+          title={editing === "new" ? "Yeni toplantı" : "Toplantıyı düzenle"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -131,7 +131,7 @@ export default function MeetingsPage() {
         >
           <fieldset className="meeting-fields stack-sm" disabled={mutation.saving}>
             <TextField
-              label="Baslik"
+              label="Başlık"
               value={draft.title}
               required
               onChange={(title) => setDraft({ ...draft, title })}
@@ -149,7 +149,7 @@ export default function MeetingsPage() {
               <SelectField
                 label="Grup"
                 value={draft.groupId}
-                placeholder="Takim geneli"
+                placeholder="Takım geneli"
                 options={groups.map((group) => ({ value: group.id, label: group.name }))}
                 onChange={(value) => setDraft({ ...draft, groupId: value })}
                 error={issueFor(mutation.error, "groupId")}
@@ -174,11 +174,11 @@ export default function MeetingsPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Baslik</th>
+                  <th>Başlık</th>
                   <th>Tarih</th>
                   <th>Grup</th>
-                  <th className="numeric">Katilim</th>
-                  <th>Olusturan</th>
+                  <th className="numeric">Katılım</th>
+                  <th>Oluşturan</th>
                   <th />
                 </tr>
               </thead>
@@ -189,7 +189,7 @@ export default function MeetingsPage() {
                       <GuardedLink href={`/meetings/${meeting.id}`}>{meeting.title}</GuardedLink>
                     </td>
                     <td>{formatDate(meeting.meetingDate)}</td>
-                    <td>{meeting.groupName ?? <span className="muted">Takim geneli</span>}</td>
+                    <td>{meeting.groupName ?? <span className="muted">Takım geneli</span>}</td>
                     <td className="numeric">
                       {meeting.attendedCount} / {meeting.attendance.length}
                     </td>
@@ -203,14 +203,14 @@ export default function MeetingsPage() {
                             disabled={mutation.saving}
                             onClick={() => guard.requestLeave(() => openEdit(meeting))}
                           >
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {can(permissions, "MEETINGS", "delete", meeting.groupId) ? (
                           <ConfirmButton
                             // Finish or discard the editor before deleting its backing record.
                             disabled={mutation.saving || editing !== null}
-                            question={`${meeting.title} silinsin mi? Yoklamasi da silinir.`}
+                            question={`${meeting.title} silinsin mi? Yoklaması da silinir.`}
                             onConfirm={() => void remove(meeting.id)}
                           >
                             Sil

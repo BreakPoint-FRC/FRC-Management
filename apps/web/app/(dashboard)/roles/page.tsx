@@ -198,7 +198,7 @@ export default function RolesPage() {
             <div className="stack">
               {panel.kind === "form" ? (
                 <FormPanel
-                  title={editing ? `${editing.key} — duzenle` : "Yeni rol"}
+                  title={editing ? `${editing.key} — düzenle` : "Yeni rol"}
                   error={mutation.error}
                   saving={mutation.saving}
                   onSubmit={submitForm}
@@ -215,7 +215,7 @@ export default function RolesPage() {
                   {editing ? (
                     <div className="stack-sm">
                       <p className="card-title" style={{ margin: 0 }}>
-                        Alt roller (yetkileri devralinir)
+                        Alt roller (yetkileri devralınır)
                       </p>
                       {editing.children.length === 0 ? (
                         <span className="small muted">Alt rol yok.</span>
@@ -228,7 +228,7 @@ export default function RolesPage() {
                               type="button"
                               onClick={() => void removeChild(editing.id, child.id)}
                             >
-                              Cikar
+                              Çıkar
                             </button>
                           </div>
                         ))
@@ -271,8 +271,8 @@ export default function RolesPage() {
                   onCancel={close}
                 >
                   <p className="small muted" style={{ margin: 0 }}>
-                    Yalnizca dogrudan verilen yetkiler. Alt rollerden devralinanlar burada
-                    isaretli gorunmez; istek aninda hiyerarsiden cozulur.
+                    Yalnızca doğrudan verilen yetkiler. Alt rollerden devralınanlar burada
+                    işaretli görünmez; istek anında hiyerarşiden çözülür.
                   </p>
                   <PermissionMatrix value={matrix} onChange={setMatrix} lockedTools={lockedTools} />
                 </FormPanel>
@@ -283,10 +283,10 @@ export default function RolesPage() {
               ) : null}
 
               <div>
-                <h2>Hiyerarsi</h2>
+                <h2>Hiyerarşi</h2>
                 <p className="small muted" style={{ marginTop: 0 }}>
-                  Girinti &quot;ustundedir&quot; demektir: bir rol, altindaki her rolun
-                  yetkilerini devralir. Yetkiyi en alta eklemek yukaridakilerin hepsine ulasir.
+                  Girinti &quot;üstündedir&quot; demektir: bir rol, altındaki her rolün
+                  yetkilerini devralır. Yetkiyi en alta eklemek yukarıdakilerin hepsine ulaşır.
                 </p>
                 <div className="card">
                   <ul className="tree" style={{ borderLeft: "none", paddingLeft: 0 }}>
@@ -307,8 +307,8 @@ export default function RolesPage() {
                         <th>Anahtar</th>
                         <th>Konum</th>
                         <th>Kapsam</th>
-                        <th className="numeric">Atanmis</th>
-                        <th>Tur</th>
+                        <th className="numeric">Atanmış</th>
+                        <th>Tür</th>
                         <th />
                       </tr>
                     </thead>
@@ -346,7 +346,7 @@ export default function RolesPage() {
                                   type="button"
                                   onClick={() => openEdit(role)}
                                 >
-                                  Duzenle
+                                  Düzenle
                                 </button>
                               ) : null}
                               {/* Kept even for a system role: the 409 explains
@@ -367,15 +367,15 @@ export default function RolesPage() {
                   </table>
                 </div>
                 <p className="small muted">
-                  Sira yalnizca goruntuleme icindir. Kimin kimden yetki devraldigini yukaridaki
-                  hiyerarsi belirler, bu sutun degil.
+                  Sıra yalnızca görüntüleme içindir. Kimin kimden yetki devraldığını yukarıdaki
+                  hiyerarşi belirler, bu sütun değil.
                 </p>
               </div>
 
               <div>
-                <h2>Izin matrisi</h2>
+                <h2>İzin matrisi</h2>
                 <p className="small muted" style={{ marginTop: 0 }}>
-                  O = okuma, E = ekleme, G = guncelleme, S = silme.
+                  O = okuma, E = ekleme, G = güncelleme, S = silme.
                 </p>
                 <div className="table-wrap">
                   <table className="table">

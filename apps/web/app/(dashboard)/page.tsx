@@ -11,7 +11,7 @@ import type { SeasonRow } from "@/lib/api-types";
 const ACTIONS = [
   { key: "canRead", short: "O", label: "Okuma" },
   { key: "canCreate", short: "E", label: "Ekleme" },
-  { key: "canUpdate", short: "G", label: "Guncelleme" },
+  { key: "canUpdate", short: "G", label: "Güncelleme" },
   { key: "canDelete", short: "S", label: "Silme" },
 ] as const;
 
@@ -55,9 +55,9 @@ export default function OverviewPage() {
       <div className="stack">
         {platformOnly ? (
           <p className="muted" style={{ margin: 0 }}>
-            Bu bir platform hesabi. Takimlarin disinda durur: takim acar, arsivler ve her
-            takimin yoneticisini olusturur. Gorevler, toplantilar ve finans bir takimin
-            icindedir, bu yuzden burada yoklar.
+            Bu bir platform hesabı. Takımların dışında durur: takım açar, arşivler ve her
+            takımın yöneticisini oluşturur. Görevler, toplantılar ve finans bir takımın
+            içindedir, bu yüzden burada yoklar.
           </p>
         ) : null}
 
@@ -65,7 +65,7 @@ export default function OverviewPage() {
           <Card title="Rollerim">
             {roles.length === 0 ? (
               <p className="muted" style={{ margin: 0 }}>
-                Henuz rol atanmamis.
+                Henüz rol atanmamış.
               </p>
             ) : (
               <p style={{ margin: 0 }}>{formatAccountRoles(roles)}</p>
@@ -77,10 +77,10 @@ export default function OverviewPage() {
               the truth is that groups are not a thing this account has. */}
           {platformOnly ? null : (
             <>
-              <Card title="Gruplarim">
+              <Card title="Gruplarım">
                 {groups.length === 0 ? (
                   <p className="muted" style={{ margin: 0 }}>
-                    Hicbir gruba uye degilsiniz.
+                    Hiçbir gruba üye değilsiniz.
                   </p>
                 ) : (
                   <div className="row">
@@ -100,8 +100,8 @@ export default function OverviewPage() {
                         {formatDate(data.startDate)} — {formatDate(data.endDate)}
                       </div>
                       <div className="small muted" style={{ marginTop: 4 }}>
-                        {data._count.tasks} gorev · {data._count.meetings} toplanti ·{" "}
-                        {data._count.transactions} finans kaydi ·{" "}
+                        {data._count.tasks} görev · {data._count.meetings} toplantı ·{" "}
+                        {data._count.transactions} finans kaydı ·{" "}
                         {data._count.sponsorships} sponsorluk
                       </div>
                     </div>
@@ -116,18 +116,18 @@ export default function OverviewPage() {
           <h2>Yetkilerim</h2>
           <p className="small muted" style={{ marginTop: 0 }}>
             {platformOnly
-              ? "Platform hesabinin tek modulu budur. Diger moduller bir takimin icindedir ve bu hesap hicbir takima ait degildir."
-              : "Takim geneli yetkiler her yerde gecerlidir. Grup sutunlari yalnizca uye oldugunuz departmanlar icin, ve o departmanda o modul acikken gecerlidir."}{" "}
-            Bu tablo neyin gosterilecegine karar verir; istegi kabul veya reddeden sunucudur.
+              ? "Platform hesabının tek modülü budur. Diğer modüller bir takımın içindedir ve bu hesap hiçbir takıma ait değildir."
+              : "Takım geneli yetkiler her yerde geçerlidir. Grup sütunları yalnızca üye olduğunuz departmanlar için, ve o departmanda o modül açıkken geçerlidir."}{" "}
+            Bu tablo neyin gösterileceğine karar verir; isteği kabul veya reddeden sunucudur.
           </p>
 
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Modul</th>
+                  <th>Modül</th>
                   <th className="numeric" colSpan={4}>
-                    Takim geneli
+                    Takım geneli
                   </th>
                   {groups.map((group) => (
                     <th key={group.id} className="numeric" colSpan={4}>
@@ -170,7 +170,7 @@ export default function OverviewPage() {
           </div>
 
           <p className="small muted">
-            O = okuma, E = ekleme, G = guncelleme, S = silme.
+            O = okuma, E = ekleme, G = güncelleme, S = silme.
           </p>
         </div>
       </div>

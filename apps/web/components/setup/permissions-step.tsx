@@ -63,7 +63,7 @@ export function PermissionsStep() {
     <div className="stack-sm">
       {mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={roles} empty="Once rol olusturun.">
+      <AsyncSection state={roles} empty="Önce rol oluşturun.">
         {(data) => {
           // The team admin role is created with the team and already holds
           // everything; editing it here would only be a way to lock the team
@@ -74,7 +74,7 @@ export function PermissionsStep() {
           if (editable.length === 0) {
             return (
               <p className="small muted">
-                Duzenlenecek rol yok. Onceki adima donup rolleri olusturun.
+                Düzenlenecek rol yok. Önceki adıma dönüp rolleri oluşturun.
               </p>
             );
           }
@@ -83,7 +83,7 @@ export function PermissionsStep() {
             <div className="stack-sm">
               <div>
                 <p className="card-title" style={{ marginBottom: 4 }}>
-                  Rol sec
+                  Rol seç
                 </p>
                 <div className="row" style={{ flexWrap: "wrap" }}>
                   {editable.map((role) => (
@@ -110,8 +110,8 @@ export function PermissionsStep() {
                     </Badge>
                   </div>
                   <p className="small muted" style={{ margin: 0 }}>
-                    Yalnizca dogrudan verilen yetkiler. Alt rollerden devralinanlar burada
-                    isaretli gorunmez; istek aninda hiyerarsiden cozulur.
+                    Yalnızca doğrudan verilen yetkiler. Alt rollerden devralınanlar burada
+                    işaretli görünmez; istek anında hiyerarşiden çözülür.
                   </p>
                   <PermissionMatrix value={matrix} onChange={setMatrix} lockedTools={lockedTools} />
                   <div className="row">
@@ -121,12 +121,12 @@ export function PermissionsStep() {
                       disabled={mutation.saving}
                       onClick={() => void save()}
                     >
-                      Bu rolu kaydet
+                      Bu rolü kaydet
                     </button>
                   </div>
                 </div>
               ) : (
-                <p className="small muted">Yetkilerini belirlemek icin bir rol secin.</p>
+                <p className="small muted">Yetkilerini belirlemek için bir rol seçin.</p>
               )}
             </div>
           );

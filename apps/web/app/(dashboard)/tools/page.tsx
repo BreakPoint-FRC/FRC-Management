@@ -82,19 +82,19 @@ export default function ToolsPage() {
 
   return (
     <>
-      <PageHeader title="Moduller" />
+      <PageHeader title="Modüller" />
 
       <p className="small muted">
-        Yeni modul eklemek kod degisikligi ister: anahtar once{" "}
-        <code>packages/types</code> icindeki kapali listeye girmeli, cunku yetki kontrolu bu
-        anahtarlarla cagriliyor. Buradan ad, aciklama ve aktiflik duzenlenir. Bir modulu
-        pasife almak onu herkes icin kapatir — sistem yoneticisi dahil — ama verilmis
+        Yeni modül eklemek kod değişikliği ister: anahtar önce{" "}
+        <code>packages/types</code> içindeki kapalı listeye girmeli, çünkü yetki kontrolü bu
+        anahtarlarla çağrılıyor. Buradan ad, açıklama ve aktiflik düzenlenir. Bir modülü
+        pasife almak onu herkes için kapatır — sistem yöneticisi dahil — ama verilmiş
         yetkilere dokunmaz.
       </p>
 
       {editing ? (
         <FormPanel
-          title={`${editing.key} — duzenle`}
+          title={`${editing.key} — düzenle`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -108,14 +108,14 @@ export default function ToolsPage() {
             error={issueFor(mutation.error, "name")}
           />
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             rows={2}
             value={draft.description}
             onChange={(description) => setDraft({ ...draft, description })}
             error={issueFor(mutation.error, "description")}
           />
           <CheckboxField
-            label={editing.key === "TOOLS" ? "Aktif (bu modul pasife alinamaz)" : "Aktif"}
+            label={editing.key === "TOOLS" ? "Aktif (bu modül pasife alınamaz)" : "Aktif"}
             checked={draft.isActive}
             disabled={editing.key === "TOOLS"}
             onChange={(isActive) => setDraft({ ...draft, isActive })}
@@ -133,7 +133,7 @@ export default function ToolsPage() {
                 <tr>
                   <th>Anahtar</th>
                   <th>Ad</th>
-                  <th>Aciklama</th>
+                  <th>Açıklama</th>
                   <th>Durum</th>
                   <th />
                 </tr>
@@ -153,12 +153,12 @@ export default function ToolsPage() {
                       <RowActions>
                         {mayUpdate ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(tool)}>
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {mayDelete && tool.isActive && tool.key !== "TOOLS" ? (
                           <ConfirmButton
-                            question={`${tool.name} modulu herkes icin kapatilsin mi?`}
+                            question={`${tool.name} modülü herkes için kapatılsın mı?`}
                             onConfirm={() => void deactivate(tool.id)}
                           >
                             Pasife al

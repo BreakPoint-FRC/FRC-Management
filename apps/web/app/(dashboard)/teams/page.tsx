@@ -95,14 +95,14 @@ export default function TeamsPage() {
 
   return (
     <>
-      <PageHeader title="Takimlar">
+      <PageHeader title="Takımlar">
         {mayCreate ? (
           <button
             className="btn btn-primary btn-sm"
             type="button"
             onClick={() => open({ kind: "team" })}
           >
-            + Yeni takim
+            + Yeni takım
           </button>
         ) : null}
       </PageHeader>
@@ -112,11 +112,11 @@ export default function TeamsPage() {
       {created ? (
         <div className="card stack-sm">
           <p className="card-title" style={{ margin: 0 }}>
-            {created.admin.fullName} icin gecici sifre
+            {created.admin.fullName} için geçici şifre
           </p>
           <p className="small muted" style={{ margin: 0 }}>
-            Bu sifre yalnizca burada ve yalnizca bir kez gosterilir. Hesap sahibine iletin --
-            ilk giriste kendi sifresini belirlemeden baska hicbir sey yapamaz.
+            Bu şifre yalnızca burada ve yalnızca bir kez gösterilir. Hesap sahibine iletin --
+            ilk girişte kendi şifresini belirlemeden başka hiçbir şey yapamaz.
           </p>
           <div className="row">
             <code style={{ fontSize: "1.1em", letterSpacing: "0.05em" }}>
@@ -134,33 +134,33 @@ export default function TeamsPage() {
 
       {panel.kind === "team" ? (
         <FormPanel
-          title="Yeni takim"
+          title="Yeni takım"
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitTeam}
           onCancel={close}
         >
           <TextField
-            label="Takim adi (taslak)"
+            label="Takım adı (taslak)"
             value={draft.name}
             required
-            hint="Takim yoneticisi kurulum sirasinda bu adi kendi belirleyecek."
+            hint="Takım yöneticisi kurulum sırasında bu adı kendi belirleyecek."
             onChange={(name) => setDraft({ ...draft, name })}
             error={issueFor(mutation.error, "name")}
           />
           <TextField
-            label="Yonetici ad soyad"
+            label="Yönetici ad soyad"
             value={draft.adminFullName}
             required
             onChange={(adminFullName) => setDraft({ ...draft, adminFullName })}
             error={issueFor(mutation.error, "adminFullName")}
           />
           <TextField
-            label="Yonetici e-posta"
+            label="Yönetici e-posta"
             type="email"
             value={draft.adminEmail}
             required
-            hint="Bir e-posta bir hesap, bir hesap bir takim. Baska takimda kullanilamaz."
+            hint="Bir e-posta bir hesap, bir hesap bir takım. Başka takımda kullanılamaz."
             onChange={(adminEmail) => setDraft({ ...draft, adminEmail })}
             error={issueFor(mutation.error, "adminEmail")}
           />
@@ -169,7 +169,7 @@ export default function TeamsPage() {
 
       {panel.kind === "admin" ? (
         <FormPanel
-          title={`${panel.team.name} — yeni yonetici`}
+          title={`${panel.team.name} — yeni yönetici`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitAdmin}
@@ -201,8 +201,8 @@ export default function TeamsPage() {
             <table className="table">
               <thead>
                 <tr>
-                  <th>Takim</th>
-                  <th>Kisa ad</th>
+                  <th>Takım</th>
+                  <th>Kısa ad</th>
                   <th>Kurulum</th>
                   <th className="numeric">Hesap</th>
                   <th className="numeric">Grup</th>
@@ -224,7 +224,7 @@ export default function TeamsPage() {
                     <td className="numeric">{team.groupCount}</td>
                     <td>
                       <Badge tone={team.isActive ? "ok" : "off"}>
-                        {team.isActive ? "Aktif" : "Arsivli"}
+                        {team.isActive ? "Aktif" : "Arşivli"}
                       </Badge>
                     </td>
                     <td>
@@ -235,15 +235,15 @@ export default function TeamsPage() {
                             type="button"
                             onClick={() => open({ kind: "admin", team })}
                           >
-                            Yonetici ekle
+                            Yönetici ekle
                           </button>
                         ) : null}
                         {mayDelete && team.isActive ? (
                           <ConfirmButton
-                            question={`${team.name} arsivlensin mi? Takimdaki herkesin oturumu kapanir.`}
+                            question={`${team.name} arşivlensin mi? Takımdaki herkesin oturumu kapanır.`}
                             onConfirm={() => void archive(team.id)}
                           >
-                            Arsivle
+                            Arşivle
                           </ConfirmButton>
                         ) : null}
                       </RowActions>

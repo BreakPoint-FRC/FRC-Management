@@ -77,9 +77,9 @@ export function AccountsStep() {
                           account knows its password, so it is not yet a
                           credential. */}
                       {account.mustChangePassword ? (
-                        <Badge tone="warn">Sifre bekliyor</Badge>
+                        <Badge tone="warn">Şifre bekliyor</Badge>
                       ) : (
-                        <Badge tone="ok">Hazir</Badge>
+                        <Badge tone="ok">Hazır</Badge>
                       )}
                     </td>
                   </tr>
@@ -94,7 +94,7 @@ export function AccountsStep() {
         title="Hesap ekle"
         error={mutation.error}
         saving={mutation.saving}
-        submitLabel="Hesabi olustur"
+        submitLabel="Hesabı oluştur"
         onSubmit={submit}
         onCancel={() => {
           setDraft(EMPTY);
@@ -118,10 +118,10 @@ export function AccountsStep() {
           error={issueFor(mutation.error, "email")}
         />
         <TextField
-          label="Gecici sifre"
+          label="Geçici şifre"
           value={draft.password}
           required
-          hint="En az 10 karakter. Kisiye iletin: ilk giriste kendi sifresini belirlemeden baska hicbir sey yapamaz."
+          hint="En az 10 karakter. Kişiye iletin: ilk girişte kendi şifresini belirlemeden başka hiçbir şey yapamaz."
           onChange={(password) => setDraft({ ...draft, password })}
           error={issueFor(mutation.error, "password")}
         />
@@ -129,8 +129,8 @@ export function AccountsStep() {
         <div className="field">
           <label>Roller</label>
           <p className="small muted" style={{ margin: "0 0 6px" }}>
-            Grup ici bir rol atandiginda kisi o gruba da uye yapilir — aksi halde kendi
-            departmaninda reddedilirdi.
+            Grup içi bir rol atandığında kişi o gruba da üye yapılır — aksi halde kendi
+            departmanında reddedilirdi.
           </p>
           <AsyncSection state={roles}>
             {(roleList) => (

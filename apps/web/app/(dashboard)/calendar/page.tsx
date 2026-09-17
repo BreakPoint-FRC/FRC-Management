@@ -36,7 +36,7 @@ const CLASS: Record<CalendarEntryKind, string> = {
     thing saying which end of the task this is. */
 const PREFIX: Record<CalendarEntryKind, string> = {
   MEETING: "",
-  TASK_START: "Baslar: ",
+  TASK_START: "Başlar: ",
   TASK_DUE: "Biter: ",
 };
 
@@ -83,10 +83,10 @@ export default function CalendarPage() {
           type="button"
           onClick={() => setCursor(startOfMonth(new Date()))}
         >
-          Bugun
+          Bugün
         </button>
         <select value={groupFilter} onChange={(event) => setGroupFilter(event.target.value)}>
-          {can(permissions, "CALENDAR", "read") ? <option value="">Tum takim</option> : null}
+          {can(permissions, "CALENDAR", "read") ? <option value="">Tüm takım</option> : null}
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -102,7 +102,7 @@ export default function CalendarPage() {
             checked={show.meetings}
             onChange={(event) => setShow({ ...show, meetings: event.target.checked })}
           />{" "}
-          Toplantilar
+          Toplantılar
         </label>
         <label className="small">
           <input
@@ -110,7 +110,7 @@ export default function CalendarPage() {
             checked={show.tasks}
             onChange={(event) => setShow({ ...show, tasks: event.target.checked })}
           />{" "}
-          Gorevler
+          Görevler
         </label>
         <label className="small">
           <input
@@ -118,14 +118,14 @@ export default function CalendarPage() {
             checked={show.season}
             onChange={(event) => setShow({ ...show, season: event.target.checked })}
           />{" "}
-          Sezon disi gunler
+          Sezon dışı günler
         </label>
       </div>
 
       <p className="small muted">
-        Takvim kendi kaydini tutmaz. Her giris bir toplantinin ya da bir gorevin kendi tarihinden
-        cizilir — gorev sayfasinda tarihi degistirmek takvimi de degistirir. Yalnizca zaten
-        gorebildiginiz kayitlar listelenir.
+        Takvim kendi kaydını tutmaz. Her giriş bir toplantının ya da bir görevin kendi tarihinden
+        çizilir — görev sayfasında tarihi değiştirmek takvimi de değiştirir. Yalnızca zaten
+        görebildiğiniz kayıtlar listelenir.
       </p>
 
       <AsyncSection state={calendar}>
@@ -175,7 +175,7 @@ export default function CalendarPage() {
                       <span className="calendar-date">{day.getDate()}</span>
 
                       {key === seasonStart ? (
-                        <span className="calendar-season">Sezon basi</span>
+                        <span className="calendar-season">Sezon başı</span>
                       ) : null}
                       {key === seasonEnd ? (
                         <span className="calendar-season">Sezon sonu</span>

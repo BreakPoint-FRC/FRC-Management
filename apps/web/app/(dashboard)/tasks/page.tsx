@@ -131,9 +131,9 @@ export default function TasksPage() {
 
   return (
     <>
-      <PageHeader title="Gorevler">
+      <PageHeader title="Görevler">
         <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tum gruplar</option>
+          <option value="">Tüm gruplar</option>
           {groups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -142,7 +142,7 @@ export default function TasksPage() {
         </select>
 
         <select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Tum durumlar</option>
+          <option value="">Tüm durumlar</option>
           {Object.entries(taskStatusLabels).map(([value, label]) => (
             <option key={value} value={value}>
               {label}
@@ -156,25 +156,25 @@ export default function TasksPage() {
             checked={openOnly}
             onChange={(event) => setOpenOnly(event.target.checked)}
           />
-          Sadece acik olanlar
+          Sadece açık olanlar
         </label>
 
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni gorev
+            + Yeni görev
           </button>
         ) : null}
       </PageHeader>
 
       <p className="small muted">
-        Yapilacaklar listesi ayri bir tablo degil, bu tablonun filtrelenmis halidir: &quot;sadece
-        acik olanlar&quot; tamamlanmamis ve iptal edilmemis gorevleri gosterir. Ayni is iki yerde
-        tutulmadigi icin ikisi birbiriyle celisemez.
+        Yapılacaklar listesi ayrı bir tablo değil, bu tablonun filtrelenmiş halidir: &quot;sadece
+        açık olanlar&quot; tamamlanmamış ve iptal edilmemiş görevleri gösterir. Aynı iş iki yerde
+        tutulmadığı için ikisi birbiriyle çelişemez.
       </p>
 
       {editing ? (
         <FormPanel
-          title={editing === "new" ? "Yeni gorev" : "Gorevi duzenle"}
+          title={editing === "new" ? "Yeni görev" : "Görevi düzenle"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -188,7 +188,7 @@ export default function TasksPage() {
             error={issueFor(mutation.error, "name")}
           />
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             value={draft.description}
             onChange={(description) => setDraft({ ...draft, description })}
             error={issueFor(mutation.error, "description")}
@@ -197,8 +197,8 @@ export default function TasksPage() {
             <SelectField
               label="Grup"
               value={draft.groupId}
-              placeholder="Gruplar arasi"
-              hint="Bos birakilirsa takim geneli bir gorev olur."
+              placeholder="Gruplar arası"
+              hint="Boş bırakılırsa takım geneli bir görev olur."
               options={groupOptions}
               onChange={(value) => setDraft({ ...draft, groupId: value })}
               error={issueFor(mutation.error, "groupId")}
@@ -211,7 +211,7 @@ export default function TasksPage() {
               error={issueFor(mutation.error, "status")}
             />
             <SelectField
-              label="Oncelik"
+              label="Öncelik"
               value={draft.priority}
               options={optionsFrom(taskPriorityLabels)}
               onChange={(value) => setDraft({ ...draft, priority: value })}
@@ -220,14 +220,14 @@ export default function TasksPage() {
           </div>
           <div className="row">
             <TextField
-              label="Baslangic"
+              label="Başlangıç"
               type="date"
               value={draft.startDate}
               onChange={(startDate) => setDraft({ ...draft, startDate })}
               error={issueFor(mutation.error, "startDate")}
             />
             <TextField
-              label="Bitis"
+              label="Bitiş"
               type="date"
               value={draft.dueDate}
               onChange={(dueDate) => setDraft({ ...draft, dueDate })}
@@ -239,18 +239,18 @@ export default function TasksPage() {
 
       {!editing && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={tasks} empty="Bu filtrelerle gorev yok.">
+      <AsyncSection state={tasks} empty="Bu filtrelerle görev yok.">
         {(data) => (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Gorev</th>
+                  <th>Görev</th>
                   <th>Grup</th>
                   <th>Durum</th>
-                  <th>Oncelik</th>
+                  <th>Öncelik</th>
                   <th>Sorumlular</th>
-                  <th>Bitis</th>
+                  <th>Bitiş</th>
                   <th />
                 </tr>
               </thead>
@@ -260,7 +260,7 @@ export default function TasksPage() {
                     <td>
                       <Link href={`/tasks/${task.id}`}>{task.name}</Link>
                     </td>
-                    <td>{task.groupName ?? <span className="muted">Gruplar arasi</span>}</td>
+                    <td>{task.groupName ?? <span className="muted">Gruplar arası</span>}</td>
                     <td>
                       <Badge tone={taskStatusTone[task.status]}>
                         {taskStatusLabels[task.status]}
@@ -281,12 +281,12 @@ export default function TasksPage() {
                             from the stored row rather than any form state. */}
                         {can(permissions, "TASKS", "update", task.groupId) ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(task)}>
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {can(permissions, "TASKS", "delete", task.groupId) ? (
                           <ConfirmButton
-                            question={`${task.name} silinsin mi? Gecmisi de silinir.`}
+                            question={`${task.name} silinsin mi? Geçmişi de silinir.`}
                             onConfirm={() => void remove(task.id)}
                           >
                             Sil

@@ -89,15 +89,15 @@ export default function SeasonsPage() {
       </PageHeader>
 
       <p className="small muted">
-        Gorevler, toplantilar, finans kayitlari, sponsorluklar ve Gantt panolari bir sezona
-        baglidir. Gecmis sezonlarin kayitlari boylece okunabilir kalir ve bu sezonun toplamlarina
-        karismaz. Ayni anda yalnizca bir sezon aktiftir; birini aktiflestirmek digerlerini pasife
-        alir.
+        Görevler, toplantılar, finans kayıtları, sponsorluklar ve Gantt panoları bir sezona
+        bağlıdır. Geçmiş sezonların kayıtları böylece okunabilir kalır ve bu sezonun toplamlarına
+        karışmaz. Aynı anda yalnızca bir sezon aktiftir; birini aktifleştirmek diğerlerini pasife
+        alır.
       </p>
 
       {editing ? (
         <FormPanel
-          title={editing === "new" ? "Yeni sezon" : "Sezonu duzenle"}
+          title={editing === "new" ? "Yeni sezon" : "Sezonu düzenle"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -112,7 +112,7 @@ export default function SeasonsPage() {
           />
           <div className="row">
             <TextField
-              label="Baslangic"
+              label="Başlangıç"
               type="date"
               value={draft.startDate}
               required
@@ -120,7 +120,7 @@ export default function SeasonsPage() {
               error={issueFor(mutation.error, "startDate")}
             />
             <TextField
-              label="Bitis"
+              label="Bitiş"
               type="date"
               value={draft.endDate}
               required
@@ -141,10 +141,10 @@ export default function SeasonsPage() {
               <thead>
                 <tr>
                   <th>Sezon</th>
-                  <th>Baslangic</th>
-                  <th>Bitis</th>
-                  <th className="numeric">Gorev</th>
-                  <th className="numeric">Toplanti</th>
+                  <th>Başlangıç</th>
+                  <th>Bitiş</th>
+                  <th className="numeric">Görev</th>
+                  <th className="numeric">Toplantı</th>
                   <th className="numeric">Finans</th>
                   <th className="numeric">Sponsorluk</th>
                   <th className="numeric">Gantt</th>
@@ -164,7 +164,7 @@ export default function SeasonsPage() {
                     <td className="numeric">{season._count.sponsorships}</td>
                     <td className="numeric">{season._count.ganttBoards}</td>
                     <td>
-                      {season.isActive ? <Badge tone="ok">Aktif</Badge> : <Badge>Gecmis</Badge>}
+                      {season.isActive ? <Badge tone="ok">Aktif</Badge> : <Badge>Geçmiş</Badge>}
                     </td>
                     <td>
                       <RowActions>
@@ -174,7 +174,7 @@ export default function SeasonsPage() {
                             type="button"
                             onClick={() => void activate(season.id)}
                           >
-                            Aktiflestir
+                            Aktifleştir
                           </button>
                         ) : null}
                         {mayUpdate ? (
@@ -183,7 +183,7 @@ export default function SeasonsPage() {
                             type="button"
                             onClick={() => openEdit(season)}
                           >
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {mayDelete ? (

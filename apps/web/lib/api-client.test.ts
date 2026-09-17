@@ -247,7 +247,7 @@ describe("apiClient", () => {
 
       await expect(apiClient.get("/tasks")).rejects.toMatchObject({
         status: 0,
-        message: "Internet baglantisi yok",
+        message: "İnternet bağlantısı yok",
       });
     });
 
@@ -358,7 +358,7 @@ describe("apiClient", () => {
       vi.stubGlobal("fetch", fetchMock);
       signedIn(jwt("acc-a", "1"));
 
-      await expect(apiClient.get("/tasks")).rejects.toThrow("Internet baglantisi yok");
+      await expect(apiClient.get("/tasks")).rejects.toThrow("İnternet bağlantısı yok");
       expect(getAccessToken()).toBe(jwt("acc-a", "1"));
       expect(getRefreshToken()).toBe("rt-1");
     });

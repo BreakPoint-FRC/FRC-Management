@@ -56,25 +56,25 @@ export default function ChangePasswordPage() {
 
   return (
     <main className="content" style={{ maxWidth: 480, margin: "0 auto" }}>
-      <PageHeader title="Sifrenizi belirleyin" />
+      <PageHeader title="Şifrenizi belirleyin" />
 
       <p className="muted">
-        Hesabiniz yoneticinin verdigi gecici bir sifreyle acildi. Devam etmek icin kendi
-        sifrenizi belirlemelisiniz.
+        Hesabınız yöneticinin verdiği geçici bir şifreyle açıldı. Devam etmek için kendi
+        şifrenizi belirlemelisiniz.
       </p>
 
       <FormPanel
-        title="Yeni sifre"
+        title="Yeni şifre"
         error={mutation.error}
         saving={mutation.saving}
         onSubmit={submit}
         // Nothing to cancel into: this screen is the only route the account can
         // reach, so the way out is forward or a sign-out.
         onCancel={() => void signOut()}
-        submitLabel="Sifreyi degistir"
+        submitLabel="Şifreyi değiştir"
       >
         <TextField
-          label="Gecici sifre"
+          label="Geçici şifre"
           type="password"
           value={currentPassword}
           required
@@ -82,7 +82,7 @@ export default function ChangePasswordPage() {
           error={issueFor(mutation.error, "currentPassword")}
         />
         <TextField
-          label="Yeni sifre"
+          label="Yeni şifre"
           type="password"
           value={newPassword}
           required
@@ -91,12 +91,12 @@ export default function ChangePasswordPage() {
           error={issueFor(mutation.error, "newPassword")}
         />
         <TextField
-          label="Yeni sifre (tekrar)"
+          label="Yeni şifre (tekrar)"
           type="password"
           value={confirmation}
           required
           onChange={setConfirmation}
-          error={mismatch ? "Sifreler eslesmiyor." : undefined}
+          error={mismatch ? "Şifreler eşleşmiyor." : undefined}
         />
       </FormPanel>
     </main>

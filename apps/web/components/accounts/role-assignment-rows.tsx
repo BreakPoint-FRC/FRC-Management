@@ -73,7 +73,7 @@ export function RoleAssignmentRows({
                 });
               }}
             >
-              <option value="">Rol sec...</option>
+              <option value="">Rol seç...</option>
               {roles.map((item) => (
                 <option key={item.id} value={item.id}>
                   {item.name} ({ROLE_PLACEMENT_LABELS[item.placement].toLowerCase()})
@@ -86,7 +86,7 @@ export function RoleAssignmentRows({
               disabled={!needsGroup}
               onChange={(event) => setAt(index, { ...entry, groupId: event.target.value })}
             >
-              <option value="">{needsGroup ? "Grup sec..." : "Grup yok"}</option>
+              <option value="">{needsGroup ? "Grup seç..." : "Grup yok"}</option>
               {flattenGroupTree(groups).map(({ group, depth }) => (
                 <option key={group.id} value={group.id}>
                   {"\u00a0\u00a0".repeat(depth)}
@@ -100,7 +100,7 @@ export function RoleAssignmentRows({
               type="button"
               onClick={() => onChange(value.filter((_, at) => at !== index))}
             >
-              Cikar
+              Çıkar
             </button>
 
             {issueFor(error, "roles", index) ? (

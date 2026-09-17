@@ -35,7 +35,7 @@ interface Datum extends FinanceMonthlyRow {
 
 export default function FinanceMonthlyChart({ items }: { items: FinanceMonthlyRow[] }) {
   if (items.length === 0) {
-    return <p className="empty">Bu filtrelerle grafik cizilecek kayit yok.</p>;
+    return <p className="empty">Bu filtrelerle grafik çizilecek kayıt yok.</p>;
   }
 
   const data: Datum[] = items.map((item) => ({

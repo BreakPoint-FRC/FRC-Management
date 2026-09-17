@@ -141,7 +141,7 @@ export default function AccountsPage() {
     <>
       <PageHeader title="Hesaplar">
         <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tum takim</option>
+          <option value="">Tüm takım</option>
           {myGroups.map((group) => (
             <option key={group.id} value={group.id}>
               {group.name}
@@ -157,7 +157,7 @@ export default function AccountsPage() {
 
       {panel.kind === "form" ? (
         <FormPanel
-          title={panel.account ? "Hesabi duzenle" : "Yeni hesap"}
+          title={panel.account ? "Hesabı düzenle" : "Yeni hesap"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitForm}
@@ -180,7 +180,7 @@ export default function AccountsPage() {
           />
           {!panel.account ? (
             <TextField
-              label="Sifre"
+              label="Şifre"
               type="password"
               value={draft.password}
               required
@@ -190,7 +190,7 @@ export default function AccountsPage() {
             />
           ) : null}
           <CheckboxField
-            label="Aktif (giris yapabilir)"
+            label="Aktif (giriş yapabilir)"
             checked={draft.isActive}
             onChange={(isActive) => setDraft({ ...draft, isActive })}
           />
@@ -199,19 +199,19 @@ export default function AccountsPage() {
 
       {panel.kind === "password" ? (
         <FormPanel
-          title={`${panel.account.fullName} — sifre sifirla`}
+          title={`${panel.account.fullName} — şifre sıfırla`}
           error={mutation.error}
           saving={mutation.saving}
-          submitLabel="Sifreyi degistir"
+          submitLabel="Şifreyi değiştir"
           onSubmit={submitPassword}
           onCancel={close}
         >
           <TextField
-            label="Yeni sifre"
+            label="Yeni şifre"
             type="password"
             value={password}
             required
-            hint="Bu hesabin acik tum oturumlari kapatilir."
+            hint="Bu hesabın açık tüm oturumları kapatılır."
             onChange={setPassword}
             error={issueFor(mutation.error, "password")}
           />
@@ -227,8 +227,8 @@ export default function AccountsPage() {
           onCancel={close}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            Liste butunuyle degistirilir. Grup ici bir rol atandiginda kisi o gruba da uye
-            yapilir — aksi halde kendi departmaninda reddedilirdi.
+            Liste bütünüyle değiştirilir. Grup içi bir rol atandığında kişi o gruba da üye
+            yapılır — aksi halde kendi departmanında reddedilirdi.
           </p>
 
           <AsyncSection state={roles}>
@@ -280,7 +280,7 @@ export default function AccountsPage() {
                     </td>
                     <td>
                       {account.archivedAt ? (
-                        <Badge tone="off">Arsivlendi</Badge>
+                        <Badge tone="off">Arşivlendi</Badge>
                       ) : account.isActive ? (
                         <Badge tone="ok">Aktif</Badge>
                       ) : (
@@ -308,22 +308,22 @@ export default function AccountsPage() {
                               mutation.reset();
                             }}
                           >
-                            Sifre
+                            Şifre
                           </button>
                         ) : null}
                         {mayUpdate ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(account)}>
-                            Duzenle
+                            Düzenle
                           </button>
                         ) : null}
                         {/* Archiving yourself would revoke your own session
                             mid-request; the server refuses it too. */}
                         {mayDelete && account.id !== me?.id && !account.archivedAt ? (
                           <ConfirmButton
-                            question={`${account.fullName} arsivlensin mi?`}
+                            question={`${account.fullName} arşivlensin mi?`}
                             onConfirm={() => void archive(account.id)}
                           >
-                            Arsivle
+                            Arşivle
                           </ConfirmButton>
                         ) : null}
                       </RowActions>

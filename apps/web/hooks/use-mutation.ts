@@ -44,7 +44,7 @@ export function useMutation(): MutationState {
       return await action();
     } catch (cause) {
       setError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
       );
       return null;
     } finally {

@@ -9,12 +9,12 @@ import {
 
 /**
  * The four flags a RolePermission row carries, and the letters the UI shows
- * them as. Turkish initials: Okuma, Ekleme, Guncelleme, Silme.
+ * them as. Turkish initials: Okuma, Ekleme, Güncelleme, Silme.
  */
 export const PERMISSION_ACTIONS = [
   { key: "canRead", short: "O", label: "Okuma" },
   { key: "canCreate", short: "E", label: "Ekleme" },
-  { key: "canUpdate", short: "G", label: "Guncelleme" },
+  { key: "canUpdate", short: "G", label: "Güncelleme" },
   { key: "canDelete", short: "S", label: "Silme" },
 ] as const;
 
@@ -146,7 +146,7 @@ export function PermissionMatrix({
       <table className="table">
         <thead>
           <tr>
-            <th>Modul</th>
+            <th>Modül</th>
             {PERMISSION_ACTIONS.map((action) => (
               <th key={action.key} className="numeric" title={action.label}>
                 {action.short}
@@ -162,8 +162,8 @@ export function PermissionMatrix({
               <tr key={tool}>
                 <td>
                   {tool}
-                  {locked ? <span className="small muted"> — platform rolu</span> : null}
-                  {readOnly ? <span className="small muted"> — yalnizca okuma</span> : null}
+                  {locked ? <span className="small muted"> — platform rolü</span> : null}
+                  {readOnly ? <span className="small muted"> — yalnızca okuma</span> : null}
                 </td>
                 {PERMISSION_ACTIONS.map((action) => {
                   const cellLocked = isCellLocked(tool, action.key, lockedTools);
@@ -174,9 +174,9 @@ export function PermissionMatrix({
                         disabled={disabled || cellLocked}
                         title={
                           locked
-                            ? "Bu modul yalnizca platform rolune verilebilir"
+                            ? "Bu modül yalnızca platform rolüne verilebilir"
                             : cellLocked
-                              ? "Bu modul yalnizca okuma yetkisi kabul eder"
+                              ? "Bu modül yalnızca okuma yetkisi kabul eder"
                               : undefined
                         }
                         checked={cellLocked ? false : value[tool]?.[action.key] ?? false}
