@@ -59,14 +59,27 @@ SYSTEM_ADMIN_EMAIL=... SYSTEM_ADMIN_PASSWORD=... \
   pnpm --filter @breakpoint/db db:bootstrap
 ```
 
+Production uses the profile-gated Compose wrapper shown in
+[deployment.md](deployment.md), which passes the same two values without
+executing `.env` as shell code.
+
 Not a migration and not the seed, because both are worse. A migration that
 created an admin would put a known-password account in every deployment that
 ever ran it; a seed that created one is a file with the password printed in it.
 
 It is idempotent: running it again resets the password, clears the temporary
-password flag, revokes every live refresh token and restores the single role
-assignment in one transaction. That is the recovery path when nobody can sign
-in any more, without leaving a session issued under the old password alive.
+password flag, revokes that admin's refresh tokens, and restores the single
+role assignment in one transaction. An already-issued stateless access JWT
+can remain valid until `JWT_ACCESS_TTL` expires (15 minutes by default); after
+that it cannot be renewed. That is the recovery path when nobody can sign in.
+Two things it refuses to do, also inside that transaction:
+hijack an existing account that is not already the platform admin (an
+unrelated team member's address does not become one just by appearing in
+`SYSTEM_ADMIN_EMAIL`), and leave more than one platform admin active --
+naming a different address than last time moves the role, immediately removes
+the previous holder's platform authorization, and revokes its refresh tokens,
+rather than adding a second admin beside it. Concurrent recovery commands are
+serialized by Postgres so they cannot leave two active holders.
 
 ## Opening a team
 

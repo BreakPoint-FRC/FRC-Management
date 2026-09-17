@@ -12,6 +12,7 @@ import {
   NotFoundError,
   UnauthorizedError,
 } from "./lib/http-errors";
+import { createReadinessProbe, type ReadinessProbe } from "./lib/readiness";
 
 import { authRoutes } from "./modules/auth/auth.routes";
 import { teamsRoutes } from "./modules/teams/teams.routes";
@@ -78,8 +79,69 @@ function isZodError(error: unknown): error is ZodError {
   );
 }
 
-export function buildApp(opts: { prisma?: PrismaClient } = {}) {
-  const app = Fastify({ logger: true });
+/**
+ * Number of reverse-proxy hops to trust when reading X-Forwarded-For for
+ * `request.ip` (what the /auth/login rate limit keys on). Defaults to 0 --
+ * trust nobody, use the raw socket address -- so a deployment that forgets to
+ * set this can only under- rather than over-trust: every caller lands in the
+ * same bucket (annoying) instead of every caller picking its own rate-limit
+ * identity by sending its own X-Forwarded-For (a bypass). Set to 1 only
+ * behind exactly one reverse proxy that is itself not reachable by anyone
+ * else -- see docker-compose.prod.yml's header and docs/deployment.md.
+ */
+export function trustProxyHops(): number {
+  const raw = process.env.TRUST_PROXY_HOPS;
+  if (!raw) return 0;
+  const n = Number(raw);
+  return Number.isInteger(n) && n >= 0 ? n : 0;
+}
+
+const READY_TIMEOUT_MS = 2000;
+
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(`timed out after ${ms}ms`)), ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timer);
+        resolve(value);
+      },
+      (err: unknown) => {
+        clearTimeout(timer);
+        reject(err as Error);
+      }
+    );
+  });
+}
+
+export interface BuildAppOptions {
+  prisma?: PrismaClient;
+  /** Production and integration tests use the isolated pg probe. */
+  readinessDatabaseUrl?: string;
+  /** Test seam for timeout/error/cleanup behavior without a socket. */
+  readinessProbe?: ReadinessProbe;
+}
+
+export function buildApp(opts: BuildAppOptions = {}) {
+  const app = Fastify({ logger: true, trustProxy: trustProxyHops() });
+
+  if (opts.readinessDatabaseUrl && opts.readinessProbe) {
+    throw new Error("Pass readinessDatabaseUrl or readinessProbe, not both");
+  }
+
+  const readinessProbe =
+    opts.readinessProbe ??
+    (opts.readinessDatabaseUrl
+      ? createReadinessProbe(opts.readinessDatabaseUrl, (error) => {
+          app.log.error(error, "idle readiness database client failed");
+        })
+      : undefined);
+
+  if (readinessProbe) {
+    app.addHook("onClose", async () => {
+      await readinessProbe.close();
+    });
+  }
 
   app.setErrorHandler((error, request, reply) => {
     if (isZodError(error)) {
@@ -142,7 +204,28 @@ export function buildApp(opts: { prisma?: PrismaClient } = {}) {
   app.register(rateLimit, { global: false });
   app.register(authPlugin);
 
+  // Liveness only: the process can accept a request, nothing more. A container
+  // orchestrator restarting on this failing would be reacting to the database
+  // being briefly slow, not to this process being broken -- that is what
+  // /ready is for. #24.
   app.get("/health", async () => ({ status: "ok" }));
+
+  // Readiness: can this process actually do its job right now. Production uses
+  // a dedicated, one-connection pg pool with driver/server timeouts; tests that
+  // do not supply that probe fall back to the injected Prisma client. The
+  // outer two-second deadline remains a last guard for either implementation.
+  // Unauthenticated on purpose: an orchestrator's probe carries no session.
+  // docs/deployment.md keeps this route out of the public reverse-proxy path.
+  app.get("/ready", async (_req, reply) => {
+    try {
+      const query = readinessProbe?.check() ?? app.prisma.$queryRaw`SELECT 1`;
+      await withTimeout(query, READY_TIMEOUT_MS);
+      return { status: "ready" };
+    } catch (err) {
+      app.log.error(err, "readiness check failed: database unreachable");
+      return reply.code(503).send({ status: "not ready" });
+    }
+  });
 
   app.register(authRoutes, { prefix: "/auth" });
 

@@ -23,13 +23,13 @@ if (!process.env.JWT_SECRET) {
   process.exit(1);
 }
 
-const app = buildApp();
+const app = buildApp({ readinessDatabaseUrl: process.env.DATABASE_URL });
 
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.once(signal, async () => {
     app.log.info(`${signal} received, shutting down`);
     try {
-      // Runs the onClose hook, which disconnects Prisma.
+      // Runs the onClose hooks, which disconnect Prisma and the readiness pool.
       await app.close();
       process.exit(0);
     } catch (err) {

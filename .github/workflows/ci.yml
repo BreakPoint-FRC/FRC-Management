@@ -67,3 +67,194 @@ jobs:
         run: pnpm --filter @breakpoint/web test:e2e
 
       - run: pnpm build
+
+  # Independent of `build` above on purpose -- it builds its own images from
+  # source and does not need anything that job produces, so it runs in
+  # parallel rather than waiting on it.
+  #
+  # This exists because `build` never touches docker-compose.prod.yml or
+  # either Dockerfile at all: nothing before this job would have caught a
+  # Dockerfile with no error possible to lint or typecheck -- a missing
+  # `FROM ... AS <stage>` line, exactly what shipped in an earlier version of
+  # this PR and was only found by a human running `docker compose up` by
+  # hand. This runs the real thing instead: build both production images,
+  # start the full stack, and prove it actually serves traffic and a login
+  # works, the same way docs/deployment.md's first-deploy steps do.
+  docker-deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      PROD_PROJECT: frc-prod-${{ github.run_id }}-${{ github.run_attempt }}
+      NEGATIVE_PROJECT: frc-preflight-${{ github.run_id }}-${{ github.run_attempt }}
+      PROD_VOLUME: frc-prod-${{ github.run_id }}-${{ github.run_attempt }}-postgres
+      NEGATIVE_VOLUME: frc-preflight-${{ github.run_id }}-${{ github.run_attempt }}-postgres
+
+    steps:
+      - uses: actions/checkout@v4
+
+      # Follow the documented path exactly, then replace only the values the
+      # first-deploy guide tells an operator to replace. This catches an
+      # example-file value accidentally overriding a safe Compose default.
+      - name: Create .env using the documented path
+        run: |
+          set -euo pipefail
+          cp .env.example .env
+          sed -i \
+            -e "s|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD=\"$(openssl rand -hex 24)\"|" \
+            -e "s|^POSTGRES_VOLUME_NAME=.*$|POSTGRES_VOLUME_NAME=\"$PROD_VOLUME\"|" \
+            -e "s|^JWT_SECRET=.*$|JWT_SECRET=\"$(openssl rand -hex 32)\"|" \
+            -e 's|^WEB_ORIGIN=.*$|WEB_ORIGIN="http://localhost:3000"|' \
+            -e 's|^NEXT_PUBLIC_API_URL=.*$|NEXT_PUBLIC_API_URL="http://localhost:4000"|' \
+            -e 's|^SYSTEM_ADMIN_EMAIL=.*$|SYSTEM_ADMIN_EMAIL="ci-admin@example.test"|' \
+            -e 's|^SYSTEM_ADMIN_PASSWORD=.*$|SYSTEM_ADMIN_PASSWORD="0123456789abcdef0123456789abcdef"|' \
+            .env
+
+      - name: Validate the documented Compose configuration
+        run: |
+          set -euo pipefail
+          docker compose \
+            --project-name "$PROD_PROJECT" \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            config --format json > /tmp/compose-config.json
+
+          jq -e '
+            .services.postgres.depends_on.preflight.condition == "service_completed_successfully"
+            and (.services.api.environment.TRUST_PROXY_HOPS | tostring) == "1"
+            and .services.api.ports[0].host_ip == "127.0.0.1"
+            and .services.web.ports[0].host_ip == "127.0.0.1"
+            and .services.preflight.environment.POSTGRES_USER == .services.postgres.environment.POSTGRES_USER
+            and .services.preflight.environment.POSTGRES_DB == .services.postgres.environment.POSTGRES_DB
+            and .volumes.postgres_data_prod.name == env.PROD_VOLUME
+          ' /tmp/compose-config.json >/dev/null
+
+      - name: Prove failed preflight cannot initialize Postgres
+        run: |
+          set -Eeuo pipefail
+          cp .env .env.invalid
+          sed -i \
+            -e 's|^POSTGRES_PASSWORD=.*$|POSTGRES_PASSWORD="change-me-before-deploying"|' \
+            -e "s|^POSTGRES_VOLUME_NAME=.*$|POSTGRES_VOLUME_NAME=\"$NEGATIVE_VOLUME\"|" \
+            .env.invalid
+
+          dc=(docker compose --project-name "$NEGATIVE_PROJECT" --env-file .env.invalid -f docker-compose.prod.yml)
+          cleanup() {
+            "${dc[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+
+          set +e
+          "${dc[@]}" up -d --build postgres
+          status=$?
+          set -e
+          if [ "$status" -eq 0 ]; then
+            echo "::error::Invalid production environment unexpectedly started"
+            exit 1
+          fi
+
+          preflight_id="$("${dc[@]}" ps -a -q preflight)"
+          test -n "$preflight_id"
+          test "$(docker inspect -f '{{.State.ExitCode}}' "$preflight_id")" -ne 0
+
+          if [ -n "$("${dc[@]}" ps --status running -q postgres)" ]; then
+            echo "::error::Postgres ran despite failed preflight"
+            exit 1
+          fi
+
+          if docker volume inspect "$NEGATIVE_VOLUME" >/dev/null 2>&1; then
+            state="$(docker run --rm --entrypoint sh \
+              --mount "type=volume,src=$NEGATIVE_VOLUME,dst=/data,readonly" \
+              postgres:16-alpine \
+              -c 'if [ -e /data/PG_VERSION ]; then echo initialized; else echo empty; fi')"
+            test "$state" = "empty"
+          fi
+
+      - name: Build and start the production stack
+        run: |
+          docker compose \
+            --project-name "$PROD_PROJECT" \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            up -d --build
+
+      # preflight and migrate both have to exit 0, and api healthy, before
+      # this can succeed -- api's own healthcheck already polls /ready, but
+      # depends_on only gates when containers start, not this job, so it is
+      # polled here too rather than assumed.
+      - name: Wait for api to report ready
+        timeout-minutes: 5
+        run: |
+          until curl -sf http://127.0.0.1:4000/ready; do
+            echo "not ready yet, retrying..."
+            sleep 5
+          done
+
+      # web's container is running as soon as api reports healthy (that is
+      # only what depends_on: condition: service_healthy gates), but the
+      # Next.js server inside it still takes a moment past that to actually
+      # accept connections -- a one-shot curl here raced it and failed with
+      # curl's exit 56 (connection reset) on the first real run of this job.
+      # Retried the same way as api's readiness above instead of assumed.
+      - name: Wait for web to respond
+        timeout-minutes: 2
+        run: |
+          until curl -sf http://127.0.0.1:3000/ >/dev/null; do
+            echo "not ready yet, retrying..."
+            sleep 3
+          done
+
+      - name: Verify runtime hardening and trusted proxy behavior
+        run: |
+          set -euo pipefail
+          dc=(docker compose --project-name "$PROD_PROJECT" --env-file .env -f docker-compose.prod.yml)
+
+          test "$("${dc[@]}" exec -T api id -u)" -ne 0
+          test "$("${dc[@]}" exec -T web id -u)" -ne 0
+
+          payload='{"email":"missing-user@example.test","password":"DefinitelyWrong123!"}'
+          for octet in $(seq 1 11); do
+            status="$(curl -sS -o /dev/null -w '%{http_code}' \
+              -X POST http://127.0.0.1:4000/auth/login \
+              -H 'Content-Type: application/json' \
+              -H "X-Forwarded-For: 198.51.100.$octet" \
+              -d "$payload")"
+            test "$status" = "401"
+          done
+
+      # The one-time bootstrap command from docs/deployment.md, then an
+      # actual login with the account it created -- the same walkthrough a
+      # real first deploy requires, run for real instead of asserted.
+      - name: Bootstrap the platform admin and sign in
+        run: |
+          set -euo pipefail
+          docker compose \
+            --project-name "$PROD_PROJECT" \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            --profile admin \
+            run --rm bootstrap
+
+          status=$(curl -sS -o /tmp/login.json -w '%{http_code}' \
+            -X POST http://127.0.0.1:4000/auth/login \
+            -H 'Content-Type: application/json' \
+            -d '{"email":"ci-admin@example.test","password":"0123456789abcdef0123456789abcdef"}')
+          echo "login status: $status"
+          test "$status" = "200"
+
+      - name: Compose logs
+        if: failure()
+        run: |
+          docker compose \
+            --project-name "$PROD_PROJECT" \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            logs
+
+      - name: Tear down
+        if: always()
+        run: |
+          docker compose \
+            --project-name "$PROD_PROJECT" \
+            --env-file .env \
+            -f docker-compose.prod.yml \
+            down -v --remove-orphans

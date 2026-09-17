@@ -9,7 +9,8 @@
     "dev:web": "pnpm run build:libs && pnpm --filter @breakpoint/web dev",
     "lint": "pnpm -r --if-present run lint",
     "typecheck": "pnpm run build:libs && pnpm -r --if-present run typecheck",
-    "test": "pnpm run build:libs && pnpm -r --if-present run test",
+    "test": "pnpm run build:libs && pnpm run test:deploy-env && pnpm -r --if-present run test",
+    "test:deploy-env": "node --test scripts/check-deploy-env.test.mjs",
     "test:integration": "pnpm run build:libs && pnpm --filter @breakpoint/api run test:integration",
     "db:generate": "pnpm -r --if-present run db:generate"
   },
