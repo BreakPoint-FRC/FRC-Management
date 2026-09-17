@@ -22,6 +22,8 @@ import { createAccountsService } from "./accounts.service";
  *   GET    /accounts/:id                                 -> 200 | 401 | 403 | 404
  *   POST   /accounts            { email, fullName, password, roles? }
  *                                                        -> 201 | 400 | 401 | 403 | 409 duplicate email
+ *                                                        (a non-empty `roles` also needs ROLES/update,
+ *                                                        same as PUT /:id/roles -- see that route)
  *   PATCH  /accounts/:id        { email?, fullName?, isActive? }
  *                                                        -> 200 | 400 | 401 | 403 | 404 | 409
  *   PUT    /accounts/:id/roles  { roles: [{ roleId, groupId? }] }
@@ -76,6 +78,23 @@ export async function accountsRoutes(app: FastifyInstance) {
     });
 
     const input = createAccountSchema.parse(req.body);
+
+    // Creating a blank account is the common, lower-privilege case ("an
+    // account can exist before anyone has decided what it does" -- see
+    // accounts.schema.ts) and only needs ACCOUNTS/create. Handing out roles
+    // in the same request is exactly what PUT /:id/roles gates on
+    // ROLES/update -- without this, a role holding ACCOUNTS/create but not
+    // ROLES (PRESIDENT's default template, for one) could grant any role in
+    // the team, TEAM_ADMIN included, by routing through account creation
+    // instead of the roles endpoint.
+    if (input.roles.length > 0) {
+      await authorize(app.prisma, {
+        accountId: req.account.id,
+        tool: "ROLES",
+        action: "update",
+      });
+    }
+
     const account = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(account);
   });

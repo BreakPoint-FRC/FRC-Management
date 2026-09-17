@@ -285,6 +285,136 @@ describe("authentication", () => {
   });
 });
 
+// POST /accounts accepts a `roles` array in the same request. Found in review:
+// the route only checked ACCOUNTS/create, so a role holding ACCOUNTS/create but
+// not ROLES/update (PRESIDENT's default template, for one) could grant any role
+// in the team -- TEAM_ADMIN included -- by routing through account creation
+// instead of PUT /:id/roles, which does gate on ROLES/update. authorizedStubs()
+// returns the same FULL_PERMISSION for every tool, which can't tell these two
+// gates apart, hence the tool-scoped stub below.
+describe("account creation cannot grant a role without ROLES/update", () => {
+  const CREATOR = {
+    id: "account-creator",
+    teamId: TEAM,
+    email: "baskan@breakpoint.test",
+    fullName: "Baskan",
+    isActive: true,
+    mustChangePassword: false,
+    archivedAt: null,
+    team: { isActive: true },
+    roles: [
+      { groupId: null, role: { id: "role-president", placement: "TEAM_WIDE", groupScopes: [] } },
+    ],
+    memberships: [],
+  };
+
+  /** Grants only the listed tool keys -- unlike authorizedStubs(), which grants everything. */
+  function toolScopedStubs(grantedTools: Set<string>) {
+    return {
+      tool: {
+        findUnique: async ({ where }: { where: { key: string } }) => ({
+          id: `tool-${where.key}`,
+          isActive: true,
+        }),
+      },
+      group: { findMany: async () => [], count: async () => 0 },
+      groupTool: { findMany: async () => [] },
+      roleHierarchy: { findMany: async () => [] },
+      rolePermission: {
+        findMany: async ({ where }: { where: { toolId: string } }) =>
+          grantedTools.has(where.toolId.replace("tool-", "")) ? [FULL_PERMISSION] : [],
+      },
+    };
+  }
+
+  /** Supports both service.create()'s top-level prisma.role.findMany call and its callback-style $transaction. */
+  function transactionalStub() {
+    const stub = {
+      account: {
+        findUnique: async () => CREATOR,
+        create: async () => ({ id: "account-new" }),
+        findUniqueOrThrow: async () => ({
+          id: "account-new",
+          teamId: TEAM,
+          email: "yeni@breakpoint.test",
+          fullName: "Yeni Uye",
+          isActive: true,
+          mustChangePassword: true,
+          createdAt: new Date("2026-01-01"),
+          archivedAt: null,
+          roles: [],
+          memberships: [],
+        }),
+      },
+      role: {
+        findMany: async () => [
+          { id: "role-team-admin", name: "Takim Yoneticisi", placement: "TEAM_WIDE" },
+        ],
+      },
+      accountRole: { deleteMany: vi.fn(), createMany: vi.fn(), findMany: async () => [] },
+      groupMembership: { upsert: vi.fn() },
+      auditLog: { create: vi.fn() },
+    };
+    return Object.assign(stub, {
+      $transaction: async (work: unknown) =>
+        Array.isArray(work) ? Promise.all(work) : (work as (tx: typeof stub) => unknown)(stub),
+    });
+  }
+
+  function createRequest(app: ReturnType<typeof buildWithPrisma>, roles?: unknown[]) {
+    return app.inject({
+      method: "POST",
+      url: "/accounts",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: CREATOR.id })}` },
+      payload: {
+        email: "yeni@breakpoint.test",
+        fullName: "Yeni Uye",
+        password: "cok-guclu-bir-sifre-123",
+        ...(roles ? { roles } : {}),
+      },
+    });
+  }
+
+  it("refuses to grant a role on creation without ROLES/update", async () => {
+    const app = buildWithPrisma(
+      stubClient({ ...transactionalStub(), ...toolScopedStubs(new Set(["ACCOUNTS"])) })
+    );
+    await app.ready();
+
+    const response = await createRequest(app, [{ roleId: "role-team-admin" }]);
+
+    expect(response.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("still allows creating a roleless account with only ACCOUNTS/create", async () => {
+    const app = buildWithPrisma(
+      stubClient({ ...transactionalStub(), ...toolScopedStubs(new Set(["ACCOUNTS"])) })
+    );
+    await app.ready();
+
+    const response = await createRequest(app);
+
+    expect(response.statusCode).toBe(201);
+    await app.close();
+  });
+
+  it("allows granting a role on creation when the caller also holds ROLES/update", async () => {
+    const app = buildWithPrisma(
+      stubClient({
+        ...transactionalStub(),
+        ...toolScopedStubs(new Set(["ACCOUNTS", "ROLES"])),
+      })
+    );
+    await app.ready();
+
+    const response = await createRequest(app, [{ roleId: "role-team-admin" }]);
+
+    expect(response.statusCode).toBe(201);
+    await app.close();
+  });
+});
+
 describe("refresh tokens travel in the body", () => {
   // They used to be an httpOnly cookie. The web app now stores nothing on the
   // device at all, so the token is handed back in the response and held in
