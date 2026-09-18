@@ -122,8 +122,9 @@ export default function GroupsPage() {
     };
     const id = panel.kind === "form" ? panel.id : null;
 
-    const ok = await mutation.run(() =>
-      id ? apiClient.patch(`/groups/${id}`, body) : apiClient.post("/groups", body)
+    const ok = await mutation.run(
+      () => (id ? apiClient.patch(`/groups/${id}`, body) : apiClient.post("/groups", body)),
+      id ? "Grup güncellendi." : "Grup oluşturuldu."
     );
     if (ok) {
       close();
@@ -137,8 +138,9 @@ export default function GroupsPage() {
   async function submitTools() {
     if (panel.kind !== "tools") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/groups/${panel.group.id}/tools`, { tools: toolStatesPayload(tools) })
+    const ok = await mutation.run(
+      () => apiClient.put(`/groups/${panel.group.id}/tools`, { tools: toolStatesPayload(tools) }),
+      "Modül ayarları güncellendi."
     );
     if (ok) {
       close();
@@ -149,8 +151,9 @@ export default function GroupsPage() {
   async function submitMembers() {
     if (panel.kind !== "members") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/groups/${panel.group.id}/members`, { accountIds: [...members] })
+    const ok = await mutation.run(
+      () => apiClient.put(`/groups/${panel.group.id}/members`, { accountIds: [...members] }),
+      "Üyeler güncellendi."
     );
     if (ok) {
       close();
@@ -159,7 +162,7 @@ export default function GroupsPage() {
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/groups/${id}`))) groups.reload();
+    if (await mutation.run(() => apiClient.delete(`/groups/${id}`), "Grup silindi.")) groups.reload();
   }
 
   return (
@@ -365,7 +368,7 @@ export default function GroupsPage() {
                           "Görev, toplantı veya finans kaydı varsa geçmiş korunur ve grup pasife alınır; " +
                           "yoksa tamamen silinir."
                         }
-                        onConfirm={() => void remove(group.id)}
+                        onConfirm={() => remove(group.id)}
                       >
                         Sil
                       </ConfirmButton>

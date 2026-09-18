@@ -225,7 +225,7 @@ export function RolesStep() {
                                   hierarchy edges below it go with it. */}
                               <ConfirmButton
                                 question={`${role.name} rolü silinsin mi?`}
-                                onConfirm={() => void remove(role.id)}
+                                onConfirm={() => remove(role.id)}
                               >
                                 Sil
                               </ConfirmButton>

@@ -110,10 +110,12 @@ export default function MeetingsPage() {
       body: emptyToNull(draft.body),
     };
 
-    const ok = await mutation.run(() =>
-      editing === "new"
-        ? apiClient.post("/meetings", body)
-        : apiClient.patch(`/meetings/${(editing as MeetingRow).id}`, body)
+    const ok = await mutation.run(
+      () =>
+        editing === "new"
+          ? apiClient.post("/meetings", body)
+          : apiClient.patch(`/meetings/${(editing as MeetingRow).id}`, body),
+      editing === "new" ? "Toplantı oluşturuldu." : "Toplantı güncellendi."
     );
     guard.setSaving(false);
     if (ok) {
@@ -123,7 +125,9 @@ export default function MeetingsPage() {
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/meetings/${id}`))) meetings.reload();
+    if (await mutation.run(() => apiClient.delete(`/meetings/${id}`), "Toplantı silindi.")) {
+      meetings.reload();
+    }
   }
 
   return (
@@ -258,7 +262,7 @@ function MeetingList({
   permissions: ReturnType<typeof useAuth>["permissions"];
   saving: boolean;
   onEdit: (meeting: MeetingRow) => void;
-  onDelete: (id: string) => void;
+  onDelete: (id: string) => void | Promise<unknown>;
 }) {
   if (meetings.length === 0) return <p className="empty">{empty}</p>;
 

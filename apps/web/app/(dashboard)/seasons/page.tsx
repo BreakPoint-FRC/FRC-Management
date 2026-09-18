@@ -57,10 +57,12 @@ export default function SeasonsPage() {
   }
 
   async function submit() {
-    const ok = await mutation.run(() =>
-      editing === "new"
-        ? apiClient.post("/seasons", draft)
-        : apiClient.patch(`/seasons/${editing}`, draft)
+    const ok = await mutation.run(
+      () =>
+        editing === "new"
+          ? apiClient.post("/seasons", draft)
+          : apiClient.patch(`/seasons/${editing}`, draft),
+      editing === "new" ? "Sezon oluşturuldu." : "Sezon güncellendi."
     );
     if (ok) {
       close();
@@ -71,11 +73,15 @@ export default function SeasonsPage() {
   async function remove(id: string) {
     // Refused for an active season, or one with records hanging off it. The
     // 409 explains which, and lands in the ErrorBox below.
-    if (await mutation.run(() => apiClient.delete(`/seasons/${id}`))) seasons.reload();
+    if (await mutation.run(() => apiClient.delete(`/seasons/${id}`), "Sezon silindi.")) {
+      seasons.reload();
+    }
   }
 
   async function activate(id: string) {
-    if (await mutation.run(() => apiClient.post(`/seasons/${id}/activate`))) seasons.reload();
+    if (await mutation.run(() => apiClient.post(`/seasons/${id}/activate`), "Sezon etkinleştirildi.")) {
+      seasons.reload();
+    }
   }
 
   return (
@@ -189,7 +195,7 @@ export default function SeasonsPage() {
                         {mayDelete ? (
                           <ConfirmButton
                             question={`${season.name} silinsin mi?`}
-                            onConfirm={() => void remove(season.id)}
+                            onConfirm={() => remove(season.id)}
                           >
                             Sil
                           </ConfirmButton>

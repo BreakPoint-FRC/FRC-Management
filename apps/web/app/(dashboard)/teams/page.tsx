@@ -90,7 +90,9 @@ export default function TeamsPage() {
   }
 
   async function archive(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/teams/${id}`))) teams.reload();
+    if (await mutation.run(() => apiClient.delete(`/teams/${id}`), "Takım arşivlendi.")) {
+      teams.reload();
+    }
   }
 
   return (
@@ -241,7 +243,7 @@ export default function TeamsPage() {
                         {mayDelete && team.isActive ? (
                           <ConfirmButton
                             question={`${team.name} arşivlensin mi? Takımdaki herkesin oturumu kapanır.`}
-                            onConfirm={() => void archive(team.id)}
+                            onConfirm={() => archive(team.id)}
                           >
                             Arşivle
                           </ConfirmButton>

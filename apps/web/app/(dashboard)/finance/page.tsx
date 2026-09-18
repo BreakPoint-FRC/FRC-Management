@@ -130,10 +130,12 @@ export default function FinancePage() {
       description: emptyToNull(draft.description),
     };
 
-    const ok = await mutation.run(() =>
-      editing === "new"
-        ? apiClient.post("/finance", body)
-        : apiClient.patch(`/finance/${(editing as TransactionRow).id}`, body)
+    const ok = await mutation.run(
+      () =>
+        editing === "new"
+          ? apiClient.post("/finance", body)
+          : apiClient.patch(`/finance/${(editing as TransactionRow).id}`, body),
+      editing === "new" ? "Kayıt eklendi." : "Kayıt güncellendi."
     );
     if (ok) {
       close();
@@ -144,7 +146,7 @@ export default function FinancePage() {
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/finance/${id}`))) {
+    if (await mutation.run(() => apiClient.delete(`/finance/${id}`), "Kayıt silindi.")) {
       transactions.reload();
       summary.reload();
       monthly.reload();
@@ -330,7 +332,7 @@ export default function FinancePage() {
                                   ? "Bu kayıt silinirse sponsorluk yeniden finansa işlenebilir. Silinsin mi?"
                                   : "Bu kayıt silinsin mi?"
                               }
-                              onConfirm={() => void remove(transaction.id)}
+                              onConfirm={() => remove(transaction.id)}
                             >
                               Sil
                             </ConfirmButton>

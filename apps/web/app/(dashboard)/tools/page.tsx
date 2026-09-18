@@ -63,12 +63,14 @@ export default function ToolsPage() {
   async function submit() {
     if (!editing) return;
 
-    const ok = await mutation.run(() =>
-      apiClient.patch(`/tools/${editing.id}`, {
-        name: draft.name,
-        description: emptyToNull(draft.description),
-        isActive: draft.isActive,
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.patch(`/tools/${editing.id}`, {
+          name: draft.name,
+          description: emptyToNull(draft.description),
+          isActive: draft.isActive,
+        }),
+      "Modül güncellendi."
     );
     if (ok) {
       close();
@@ -77,7 +79,9 @@ export default function ToolsPage() {
   }
 
   async function deactivate(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/tools/${id}`))) tools.reload();
+    if (await mutation.run(() => apiClient.delete(`/tools/${id}`), "Modül devre dışı bırakıldı.")) {
+      tools.reload();
+    }
   }
 
   return (
@@ -159,7 +163,7 @@ export default function ToolsPage() {
                         {mayDelete && tool.isActive && tool.key !== "TOOLS" ? (
                           <ConfirmButton
                             question={`${tool.name} modülü herkes için kapatılsın mı?`}
-                            onConfirm={() => void deactivate(tool.id)}
+                            onConfirm={() => deactivate(tool.id)}
                           >
                             Pasife al
                           </ConfirmButton>

@@ -2,11 +2,15 @@
 
 import { useCallback, useState } from "react";
 
+import { useToast } from "@/components/toast";
 import { ApiError } from "@/lib/api-client";
 
 export interface MutationState {
-  /** Runs the call, captures an ApiError, and reports whether it succeeded. */
-  run: (action: () => Promise<unknown>) => Promise<boolean>;
+  /**
+   * Runs the call, captures an ApiError, and reports whether it succeeded.
+   * A `successMessage` is shown as a toast once the call resolves.
+   */
+  run: (action: () => Promise<unknown>, successMessage?: string) => Promise<boolean>;
   /**
    * The same, for the calls whose answer matters.
    *
@@ -16,7 +20,7 @@ export interface MutationState {
    * POST /teams needs -- the generated password exists nowhere else and cannot
    * be asked for again.
    */
-  runFor: <T>(action: () => Promise<T>) => Promise<T | null>;
+  runFor: <T>(action: () => Promise<T>, successMessage?: string) => Promise<T | null>;
   saving: boolean;
   error: ApiError | null;
   reset: () => void;
@@ -33,29 +37,36 @@ export interface MutationState {
 export function useMutation(): MutationState {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<ApiError | null>(null);
+  const { show } = useToast();
 
   const reset = useCallback(() => setError(null), []);
 
-  const runFor = useCallback(async <T,>(action: () => Promise<T>): Promise<T | null> => {
-    setSaving(true);
-    setError(null);
+  const runFor = useCallback(
+    async <T,>(action: () => Promise<T>, successMessage?: string): Promise<T | null> => {
+      setSaving(true);
+      setError(null);
 
-    try {
-      return await action();
-    } catch (cause) {
-      setError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
-      );
-      return null;
-    } finally {
-      setSaving(false);
-    }
-  }, []);
+      try {
+        const result = await action();
+        if (successMessage) show(successMessage);
+        return result;
+      } catch (cause) {
+        setError(
+          cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
+        );
+        return null;
+      } finally {
+        setSaving(false);
+      }
+    },
+    [show]
+  );
 
   // Written in terms of runFor rather than beside it, so there is one place
   // that decides what counts as a failure.
   const run = useCallback(
-    async (action: () => Promise<unknown>) => (await runFor(action)) !== null,
+    async (action: () => Promise<unknown>, successMessage?: string) =>
+      (await runFor(action, successMessage)) !== null,
     [runFor]
   );
 

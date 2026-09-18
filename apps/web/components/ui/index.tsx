@@ -2,7 +2,7 @@
 
 import { GuardedLink } from "@/components/unsaved-changes";
 import { usePathname } from "next/navigation";
-import type { ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { ApiError } from "@/lib/api-client";
 
@@ -38,8 +38,28 @@ export function Card({ title, children }: { title?: string; children: ReactNode 
   );
 }
 
+/** Content-agnostic shimmer placeholder -- stands in for a card, a table, a chart. */
+export function Skeleton({ lines = 3 }: { lines?: number }) {
+  return (
+    <div className="skeleton-block" aria-hidden="true">
+      {Array.from({ length: lines }).map((_, index) => (
+        <div
+          key={index}
+          className="skeleton-line"
+          style={{ width: index === lines - 1 ? "60%" : "100%" }}
+        />
+      ))}
+    </div>
+  );
+}
+
 export function Loading() {
-  return <p className="loading">Yükleniyor...</p>;
+  return (
+    <div role="status">
+      <span className="sr-only">Yükleniyor...</span>
+      <Skeleton />
+    </div>
+  );
 }
 
 export function Empty({ children = "Kayıt yok." }: { children?: ReactNode }) {
@@ -78,12 +98,23 @@ export function AsyncSection<T>({
   children,
   empty,
 }: {
-  state: { data: T | null; error: ApiError | null; loading: boolean };
+  state: { data: T | null; error: ApiError | null; loading: boolean; reload?: () => void };
   children: (data: T) => ReactNode;
   empty?: ReactNode;
 }) {
   if (state.loading && !state.data) return <Loading />;
-  if (state.error) return <ErrorBox error={state.error} />;
+  if (state.error) {
+    return (
+      <div className="stack-sm">
+        <ErrorBox error={state.error} />
+        {state.reload ? (
+          <button className="btn" type="button" onClick={state.reload}>
+            Tekrar dene
+          </button>
+        ) : null}
+      </div>
+    );
+  }
   if (!state.data) return <Empty>{empty}</Empty>;
   return <>{children(state.data)}</>;
 }
@@ -98,12 +129,7 @@ export function PageHeader({ title, children }: { title: string; children?: Reac
 }
 
 /**
- * A destructive action behind a native confirm.
- *
- * window.confirm rather than a dialog component: it is one call, it cannot get
- * out of sync with the row it belongs to, and it is already accessible. Pulling
- * in a modal library to ask "are you sure" would be more machinery than the
- * question deserves.
+ * A destructive action behind a confirm dialog.
  *
  * Several deletes in this API are refused by design -- a system role, a season
  * with records, a company with sponsorship history. Those come back as a 409
@@ -116,21 +142,110 @@ export function ConfirmButton({
   children,
 }: {
   question: string;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<unknown>;
   disabled?: boolean;
   children: ReactNode;
 }) {
+  const [open, setOpen] = useState(false);
+  const [pending, setPending] = useState(false);
+
+  async function confirm() {
+    setPending(true);
+    try {
+      await onConfirm();
+    } finally {
+      setPending(false);
+      setOpen(false);
+    }
+  }
+
   return (
-    <button
-      className="btn btn-sm"
-      type="button"
-      disabled={disabled}
-      onClick={() => {
-        if (window.confirm(question)) onConfirm();
+    <>
+      <button
+        className="btn btn-sm"
+        type="button"
+        disabled={disabled}
+        onClick={() => setOpen(true)}
+      >
+        {children}
+      </button>
+      {open ? (
+        <ConfirmDialog
+          question={question}
+          pending={pending}
+          onConfirm={() => void confirm()}
+          onCancel={() => setOpen(false)}
+        />
+      ) : null}
+    </>
+  );
+}
+
+function ConfirmDialog({
+  question,
+  pending,
+  onConfirm,
+  onCancel,
+}: {
+  question: string;
+  pending: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+  const confirmRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    const trigger = document.activeElement;
+    const element = dialog.current!;
+    element.showModal();
+    cancelRef.current?.focus();
+    return () => {
+      element.close();
+      if (trigger instanceof HTMLElement && trigger.isConnected) trigger.focus();
+    };
+  }, []);
+
+  return (
+    <dialog
+      ref={dialog}
+      className="confirm-dialog"
+      aria-describedby="confirm-dialog-question"
+      onCancel={(event) => {
+        event.preventDefault();
+        if (!pending) onCancel();
+      }}
+      onKeyDown={(event) => {
+        // Native dialogs can tab into browser chrome; keep this decision in the UI.
+        if (event.key !== "Tab") return;
+        event.preventDefault();
+        if (document.activeElement === cancelRef.current) confirmRef.current?.focus();
+        else cancelRef.current?.focus();
       }}
     >
-      {children}
-    </button>
+      <p id="confirm-dialog-question">{question}</p>
+      <div className="row">
+        <button
+          ref={cancelRef}
+          className="btn"
+          type="button"
+          disabled={pending}
+          onClick={onCancel}
+        >
+          Vazgeç
+        </button>
+        <button
+          ref={confirmRef}
+          className="btn btn-primary"
+          type="button"
+          disabled={pending}
+          onClick={onConfirm}
+        >
+          {pending ? "İşleniyor..." : "Onayla"}
+        </button>
+      </div>
+    </dialog>
   );
 }
 

@@ -119,10 +119,12 @@ export default function GanttPage() {
     if (panel.kind !== "form") return;
 
     const body = { name: draft.name, groupId: selectToNull(draft.groupId) };
-    const ok = await mutation.run(() =>
-      panel.board
-        ? apiClient.patch(`/gantt/${panel.board.id}`, body)
-        : apiClient.post("/gantt", body)
+    const ok = await mutation.run(
+      () =>
+        panel.board
+          ? apiClient.patch(`/gantt/${panel.board.id}`, body)
+          : apiClient.post("/gantt", body),
+      panel.board ? "Pano güncellendi." : "Pano oluşturuldu."
     );
     if (ok) {
       close();
@@ -136,8 +138,9 @@ export default function GanttPage() {
   async function submitTasks() {
     if (panel.kind !== "tasks") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/gantt/${panel.board.id}/tasks`, { taskIds: ordered })
+    const ok = await mutation.run(
+      () => apiClient.put(`/gantt/${panel.board.id}/tasks`, { taskIds: ordered }),
+      "Görev sırası güncellendi."
     );
     if (ok) {
       close();
@@ -146,7 +149,7 @@ export default function GanttPage() {
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/gantt/${id}`))) boards.reload();
+    if (await mutation.run(() => apiClient.delete(`/gantt/${id}`), "Pano silindi.")) boards.reload();
   }
 
   return (
@@ -325,7 +328,7 @@ export default function GanttPage() {
                             {can(permissions, "GANTT", "delete", board.groupId) ? (
                               <ConfirmButton
                                 question={`${board.name} panosu silinsin mi? Görevler silinmez.`}
-                                onConfirm={() => void remove(board.id)}
+                                onConfirm={() => remove(board.id)}
                               >
                                 Sil
                               </ConfirmButton>

@@ -174,10 +174,12 @@ export default function TasksPage() {
       dueDate: emptyToUndefined(draft.dueDate) ?? null,
     };
 
-    const ok = await mutation.run(() =>
-      editing === "new"
-        ? apiClient.post("/tasks", body)
-        : apiClient.patch(`/tasks/${(editing as TaskRow).id}`, body)
+    const ok = await mutation.run(
+      () =>
+        editing === "new"
+          ? apiClient.post("/tasks", body)
+          : apiClient.patch(`/tasks/${(editing as TaskRow).id}`, body),
+      editing === "new" ? "Görev oluşturuldu." : "Görev güncellendi."
     );
     if (ok) {
       close();
@@ -186,7 +188,7 @@ export default function TasksPage() {
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/tasks/${id}`))) tasks.reload();
+    if (await mutation.run(() => apiClient.delete(`/tasks/${id}`), "Görev silindi.")) tasks.reload();
   }
 
   // Creating is authorized against the group the form is aiming at; there is no
@@ -376,7 +378,7 @@ export default function TasksPage() {
                           {can(permissions, "TASKS", "delete", task.groupId) ? (
                             <ConfirmButton
                               question={`${task.name} silinsin mi? Geçmişi de silinir.`}
-                              onConfirm={() => void remove(task.id)}
+                              onConfirm={() => remove(task.id)}
                             >
                               Sil
                             </ConfirmButton>

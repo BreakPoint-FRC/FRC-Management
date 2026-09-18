@@ -126,8 +126,12 @@ export default function RolesPage() {
 
     const body = roleBody(draft, panel.role !== null);
 
-    const ok = await mutation.run(() =>
-      panel.role ? apiClient.patch(`/roles/${panel.role.id}`, body) : apiClient.post("/roles", body)
+    const ok = await mutation.run(
+      () =>
+        panel.role
+          ? apiClient.patch(`/roles/${panel.role.id}`, body)
+          : apiClient.post("/roles", body),
+      panel.role ? "Rol güncellendi." : "Rol oluşturuldu."
     );
     if (ok) {
       close();
@@ -142,10 +146,12 @@ export default function RolesPage() {
   async function submitPermissions() {
     if (panel.kind !== "permissions") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/roles/${panel.role.id}/permissions`, {
-        permissions: permissionsPayload(matrix, lockedTools),
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.put(`/roles/${panel.role.id}/permissions`, {
+          permissions: permissionsPayload(matrix, lockedTools),
+        }),
+      "Yetkiler güncellendi."
     );
     if (ok) {
       close();
@@ -157,7 +163,12 @@ export default function RolesPage() {
     if (!newChild) return;
     // A cycle here would hang every authorized request, so the server walks the
     // graph before writing and answers 409.
-    if (await mutation.run(() => apiClient.post(`/roles/${parentId}/children/${newChild}`))) {
+    if (
+      await mutation.run(
+        () => apiClient.post(`/roles/${parentId}/children/${newChild}`),
+        "Alt rol eklendi."
+      )
+    ) {
       setNewChild("");
       roles.reload();
       graph.reload();
@@ -165,14 +176,19 @@ export default function RolesPage() {
   }
 
   async function removeChild(parentId: string, childId: string) {
-    if (await mutation.run(() => apiClient.delete(`/roles/${parentId}/children/${childId}`))) {
+    if (
+      await mutation.run(
+        () => apiClient.delete(`/roles/${parentId}/children/${childId}`),
+        "Alt rol kaldırıldı."
+      )
+    ) {
       roles.reload();
       graph.reload();
     }
   }
 
   async function remove(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/roles/${id}`))) {
+    if (await mutation.run(() => apiClient.delete(`/roles/${id}`), "Rol silindi.")) {
       roles.reload();
       graph.reload();
     }
@@ -354,7 +370,7 @@ export default function RolesPage() {
                               {mayDelete ? (
                                 <ConfirmButton
                                   question={`${role.name} silinsin mi?`}
-                                  onConfirm={() => void remove(role.id)}
+                                  onConfirm={() => remove(role.id)}
                                 >
                                   Sil
                                 </ConfirmButton>

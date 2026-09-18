@@ -88,22 +88,24 @@ export default function AccountsPage() {
   async function submitForm() {
     if (panel.kind !== "form") return;
 
-    const ok = await mutation.run(() =>
-      panel.account
-        ? // Password is not here: changing it is its own endpoint, never a field
-          // that rides along with a name change.
-          apiClient.patch(`/accounts/${panel.account.id}`, {
-            email: draft.email,
-            fullName: draft.fullName,
-            isActive: draft.isActive,
-          })
-        : apiClient.post("/accounts", {
-            email: draft.email,
-            fullName: draft.fullName,
-            password: draft.password,
-            isActive: draft.isActive,
-            roles: [],
-          })
+    const ok = await mutation.run(
+      () =>
+        panel.account
+          ? // Password is not here: changing it is its own endpoint, never a field
+            // that rides along with a name change.
+            apiClient.patch(`/accounts/${panel.account.id}`, {
+              email: draft.email,
+              fullName: draft.fullName,
+              isActive: draft.isActive,
+            })
+          : apiClient.post("/accounts", {
+              email: draft.email,
+              fullName: draft.fullName,
+              password: draft.password,
+              isActive: draft.isActive,
+              roles: [],
+            }),
+      panel.account ? "Hesap güncellendi." : "Hesap oluşturuldu."
     );
     if (ok) {
       close();
@@ -114,10 +116,12 @@ export default function AccountsPage() {
   async function submitRoles() {
     if (panel.kind !== "roles") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/accounts/${panel.account.id}/roles`, {
-        roles: roleAssignmentPayload(roleDrafts),
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.put(`/accounts/${panel.account.id}/roles`, {
+          roles: roleAssignmentPayload(roleDrafts),
+        }),
+      "Roller güncellendi."
     );
     if (ok) {
       close();
@@ -128,13 +132,20 @@ export default function AccountsPage() {
   async function submitPassword() {
     if (panel.kind !== "password") return;
 
-    if (await mutation.run(() => apiClient.post(`/accounts/${panel.account.id}/password`, { password }))) {
+    if (
+      await mutation.run(
+        () => apiClient.post(`/accounts/${panel.account.id}/password`, { password }),
+        "Şifre değiştirildi."
+      )
+    ) {
       close();
     }
   }
 
   async function archive(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/accounts/${id}`))) accounts.reload();
+    if (await mutation.run(() => apiClient.delete(`/accounts/${id}`), "Hesap arşivlendi.")) {
+      accounts.reload();
+    }
   }
 
   return (
@@ -325,7 +336,7 @@ export default function AccountsPage() {
                         {mayDelete && account.id !== me?.id && !account.archivedAt ? (
                           <ConfirmButton
                             question={`${account.fullName} arşivlensin mi?`}
-                            onConfirm={() => void archive(account.id)}
+                            onConfirm={() => archive(account.id)}
                           >
                             Arşivle
                           </ConfirmButton>

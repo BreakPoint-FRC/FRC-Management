@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
+import { ToastProvider } from "@/components/toast";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes";
 import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
@@ -47,9 +48,11 @@ export default function RootLayout({
         <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
       </head>
       <body>
-        <UnsavedChangesProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </UnsavedChangesProvider>
+        <ToastProvider>
+          <UnsavedChangesProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </UnsavedChangesProvider>
+        </ToastProvider>
       </body>
     </html>
   );

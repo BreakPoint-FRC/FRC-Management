@@ -151,10 +151,12 @@ export default function SponsorsPage() {
       notes: emptyToNull(orgDraft.notes),
     };
 
-    const ok = await mutation.run(() =>
-      panel.org
-        ? apiClient.patch(`/sponsors/organizations/${panel.org.id}`, body)
-        : apiClient.post("/sponsors/organizations", body)
+    const ok = await mutation.run(
+      () =>
+        panel.org
+          ? apiClient.patch(`/sponsors/organizations/${panel.org.id}`, body)
+          : apiClient.post("/sponsors/organizations", body),
+      panel.org ? "Firma güncellendi." : "Firma eklendi."
     );
     if (ok) {
       close();
@@ -171,14 +173,16 @@ export default function SponsorsPage() {
       notes: emptyToNull(sponsorshipDraft.notes),
     };
 
-    const ok = await mutation.run(() =>
-      panel.sponsorshipId
-        ? apiClient.patch(`/sponsors/sponsorships/${panel.sponsorshipId}`, body)
-        : apiClient.post("/sponsors/sponsorships", {
-            ...body,
-            organizationId: sponsorshipDraft.organizationId,
-            seasonId: sponsorshipDraft.seasonId || undefined,
-          })
+    const ok = await mutation.run(
+      () =>
+        panel.sponsorshipId
+          ? apiClient.patch(`/sponsors/sponsorships/${panel.sponsorshipId}`, body)
+          : apiClient.post("/sponsors/sponsorships", {
+              ...body,
+              organizationId: sponsorshipDraft.organizationId,
+              seasonId: sponsorshipDraft.seasonId || undefined,
+            }),
+      panel.sponsorshipId ? "Sponsorluk güncellendi." : "Sponsorluk eklendi."
     );
     if (ok) {
       close();
@@ -201,12 +205,14 @@ export default function SponsorsPage() {
   async function submitConvert() {
     if (panel.kind !== "convert") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.post(`/sponsors/sponsorships/${panel.sponsorship.id}/finance-transaction`, {
-        amount: convertDraft.amount.trim(),
-        transactionDate: convertDraft.transactionDate,
-        description: emptyToNull(convertDraft.description),
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.post(`/sponsors/sponsorships/${panel.sponsorship.id}/finance-transaction`, {
+          amount: convertDraft.amount.trim(),
+          transactionDate: convertDraft.transactionDate,
+          description: emptyToNull(convertDraft.description),
+        }),
+      "Finansa işlendi."
     );
     if (ok) {
       close();
@@ -217,13 +223,18 @@ export default function SponsorsPage() {
   async function removeOrg(id: string) {
     // Refused once the firm has any sponsorship history -- the 409 says so and
     // suggests marking the relationship INACTIVE instead.
-    if (await mutation.run(() => apiClient.delete(`/sponsors/organizations/${id}`))) {
+    if (await mutation.run(() => apiClient.delete(`/sponsors/organizations/${id}`), "Firma silindi.")) {
       organizations.reload();
     }
   }
 
   async function removeSponsorship(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/sponsors/sponsorships/${id}`))) {
+    if (
+      await mutation.run(
+        () => apiClient.delete(`/sponsors/sponsorships/${id}`),
+        "Sponsorluk silindi."
+      )
+    ) {
       organizations.reload();
     }
   }
@@ -470,7 +481,7 @@ export default function SponsorsPage() {
                               {mayDelete ? (
                                 <ConfirmButton
                                   question={`${sponsorship.season.name} kaydı silinsin mi?`}
-                                  onConfirm={() => void removeSponsorship(sponsorship.id)}
+                                  onConfirm={() => removeSponsorship(sponsorship.id)}
                                 >
                                   Sil
                                 </ConfirmButton>
@@ -503,7 +514,7 @@ export default function SponsorsPage() {
                         {mayDelete ? (
                           <ConfirmButton
                             question={`${organization.name} silinsin mi?`}
-                            onConfirm={() => void removeOrg(organization.id)}
+                            onConfirm={() => removeOrg(organization.id)}
                           >
                             Sil
                           </ConfirmButton>

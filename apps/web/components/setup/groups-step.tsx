@@ -87,7 +87,7 @@ export function GroupsStep() {
                             .join(", ");
                           return `Silinecek: ${going}. Devam edilsin mi?`;
                         })()}
-                        onConfirm={() => void remove(group.id)}
+                        onConfirm={() => remove(group.id)}
                       >
                         Sil
                       </ConfirmButton>
