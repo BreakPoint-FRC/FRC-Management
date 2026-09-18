@@ -253,8 +253,8 @@ export default function AccountsPage() {
 
       <AsyncSection state={accounts}>
         {(data) => (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="table-wrap table-responsive-wrap">
+            <table className="table table-responsive">
               <thead>
                 <tr>
                   <th>Ad</th>
@@ -268,17 +268,21 @@ export default function AccountsPage() {
               <tbody>
                 {data.items.map((account) => (
                   <tr key={account.id}>
-                    <td>{account.fullName}</td>
-                    <td className="muted">{account.email}</td>
-                    <td>{account.roles.length ? formatAccountRoles(account.roles) : "—"}</td>
-                    <td>
+                    <td data-label="Ad">{account.fullName}</td>
+                    <td className="muted" data-label="E-posta">
+                      {account.email}
+                    </td>
+                    <td data-label="Roller">
+                      {account.roles.length ? formatAccountRoles(account.roles) : "—"}
+                    </td>
+                    <td data-label="Gruplar">
                       <div className="row">
                         {account.groups.map((group) => (
                           <Badge key={group.id}>{group.name}</Badge>
                         ))}
                       </div>
                     </td>
-                    <td>
+                    <td data-label="Durum">
                       {account.archivedAt ? (
                         <Badge tone="off">Arşivlendi</Badge>
                       ) : account.isActive ? (

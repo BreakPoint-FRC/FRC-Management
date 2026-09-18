@@ -215,21 +215,89 @@ a {
   background: var(--accent);
 }
 
-/* On a phone the sidebar becomes a scrolling strip above the content -- the
-   nav is short enough that it does not need a drawer. */
+/* --- mobile top bar and drawer ------------------------------------------
+ * Hidden entirely above 720px -- the sidebar is a permanent column there and
+ * needs no toggle to reach it. */
+.mobile-topbar,
+.sidebar-toggle,
+.sidebar-backdrop {
+  display: none;
+}
+
 @media (max-width: 720px) {
   .app-shell {
     grid-template-columns: 1fr;
   }
 
-  .sidebar {
-    border-right: none;
+  .mobile-topbar {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--space) * 1.5);
+    padding: var(--space) calc(var(--space) * 2);
+    background: var(--surface);
     border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 20;
+  }
+
+  /* Duplicated in .sidebar's own header for when the drawer is open over a
+     scrolled page; hidden here once it would just repeat the top bar's. */
+  .mobile-topbar + .sidebar > .brand {
+    display: none;
+  }
+
+  .sidebar-toggle {
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+    gap: 4px;
+    width: 36px;
+    height: 36px;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    background: var(--bg);
+    cursor: pointer;
+    flex-shrink: 0;
+  }
+
+  .sidebar-toggle span {
+    display: block;
+    width: 16px;
+    height: 2px;
+    border-radius: 1px;
+    background: var(--text);
+  }
+
+  .sidebar-backdrop.is-open {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgb(15 23 42 / 45%);
+    z-index: 25;
+  }
+
+  .sidebar {
+    position: fixed;
+    inset: 0 18% 0 0;
+    max-width: 300px;
+    z-index: 30;
+    border-right: 1px solid var(--border);
+    border-bottom: none;
+    overflow-y: auto;
+    transform: translateX(-100%);
+    transition: transform 180ms ease;
+  }
+
+  .sidebar.is-open {
+    transform: translateX(0);
+    box-shadow: 4px 0 16px rgb(15 23 42 / 20%);
   }
 
   .sidebar nav ul {
-    flex-direction: row;
-    overflow-x: auto;
+    flex-direction: column;
   }
 
   .content {
@@ -533,6 +601,68 @@ a {
 .table th.numeric {
   text-align: right;
   font-variant-numeric: tabular-nums;
+}
+
+/* --- responsive tables ---------------------------------------------------
+ * `.table-responsive` on a <table> plus `data-label` on each <td> turns a
+ * wide row into a labelled card below 720px, instead of one more table a
+ * phone has to scroll sideways to read. `data-label` on a <th> stays unused
+ * at every width -- it exists so the label and the header text cannot drift
+ * apart, the same row that gets edited when a column is renamed.
+ */
+@media (max-width: 720px) {
+  .table-responsive thead {
+    display: none;
+  }
+
+  .table-responsive,
+  .table-responsive tbody,
+  .table-responsive tr {
+    display: block;
+    width: 100%;
+  }
+
+  .table-responsive tr {
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: calc(var(--space) * 1.5);
+    margin-bottom: var(--space);
+    background: var(--surface);
+  }
+
+  .table-responsive tr:last-child {
+    margin-bottom: 0;
+  }
+
+  .table-responsive td {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: calc(var(--space) * 2);
+    padding: 5px 0;
+    border-bottom: none;
+    text-align: right;
+  }
+
+  .table-responsive td[data-label]::before {
+    content: attr(data-label);
+    font-weight: 600;
+    color: var(--muted);
+    text-align: left;
+    flex-shrink: 0;
+  }
+
+  /* A cell with nothing to label (row actions, a lone checkbox) skips the
+     label row and right-aligns its content directly instead of drawing an
+     empty line. */
+  .table-responsive td:not([data-label]) {
+    justify-content: flex-end;
+  }
+
+  .table-responsive-wrap {
+    overflow-x: visible;
+    border: none;
+  }
 }
 
 /* --- audit log --------------------------------------------------------- */

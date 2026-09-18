@@ -130,6 +130,8 @@ for (const width of [360, 1280]) for (const colorScheme of ["light", "dark"] as 
     await page.emulateMedia({ colorScheme });
     await page.route("http://localhost:4100/audit-log?*", (route) => route.fulfill({ json: { items: [{ ...rows[0], actor: { id: "actor", fullName: "LongActorName".repeat(15) }, entityId: "long-id".repeat(30) }], page: 1, pageSize: 25, total: 1, totalPages: 1 } }));
     await login(page);
+    // Below 720px the sidebar is a collapsed drawer behind a hamburger toggle.
+    if (width <= 720) await page.locator(".sidebar-toggle").click();
     await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
     await expect(page.locator("tbody tr")).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

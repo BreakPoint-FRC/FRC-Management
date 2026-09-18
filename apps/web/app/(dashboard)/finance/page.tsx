@@ -275,8 +275,8 @@ export default function FinancePage() {
 
         <AsyncSection state={transactions} empty="Bu filtrelerle kayıt yok.">
           {(data) => (
-            <div className="table-wrap">
-              <table className="table">
+            <div className="table-wrap table-responsive-wrap">
+              <table className="table table-responsive">
                 <thead>
                   <tr>
                     <th>Tarih</th>
@@ -291,14 +291,14 @@ export default function FinancePage() {
                 <tbody>
                   {data.items.map((transaction) => (
                     <tr key={transaction.id}>
-                      <td>{formatDate(transaction.transactionDate)}</td>
-                      <td>
+                      <td data-label="Tarih">{formatDate(transaction.transactionDate)}</td>
+                      <td data-label="Tür">
                         <Badge tone={transaction.type === "INCOME" ? "ok" : "danger"}>
                           {transactionTypeLabels[transaction.type]}
                         </Badge>
                       </td>
-                      <td>{transaction.category}</td>
-                      <td className="muted">
+                      <td data-label="Kategori">{transaction.category}</td>
+                      <td className="muted" data-label="Açıklama">
                         {transaction.description ?? "—"}
                         {transaction.source ? (
                           <div className="small muted">
@@ -306,8 +306,12 @@ export default function FinancePage() {
                           </div>
                         ) : null}
                       </td>
-                      <td>{transaction.groupName ?? <span className="muted">Takım geneli</span>}</td>
-                      <td className="numeric">{formatMoney(transaction.amount)}</td>
+                      <td data-label="Grup">
+                        {transaction.groupName ?? <span className="muted">Takım geneli</span>}
+                      </td>
+                      <td className="numeric" data-label="Tutar">
+                        {formatMoney(transaction.amount)}
+                      </td>
                       <td>
                         <RowActions>
                           {can(permissions, "FINANCE", "update", transaction.groupId) ? (

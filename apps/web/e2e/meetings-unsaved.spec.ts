@@ -41,6 +41,9 @@ async function setup(page: Page) {
   await page.getByLabel("E-posta").fill("editor@example.test");
   await page.getByLabel("Şifre", { exact: true }).fill("test-password");
   await page.getByRole("button", { name: "Giriş yap", exact: true }).click();
+  // Below 720px the sidebar is a collapsed drawer behind a hamburger toggle.
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width <= 720) await page.locator(".sidebar-toggle").click();
   await page.getByRole("link", { name: "Toplantılar", exact: true }).click();
   await page.getByRole("button", { name: "Düzenle", exact: true }).first().click();
   await expect(report(page)).toHaveValue("Alpha report");

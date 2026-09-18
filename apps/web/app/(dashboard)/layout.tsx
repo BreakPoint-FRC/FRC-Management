@@ -1,7 +1,7 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useEffect, type ReactNode } from "react";
+import { usePathname, useRouter } from "next/navigation";
+import { useEffect, useState, type ReactNode } from "react";
 
 import { AccountMenu } from "@/components/account-menu";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -14,10 +14,17 @@ import { visibleNavigationSections } from "@/lib/navigation";
  * Sections group related tools and disappear entirely once nothing under them
  * is visible -- see visibleNavigationSections -- so a plain member's sidebar
  * is five lines, not fourteen with most of them greyed out.
+ *
+ * On a phone the sidebar is a slide-out drawer rather than a permanently
+ * visible strip: a hamburger button in the mobile top bar opens it, and it
+ * closes on a nav tap, a backdrop tap, Escape, or the route itself changing
+ * (covers browser back/forward, which fire no click here to catch).
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const { status, account, team, roles, permissions } = useAuth();
   const router = useRouter();
+  const pathname = usePathname();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // The whole dashboard waits for setup, not part of it.
   //
@@ -47,6 +54,17 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     if (blockedBySetup) router.replace("/setup");
   }, [status, account?.mustChangePassword, blockedBySetup, router]);
 
+  useEffect(() => setDrawerOpen(false), [pathname]);
+
+  useEffect(() => {
+    if (!drawerOpen) return;
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") setDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [drawerOpen]);
+
   // "loading" is the session restore; "anonymous" is the moment before the
   // redirect above lands. Neither should flash a half-rendered dashboard, and
   // neither should the instant before the two redirects land.
@@ -58,7 +76,31 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   return (
     <div className="app-shell">
-      <aside className="sidebar">
+      <div
+        className={`sidebar-backdrop${drawerOpen ? " is-open" : ""}`}
+        onClick={() => setDrawerOpen(false)}
+        aria-hidden="true"
+      />
+
+      <div className="mobile-topbar">
+        <button
+          type="button"
+          className="sidebar-toggle"
+          aria-label={drawerOpen ? "Menüyü kapat" : "Menüyü aç"}
+          aria-expanded={drawerOpen}
+          onClick={() => setDrawerOpen((open) => !open)}
+        >
+          <span />
+          <span />
+          <span />
+        </button>
+        <div className="brand">
+          <span className="brand-dot" />
+          <span>BreakPoint</span>
+        </div>
+      </div>
+
+      <aside className={`sidebar${drawerOpen ? " is-open" : ""}`}>
         <div className="brand">
           <span className="brand-dot" />
           <span>BreakPoint</span>

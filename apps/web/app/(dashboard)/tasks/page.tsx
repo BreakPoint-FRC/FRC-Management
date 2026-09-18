@@ -328,8 +328,8 @@ export default function TasksPage() {
           items.length === 0 ? (
             <p className="empty">Bu filtrelerle görev yok.</p>
           ) : (
-            <div className="table-wrap">
-              <table className="table">
+            <div className="table-wrap table-responsive-wrap">
+              <table className="table table-responsive">
                 <thead>
                   <tr>
                     <th>Görev</th>
@@ -344,24 +344,26 @@ export default function TasksPage() {
                 <tbody>
                   {items.map((task) => (
                     <tr key={task.id}>
-                      <td>
+                      <td data-label="Görev">
                         <Link href={`/tasks/${task.id}`}>{task.name}</Link>
                       </td>
-                      <td>{task.groupName ?? <span className="muted">Gruplar arası</span>}</td>
-                      <td>
+                      <td data-label="Grup">
+                        {task.groupName ?? <span className="muted">Gruplar arası</span>}
+                      </td>
+                      <td data-label="Durum">
                         <Badge tone={taskStatusTone[task.status]}>
                           {taskStatusLabels[task.status]}
                         </Badge>
                       </td>
-                      <td>{taskPriorityLabels[task.priority]}</td>
-                      <td>
+                      <td data-label="Öncelik">{taskPriorityLabels[task.priority]}</td>
+                      <td data-label="Sorumlular">
                         {task.assignees.length === 0 ? (
                           <span className="muted">—</span>
                         ) : (
                           task.assignees.map((assignee) => assignee.fullName).join(", ")
                         )}
                       </td>
-                      <td>{formatDate(task.dueDate)}</td>
+                      <td data-label="Bitiş">{formatDate(task.dueDate)}</td>
                       <td>
                         <RowActions>
                           {/* Authorized against the group the task is in, read
