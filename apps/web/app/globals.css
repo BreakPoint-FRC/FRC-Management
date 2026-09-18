@@ -308,12 +308,29 @@ a {
 /* --- nav ---------------------------------------------------------------- */
 
 .nav-link {
-  display: block;
+  display: flex;
+  align-items: center;
+  gap: 10px;
   padding: 6px var(--space);
   border-radius: var(--radius);
   text-decoration: none;
   color: var(--muted);
   white-space: nowrap;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nav-link {
+    transition: none;
+  }
+}
+
+.nav-link svg {
+  flex-shrink: 0;
+  opacity: 0.8;
+}
+.nav-link[aria-current="page"] svg {
+  opacity: 1;
 }
 
 .nav-link:hover {
@@ -427,6 +444,9 @@ a {
 
 .account-menu-panel a,
 .account-menu-panel button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
   font: inherit;
   text-align: left;
   padding: 6px var(--space);
@@ -436,6 +456,12 @@ a {
   color: var(--text);
   text-decoration: none;
   cursor: pointer;
+}
+
+.account-menu-panel a svg,
+.account-menu-panel button svg {
+  flex-shrink: 0;
+  opacity: 0.8;
 }
 
 .account-menu-panel a:hover,
@@ -451,6 +477,7 @@ a {
 
 .account-menu-theme button {
   flex: 1;
+  justify-content: center;
   text-align: center;
   font-size: 12px;
   padding: 4px 2px;
@@ -550,6 +577,17 @@ a {
   border: 1px solid var(--border);
   border-radius: var(--radius);
   padding: calc(var(--space) * 2);
+  transition: border-color 150ms ease, box-shadow 150ms ease;
+}
+
+.card:hover {
+  border-color: var(--muted);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card {
+    transition: none;
+  }
 }
 
 .card-title {
@@ -762,6 +800,9 @@ a {
 /* --- controls ----------------------------------------------------------- */
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font: inherit;
   padding: 6px calc(var(--space) * 1.5);
   border: 1px solid var(--border);
@@ -769,10 +810,20 @@ a {
   background: var(--bg);
   color: var(--text);
   cursor: pointer;
+  transition: background-color 150ms ease, border-color 150ms ease, transform 150ms ease,
+    filter 150ms ease;
+}
+
+.btn svg {
+  flex-shrink: 0;
 }
 
 .btn:hover:not(:disabled) {
   background: var(--surface-2);
+}
+
+.btn:active:not(:disabled) {
+  transform: scale(0.97);
 }
 
 .btn:disabled {
@@ -789,6 +840,15 @@ a {
 .btn-primary:hover:not(:disabled) {
   filter: brightness(0.94);
   background: var(--accent);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .btn {
+    transition: none;
+  }
+  .btn:active:not(:disabled) {
+    transform: none;
+  }
 }
 
 .btn-sm {

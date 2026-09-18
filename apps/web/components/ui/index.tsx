@@ -2,11 +2,20 @@
 
 import { GuardedLink } from "@/components/unsaved-changes";
 import { usePathname } from "next/navigation";
+import type { LucideIcon } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import type { ApiError } from "@/lib/api-client";
 
-export function NavLink({ href, children }: { href: string; children: ReactNode }) {
+export function NavLink({
+  href,
+  icon: Icon,
+  children,
+}: {
+  href: string;
+  icon: LucideIcon;
+  children: ReactNode;
+}) {
   const pathname = usePathname();
   // Exact match for the overview, prefix match elsewhere, so /tasks/abc still
   // highlights Tasks.
@@ -14,6 +23,7 @@ export function NavLink({ href, children }: { href: string; children: ReactNode 
 
   return (
     <GuardedLink className="nav-link" href={href} aria-current={active ? "page" : undefined}>
+      <Icon size={16} aria-hidden="true" />
       {children}
     </GuardedLink>
   );

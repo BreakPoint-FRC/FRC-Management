@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Archive, Plus } from "lucide-react";
 import { TEAM_SETUP_STAGE_LABELS, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -104,7 +105,8 @@ export default function TeamsPage() {
             type="button"
             onClick={() => open({ kind: "team" })}
           >
-            + Yeni takım
+            <Plus size={14} aria-hidden="true" />
+            Yeni takım
           </button>
         ) : null}
       </PageHeader>
@@ -245,6 +247,7 @@ export default function TeamsPage() {
                             question={`${team.name} arşivlensin mi? Takımdaki herkesin oturumu kapanır.`}
                             onConfirm={() => archive(team.id)}
                           >
+                            <Archive size={14} aria-hidden="true" />
                             Arşivle
                           </ConfirmButton>
                         ) : null}

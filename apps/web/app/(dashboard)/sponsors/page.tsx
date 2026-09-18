@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import {
   sponsorshipStatusLabels,
   type Paginated,
@@ -244,7 +245,8 @@ export default function SponsorsPage() {
       <PageHeader title="Sponsorlar">
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={() => openOrg(null)}>
-            + Yeni firma
+            <Plus size={14} aria-hidden="true" />
+            Yeni firma
           </button>
         ) : null}
       </PageHeader>
@@ -475,6 +477,7 @@ export default function SponsorsPage() {
                                   type="button"
                                   onClick={() => openSponsorship(organization, sponsorship)}
                                 >
+                                  <Pencil size={14} aria-hidden="true" />
                                   Düzenle
                                 </button>
                               ) : null}
@@ -483,6 +486,7 @@ export default function SponsorsPage() {
                                   question={`${sponsorship.season.name} kaydı silinsin mi?`}
                                   onConfirm={() => removeSponsorship(sponsorship.id)}
                                 >
+                                  <Trash2 size={14} aria-hidden="true" />
                                   Sil
                                 </ConfirmButton>
                               ) : null}
@@ -508,6 +512,7 @@ export default function SponsorsPage() {
                             type="button"
                             onClick={() => openOrg(organization)}
                           >
+                            <Pencil size={14} aria-hidden="true" />
                             Düzenle
                           </button>
                         ) : null}
@@ -516,6 +521,7 @@ export default function SponsorsPage() {
                             question={`${organization.name} silinsin mi?`}
                             onConfirm={() => removeOrg(organization.id)}
                           >
+                            <Trash2 size={14} aria-hidden="true" />
                             Sil
                           </ConfirmButton>
                         ) : null}

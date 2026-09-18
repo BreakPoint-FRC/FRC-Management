@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { transactionTypeLabels, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -168,7 +169,8 @@ export default function FinancePage() {
         <input type="date" value={to} onChange={(event) => setTo(event.target.value)} />
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni kayıt
+            <Plus size={14} aria-hidden="true" />
+            Yeni kayıt
           </button>
         ) : null}
       </PageHeader>
@@ -322,6 +324,7 @@ export default function FinancePage() {
                               type="button"
                               onClick={() => openEdit(transaction)}
                             >
+                              <Pencil size={14} aria-hidden="true" />
                               Düzenle
                             </button>
                           ) : null}
@@ -334,6 +337,7 @@ export default function FinancePage() {
                               }
                               onConfirm={() => remove(transaction.id)}
                             >
+                              <Trash2 size={14} aria-hidden="true" />
                               Sil
                             </ConfirmButton>
                           ) : null}

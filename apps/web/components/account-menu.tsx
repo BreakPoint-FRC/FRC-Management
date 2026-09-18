@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { formatAccountRole, primaryAccountRole } from "@breakpoint/types";
+import { KeyRound, LogOut, Monitor, Moon, ShieldCheck, Sun, type LucideIcon } from "lucide-react";
 
 import { useAuth, type SessionAccount, type SessionRole, type SessionTeam } from "@/components/auth/auth-provider";
 import { GuardedLink, useLeaveGuard } from "@/components/unsaved-changes";
@@ -16,10 +17,10 @@ function initials(fullName: string): string {
   return (first + last).toUpperCase();
 }
 
-const THEME_OPTIONS: Array<{ value: ThemePreference; label: string }> = [
-  { value: "system", label: "Sistem" },
-  { value: "light", label: "Açık" },
-  { value: "dark", label: "Koyu" },
+const THEME_OPTIONS: Array<{ value: ThemePreference; label: string; icon: LucideIcon }> = [
+  { value: "system", label: "Sistem", icon: Monitor },
+  { value: "light", label: "Açık", icon: Sun },
+  { value: "dark", label: "Koyu", icon: Moon },
 ];
 
 /**
@@ -95,9 +96,15 @@ export function AccountMenu({
 
       <div className="account-menu-panel">
         {team ? (
-          <GuardedLink href="/account">Rollerim ve yetkilerim</GuardedLink>
+          <GuardedLink href="/account">
+            <ShieldCheck size={16} aria-hidden="true" />
+            Rollerim ve yetkilerim
+          </GuardedLink>
         ) : null}
-        <GuardedLink href="/change-password">Şifre değiştir</GuardedLink>
+        <GuardedLink href="/change-password">
+          <KeyRound size={16} aria-hidden="true" />
+          Şifre değiştir
+        </GuardedLink>
 
         <hr className="account-menu-divider" />
 
@@ -110,6 +117,7 @@ export function AccountMenu({
               aria-pressed={option.value === theme}
               onClick={() => chooseTheme(option.value)}
             >
+              <option.icon size={14} aria-hidden="true" />
               {option.label}
             </button>
           ))}
@@ -129,6 +137,7 @@ export function AccountMenu({
             });
           }}
         >
+          <LogOut size={16} aria-hidden="true" />
           Çıkış yap
         </button>
       </div>

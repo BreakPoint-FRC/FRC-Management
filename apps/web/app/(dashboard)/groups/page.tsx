@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { flattenGroupTree, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -170,7 +171,8 @@ export default function GroupsPage() {
       <PageHeader title="Gruplar">
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni grup
+            <Plus size={14} aria-hidden="true" />
+            Yeni grup
           </button>
         ) : null}
       </PageHeader>
@@ -355,6 +357,7 @@ export default function GroupsPage() {
                     ) : null}
                     {can(permissions, "GROUPS", "update") ? (
                       <button className="btn btn-sm" type="button" onClick={() => openEdit(group)}>
+                        <Pencil size={14} aria-hidden="true" />
                         Düzenle
                       </button>
                     ) : null}
@@ -370,6 +373,7 @@ export default function GroupsPage() {
                         }
                         onConfirm={() => remove(group.id)}
                       >
+                        <Trash2 size={14} aria-hidden="true" />
                         Sil
                       </ConfirmButton>
                     ) : null}

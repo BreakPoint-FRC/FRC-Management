@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import { attendanceStatusLabels, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -148,7 +149,8 @@ export default function MeetingsPage() {
             disabled={mutation.saving}
             onClick={() => guard.requestLeave(openCreate)}
           >
-            + Yeni toplantı
+            <Plus size={14} aria-hidden="true" />
+            Yeni toplantı
           </button>
         ) : null}
       </PageHeader>
@@ -290,6 +292,7 @@ function MeetingList({
                     disabled={saving}
                     onClick={() => onEdit(meeting)}
                   >
+                    <Pencil size={14} aria-hidden="true" />
                     Düzenle
                   </button>
                 ) : null}
@@ -299,6 +302,7 @@ function MeetingList({
                     question={`${meeting.title} silinsin mi? Yoklaması da silinir.`}
                     onConfirm={() => onDelete(meeting.id)}
                   >
+                    <Trash2 size={14} aria-hidden="true" />
                     Sil
                   </ConfirmButton>
                 ) : null}

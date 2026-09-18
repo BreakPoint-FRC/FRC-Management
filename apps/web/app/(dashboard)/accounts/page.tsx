@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Archive, Pencil, Plus } from "lucide-react";
 import { formatAccountRoles, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -161,7 +162,8 @@ export default function AccountsPage() {
         </select>
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni hesap
+            <Plus size={14} aria-hidden="true" />
+            Yeni hesap
           </button>
         ) : null}
       </PageHeader>
@@ -328,6 +330,7 @@ export default function AccountsPage() {
                         ) : null}
                         {mayUpdate ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(account)}>
+                            <Pencil size={14} aria-hidden="true" />
                             Düzenle
                           </button>
                         ) : null}
@@ -338,6 +341,7 @@ export default function AccountsPage() {
                             question={`${account.fullName} arşivlensin mi?`}
                             onConfirm={() => archive(account.id)}
                           >
+                            <Archive size={14} aria-hidden="true" />
                             Arşivle
                           </ConfirmButton>
                         ) : null}

@@ -53,7 +53,7 @@ async function setup(page: Page) {
 async function openDirtyEditor(page: Page, mode: "edit" | "create") {
   const calls = await setup(page);
   if (mode === "create") {
-    await page.getByRole("button", { name: "+ Yeni toplantı", exact: true }).click();
+    await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
     await expect(dialog(page)).toHaveCount(0);
     await expect(report(page)).toHaveValue("");
   }
@@ -105,7 +105,7 @@ for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as
     await report(page).fill("Unsaved report");
     const trigger = action === "cancel" ? cancel(page)
       : action === "edit" ? page.getByRole("button", { name: "Düzenle", exact: true }).nth(1)
-      : action === "create" ? page.getByRole("button", { name: "+ Yeni toplantı", exact: true })
+      : action === "create" ? page.getByRole("button", { name: "Yeni toplantı", exact: true })
       : action === "detail" ? page.getByRole("link", { name: "Beta", exact: true })
       : action === "menu" ? page.getByRole("link", { name: "Ana Sayfa", exact: true })
       : page.getByRole("button", { name: "Çıkış yap", exact: true });
@@ -281,7 +281,7 @@ for (const mode of ["edit", "create"] as const) {
   test(`successful ${mode} immediately clears both guards`, async ({ page }) => {
     const calls = await setup(page);
     if (mode === "create") {
-      await page.getByRole("button", { name: "+ Yeni toplantı", exact: true }).click();
+      await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
       await expect(dialog(page)).toHaveCount(0);
       await page.locator('form input[type="text"]').fill("Created meeting");
     }
@@ -305,7 +305,7 @@ for (const mode of ["edit", "create"] as const) for (const exit of ["reload", "c
   test(`${mode} then immediate ${exit} has no native warning`, async ({ page }) => {
     await setup(page);
     if (mode === "create") {
-      await page.getByRole("button", { name: "+ Yeni toplantı", exact: true }).click();
+      await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
       await page.locator('form input[type="text"]').fill("Created meeting");
     }
     await report(page).fill("Saved update");

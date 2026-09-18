@@ -1,3 +1,18 @@
+import {
+  Award,
+  Building2,
+  CalendarDays,
+  ClipboardList,
+  Feather,
+  Gauge,
+  Landmark,
+  LayoutGrid,
+  ScrollText,
+  Settings2,
+  ShieldCheck,
+  Users,
+  type LucideIcon,
+} from "lucide-react";
 import type { ToolKey } from "@breakpoint/types";
 
 import { can, canAnywhere, type PermissionMap } from "./permissions";
@@ -5,6 +20,7 @@ import { can, canAnywhere, type PermissionMap } from "./permissions";
 export interface NavigationItem {
   href: string;
   label: string;
+  icon: LucideIcon;
   tool?: ToolKey;
   /** The route also requires an account outside every team. */
   platformOnly?: boolean;
@@ -28,39 +44,45 @@ export const NAV_SECTIONS: readonly NavigationSection[] = [
   {
     label: null,
     items: [
-      { href: "/", label: "Ana Sayfa" },
-      { href: "/calendar", label: "Takvim", tool: "CALENDAR" },
+      { href: "/", label: "Ana Sayfa", icon: Gauge },
+      { href: "/calendar", label: "Takvim", icon: CalendarDays, tool: "CALENDAR" },
     ],
   },
   {
     label: "Çalışmalar",
     items: [
-      { href: "/tasks", label: "Görevler", tool: "TASKS" },
-      { href: "/meetings", label: "Toplantılar", tool: "MEETINGS" },
-      { href: "/gantt", label: "Zaman Çizelgesi", tool: "GANTT" },
+      { href: "/tasks", label: "Görevler", icon: ClipboardList, tool: "TASKS" },
+      { href: "/meetings", label: "Toplantılar", icon: Users, tool: "MEETINGS" },
+      { href: "/gantt", label: "Zaman Çizelgesi", icon: LayoutGrid, tool: "GANTT" },
     ],
   },
   {
     label: "Takım",
     items: [
-      { href: "/accounts", label: "Üyeler", tool: "ACCOUNTS" },
-      { href: "/groups", label: "Gruplar", tool: "GROUPS" },
+      { href: "/accounts", label: "Üyeler", icon: Users, tool: "ACCOUNTS" },
+      { href: "/groups", label: "Gruplar", icon: Building2, tool: "GROUPS" },
     ],
   },
   {
     label: "Kaynaklar",
     items: [
-      { href: "/sponsors", label: "Sponsorlar", tool: "SPONSORS" },
-      { href: "/finance", label: "Finans", tool: "FINANCE" },
+      { href: "/sponsors", label: "Sponsorlar", icon: Award, tool: "SPONSORS" },
+      { href: "/finance", label: "Finans", icon: Landmark, tool: "FINANCE" },
     ],
   },
   {
     label: "Yönetim",
     items: [
-      { href: "/roles", label: "Roller ve Yetkiler", tool: "ROLES" },
-      { href: "/seasons", label: "Sezonlar", tool: "SEASONS" },
+      { href: "/roles", label: "Roller ve Yetkiler", icon: ShieldCheck, tool: "ROLES" },
+      { href: "/seasons", label: "Sezonlar", icon: Feather, tool: "SEASONS" },
       // #23 grants audit access independently of role editing; keep its own route.
-      { href: "/audit-log", label: "Denetim Kayıtları", tool: "AUDIT_LOG", globalOnly: true },
+      {
+        href: "/audit-log",
+        label: "Denetim Kayıtları",
+        icon: ScrollText,
+        tool: "AUDIT_LOG",
+        globalOnly: true,
+      },
     ],
   },
 ];
@@ -70,9 +92,15 @@ export const PLATFORM_NAV_SECTIONS: readonly NavigationSection[] = [
   {
     label: null,
     items: [
-      { href: "/", label: "Platform" },
-      { href: "/teams", label: "Takımlar", tool: "TEAMS", platformOnly: true },
-      { href: "/tools", label: "Platform Modülleri", tool: "TOOLS", platformOnly: true },
+      { href: "/", label: "Platform", icon: Gauge },
+      { href: "/teams", label: "Takımlar", icon: Building2, tool: "TEAMS", platformOnly: true },
+      {
+        href: "/tools",
+        label: "Platform Modülleri",
+        icon: Settings2,
+        tool: "TOOLS",
+        platformOnly: true,
+      },
     ],
   },
 ];

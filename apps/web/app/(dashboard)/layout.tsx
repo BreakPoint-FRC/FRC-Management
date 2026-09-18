@@ -1,7 +1,7 @@
 "use client";
 
 import { usePathname, useRouter } from "next/navigation";
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { AccountMenu } from "@/components/account-menu";
 import { useAuth } from "@/components/auth/auth-provider";
@@ -25,6 +25,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const sidebarRef = useRef<HTMLElement>(null);
+  const toggleRef = useRef<HTMLButtonElement>(null);
 
   // The whole dashboard waits for setup, not part of it.
   //
@@ -56,13 +58,64 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
   useEffect(() => setDrawerOpen(false), [pathname]);
 
+  // The drawer overlays the page rather than replacing it in the DOM, so
+  // without this Tab would walk straight past the sidebar's last link into
+  // the (visually hidden, but still focusable) page underneath. While open,
+  // focus starts inside the drawer and Tab/Shift+Tab cycle only its own
+  // focusable elements -- the same contract the dialogs already keep.
   useEffect(() => {
-    if (!drawerOpen) return;
+    if (!drawerOpen) {
+      return;
+    }
+
+    // Recomputed on every Tab, not cached once: the account menu's own
+    // <details> can open mid-drawer and add focusable rows below it. Chromium
+    // keeps a closed <details>'s panel laid out (content-visibility: hidden)
+    // rather than display:none, so offsetParent alone does not detect it --
+    // excluding anything still inside a closed <details> does.
+    function focusableElements(): HTMLElement[] {
+      const container = sidebarRef.current;
+      if (!container) return [];
+      return Array.from(
+        container.querySelectorAll<HTMLElement>(
+          'a[href], button:not([disabled]), summary, [tabindex]:not([tabindex="-1"])'
+        )
+      ).filter((element) => {
+        if (element.offsetParent === null) return false;
+        // The <summary> itself stays reachable even while its own <details>
+        // is closed -- only the panel content it reveals is excluded.
+        const closedDetails = element.closest("details:not([open])");
+        return !closedDetails || element.tagName === "SUMMARY";
+      });
+    }
+
+    focusableElements()[0]?.focus();
+
     function onKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") setDrawerOpen(false);
+      if (event.key === "Escape") {
+        setDrawerOpen(false);
+        return;
+      }
+      if (event.key !== "Tab") return;
+
+      const focusable = focusableElements();
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
     }
     document.addEventListener("keydown", onKeyDown);
-    return () => document.removeEventListener("keydown", onKeyDown);
+    const toggle = toggleRef.current;
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      toggle?.focus();
+    };
   }, [drawerOpen]);
 
   // "loading" is the session restore; "anonymous" is the moment before the
@@ -84,6 +137,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
       <div className="mobile-topbar">
         <button
+          ref={toggleRef}
           type="button"
           className="sidebar-toggle"
           aria-label={drawerOpen ? "Menüyü kapat" : "Menüyü aç"}
@@ -100,7 +154,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         </div>
       </div>
 
-      <aside className={`sidebar${drawerOpen ? " is-open" : ""}`}>
+      <aside ref={sidebarRef} className={`sidebar${drawerOpen ? " is-open" : ""}`}>
         <div className="brand">
           <span className="brand-dot" />
           <span>BreakPoint</span>
@@ -113,7 +167,9 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
               <ul>
                 {section.items.map((item) => (
                   <li key={item.href}>
-                    <NavLink href={item.href}>{item.label}</NavLink>
+                    <NavLink href={item.href} icon={item.icon}>
+                      {item.label}
+                    </NavLink>
                   </li>
                 ))}
               </ul>

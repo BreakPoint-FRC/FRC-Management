@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { CheckCircle2, Pencil, Plus, Trash2 } from "lucide-react";
 import type { Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -89,7 +90,8 @@ export default function SeasonsPage() {
       <PageHeader title="Sezonlar">
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni sezon
+            <Plus size={14} aria-hidden="true" />
+            Yeni sezon
           </button>
         ) : null}
       </PageHeader>
@@ -180,6 +182,7 @@ export default function SeasonsPage() {
                             type="button"
                             onClick={() => void activate(season.id)}
                           >
+                            <CheckCircle2 size={14} aria-hidden="true" />
                             Aktifleştir
                           </button>
                         ) : null}
@@ -189,6 +192,7 @@ export default function SeasonsPage() {
                             type="button"
                             onClick={() => openEdit(season)}
                           >
+                            <Pencil size={14} aria-hidden="true" />
                             Düzenle
                           </button>
                         ) : null}
@@ -197,6 +201,7 @@ export default function SeasonsPage() {
                             question={`${season.name} silinsin mi?`}
                             onConfirm={() => remove(season.id)}
                           >
+                            <Trash2 size={14} aria-hidden="true" />
                             Sil
                           </ConfirmButton>
                         ) : null}

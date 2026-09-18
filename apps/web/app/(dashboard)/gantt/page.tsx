@@ -2,6 +2,7 @@
 
 import dynamic from "next/dynamic";
 import { useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import type { Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -167,7 +168,8 @@ export default function GanttPage() {
         </select>
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={() => openForm(null)}>
-            + Yeni pano
+            <Plus size={14} aria-hidden="true" />
+            Yeni pano
           </button>
         ) : null}
       </PageHeader>
@@ -321,6 +323,7 @@ export default function GanttPage() {
                                   type="button"
                                   onClick={() => openForm(board)}
                                 >
+                                  <Pencil size={14} aria-hidden="true" />
                                   Düzenle
                                 </button>
                               </>
@@ -330,6 +333,7 @@ export default function GanttPage() {
                                 question={`${board.name} panosu silinsin mi? Görevler silinmez.`}
                                 onConfirm={() => remove(board.id)}
                               >
+                                <Trash2 size={14} aria-hidden="true" />
                                 Sil
                               </ConfirmButton>
                             ) : null}

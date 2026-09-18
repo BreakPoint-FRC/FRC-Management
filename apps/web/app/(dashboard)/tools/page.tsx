@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Pencil, PowerOff } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import {
@@ -157,6 +158,7 @@ export default function ToolsPage() {
                       <RowActions>
                         {mayUpdate ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(tool)}>
+                            <Pencil size={14} aria-hidden="true" />
                             Düzenle
                           </button>
                         ) : null}
@@ -165,6 +167,7 @@ export default function ToolsPage() {
                             question={`${tool.name} modülü herkes için kapatılsın mı?`}
                             onConfirm={() => deactivate(tool.id)}
                           >
+                            <PowerOff size={14} aria-hidden="true" />
                             Pasife al
                           </ConfirmButton>
                         ) : null}

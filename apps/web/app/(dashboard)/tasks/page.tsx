@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useState } from "react";
+import { Pencil, Plus, Trash2 } from "lucide-react";
 import {
   taskPriorityLabels,
   taskStatusLabels,
@@ -200,7 +201,8 @@ export default function TasksPage() {
       <PageHeader title="Görevler">
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni görev
+            <Plus size={14} aria-hidden="true" />
+            Yeni görev
           </button>
         ) : null}
       </PageHeader>
@@ -372,6 +374,7 @@ export default function TasksPage() {
                               from the stored row rather than any form state. */}
                           {can(permissions, "TASKS", "update", task.groupId) ? (
                             <button className="btn btn-sm" type="button" onClick={() => openEdit(task)}>
+                              <Pencil size={14} aria-hidden="true" />
                               Düzenle
                             </button>
                           ) : null}
@@ -380,6 +383,7 @@ export default function TasksPage() {
                               question={`${task.name} silinsin mi? Geçmişi de silinir.`}
                               onConfirm={() => remove(task.id)}
                             >
+                              <Trash2 size={14} aria-hidden="true" />
                               Sil
                             </ConfirmButton>
                           ) : null}
