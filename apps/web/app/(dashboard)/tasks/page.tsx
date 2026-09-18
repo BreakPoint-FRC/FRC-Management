@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import {
   taskPriorityLabels,
   taskStatusLabels,
@@ -18,6 +18,7 @@ import {
   RowActions,
 } from "@/components/ui";
 import {
+  CheckboxField,
   FormPanel,
   SelectField,
   TextAreaField,
@@ -27,7 +28,7 @@ import {
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
-import type { TaskRow } from "@/lib/api-types";
+import type { AccountRow, TaskRow } from "@/lib/api-types";
 import { emptyToNull, emptyToUndefined, selectToNull } from "@/lib/form-helpers";
 import { formatDate, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
@@ -56,22 +57,85 @@ const BLANK: Draft = {
 
 export default function TasksPage() {
   const { groups = [], permissions } = useAuth();
-  const [groupId, setGroupId] = useState("");
+  // "Tüm gruplar" (no groupId) is an unscoped request, and authorize() only
+  // lets a TEAM_WIDE/EXTERNAL role make one -- a department lead with no
+  // team-wide TASKS grant would 403 on load with that as the default. Such an
+  // account's own group memberships are exactly the departments it runs, so
+  // the first one is a default that actually resolves; team-wide readers keep
+  // "Tüm gruplar" since it works for them.
+  const mayReadTasksGlobally = can(permissions, "TASKS", "read");
+  const [groupId, setGroupId] = useState(() => (mayReadTasksGlobally ? "" : (groups[0]?.id ?? "")));
   const [status, setStatus] = useState("");
+  const [priority, setPriority] = useState("");
+  const [assigneeId, setAssigneeId] = useState("");
+  const [dueFrom, setDueFrom] = useState("");
+  const [dueTo, setDueTo] = useState("");
   const [openOnly, setOpenOnly] = useState(false);
+  // Off by default on a phone: see the filter-bar note below. On a wider
+  // screen the CSS forces the panel open regardless of this flag.
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  // Who a task can be assigned to, for the "Sorumlu" filter -- the same
+  // roster GET /accounts already serves. A team-wide ACCOUNTS reader can
+  // fetch it unscoped or narrowed to whichever group is picked; a reader
+  // whose ACCOUNTS grant is per-group (a department lead with no team-wide
+  // role, say) can only fetch it once a specific department is picked --
+  // canAnywhere alone would say yes and then ask GET /accounts with no
+  // groupId, which is exactly the request such an account gets a 403 from.
+  // The filter itself is hidden rather than shown disabled in that case, so
+  // there is nothing on screen that does not work.
+  const mayReadAccountsGlobally = can(permissions, "ACCOUNTS", "read");
+  const mayReadAccountsInGroup = groupId ? can(permissions, "ACCOUNTS", "read", groupId) : false;
+  const mayReadAccounts = mayReadAccountsGlobally || mayReadAccountsInGroup;
+  const candidates = useApi<Paginated<AccountRow>>(
+    mayReadAccounts
+      ? `/accounts?pageSize=100${groupId ? `&groupId=${encodeURIComponent(groupId)}` : ""}`
+      : null
+  );
 
   const params = new URLSearchParams({ pageSize: "100" });
   if (groupId) params.set("groupId", groupId);
   if (status) params.set("status", status);
+  if (priority) params.set("priority", priority);
+  // Dropped along with the filter once its roster is no longer readable,
+  // rather than silently going on filtering by an assignee the account can
+  // no longer see or choose.
+  if (assigneeId && mayReadAccounts) params.set("assigneeId", assigneeId);
   if (openOnly) params.set("open", "true");
 
   const tasks = useApi<Paginated<TaskRow>>(`/tasks?${params.toString()}`);
   const mutation = useMutation();
 
+  // due date has no server-side range filter (tasks.schema.ts has none to
+  // add without widening the API for one screen) -- the page already fetches
+  // its whole, bounded page of matching rows, so narrowing it further by date
+  // is exact and does not cost a second round trip.
+  const items = useMemo(() => {
+    const rows = tasks.data?.items ?? [];
+    const dueFromDate = dueFrom ? new Date(dueFrom) : null;
+    const dueToDate = dueTo ? new Date(dueTo) : null;
+    if (!dueFromDate && !dueToDate) return rows;
+    return rows.filter((task) => {
+      if (task.dueDate === null) return false;
+      const due = new Date(task.dueDate);
+      if (dueFromDate && due < dueFromDate) return false;
+      if (dueToDate && due > dueToDate) return false;
+      return true;
+    });
+  }, [tasks.data, dueFrom, dueTo]);
+
   const [editing, setEditing] = useState<TaskRow | "new" | null>(null);
   const [draft, setDraft] = useState<Draft>(BLANK);
 
   const groupOptions = groups.map((group) => ({ value: group.id, label: group.name }));
+  const assigneeOptions = (candidates.data?.items ?? []).map((account) => ({
+    value: account.id,
+    label: account.fullName,
+  }));
+
+  const activeFilterCount = [groupId, status, priority, assigneeId, dueFrom, dueTo, openOnly ? "1" : ""].filter(
+    Boolean
+  ).length;
 
   function close() {
     setEditing(null);
@@ -132,39 +196,59 @@ export default function TasksPage() {
   return (
     <>
       <PageHeader title="Görevler">
-        <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tüm gruplar</option>
-          {groups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-        </select>
-
-        <select value={status} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">Tüm durumlar</option>
-          {Object.entries(taskStatusLabels).map(([value, label]) => (
-            <option key={value} value={value}>
-              {label}
-            </option>
-          ))}
-        </select>
-
-        <label className="row small">
-          <input
-            type="checkbox"
-            checked={openOnly}
-            onChange={(event) => setOpenOnly(event.target.checked)}
-          />
-          Sadece açık olanlar
-        </label>
-
         {mayCreate ? (
           <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
             + Yeni görev
           </button>
         ) : null}
       </PageHeader>
+
+      <div className="filter-bar">
+        <button
+          type="button"
+          className="btn btn-sm filters-toggle"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((value) => !value)}
+        >
+          Filtreler{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+        </button>
+
+        <div className={`filter-panel${filtersOpen ? " is-open" : ""}`}>
+          <SelectField
+            label="Grup"
+            value={groupId}
+            placeholder="Tüm gruplar"
+            options={groupOptions}
+            onChange={setGroupId}
+          />
+          <SelectField
+            label="Durum"
+            value={status}
+            placeholder="Tüm durumlar"
+            options={optionsFrom(taskStatusLabels)}
+            onChange={setStatus}
+          />
+          <SelectField
+            label="Öncelik"
+            value={priority}
+            placeholder="Tüm öncelikler"
+            options={optionsFrom(taskPriorityLabels)}
+            onChange={setPriority}
+          />
+          {mayReadAccounts ? (
+            <SelectField
+              label="Sorumlu"
+              value={assigneeId}
+              placeholder="Herkes"
+              options={assigneeOptions}
+              onChange={setAssigneeId}
+            />
+          ) : null}
+          <TextField label="Bitiş başlangıcı" type="date" value={dueFrom} onChange={setDueFrom} />
+          <TextField label="Bitiş sonu" type="date" value={dueTo} onChange={setDueTo} />
+          <CheckboxField label="Sadece açık olanlar" checked={openOnly} onChange={setOpenOnly} />
+        </div>
+      </div>
 
       <p className="small muted">
         Yapılacaklar listesi ayrı bir tablo değil, bu tablonun filtrelenmiş halidir: &quot;sadece
@@ -240,66 +324,70 @@ export default function TasksPage() {
       {!editing && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
       <AsyncSection state={tasks} empty="Bu filtrelerle görev yok.">
-        {(data) => (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Görev</th>
-                  <th>Grup</th>
-                  <th>Durum</th>
-                  <th>Öncelik</th>
-                  <th>Sorumlular</th>
-                  <th>Bitiş</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((task) => (
-                  <tr key={task.id}>
-                    <td>
-                      <Link href={`/tasks/${task.id}`}>{task.name}</Link>
-                    </td>
-                    <td>{task.groupName ?? <span className="muted">Gruplar arası</span>}</td>
-                    <td>
-                      <Badge tone={taskStatusTone[task.status]}>
-                        {taskStatusLabels[task.status]}
-                      </Badge>
-                    </td>
-                    <td>{taskPriorityLabels[task.priority]}</td>
-                    <td>
-                      {task.assignees.length === 0 ? (
-                        <span className="muted">—</span>
-                      ) : (
-                        task.assignees.map((assignee) => assignee.fullName).join(", ")
-                      )}
-                    </td>
-                    <td>{formatDate(task.dueDate)}</td>
-                    <td>
-                      <RowActions>
-                        {/* Authorized against the group the task is in, read
-                            from the stored row rather than any form state. */}
-                        {can(permissions, "TASKS", "update", task.groupId) ? (
-                          <button className="btn btn-sm" type="button" onClick={() => openEdit(task)}>
-                            Düzenle
-                          </button>
-                        ) : null}
-                        {can(permissions, "TASKS", "delete", task.groupId) ? (
-                          <ConfirmButton
-                            question={`${task.name} silinsin mi? Geçmişi de silinir.`}
-                            onConfirm={() => void remove(task.id)}
-                          >
-                            Sil
-                          </ConfirmButton>
-                        ) : null}
-                      </RowActions>
-                    </td>
+        {() =>
+          items.length === 0 ? (
+            <p className="empty">Bu filtrelerle görev yok.</p>
+          ) : (
+            <div className="table-wrap">
+              <table className="table">
+                <thead>
+                  <tr>
+                    <th>Görev</th>
+                    <th>Grup</th>
+                    <th>Durum</th>
+                    <th>Öncelik</th>
+                    <th>Sorumlular</th>
+                    <th>Bitiş</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+                </thead>
+                <tbody>
+                  {items.map((task) => (
+                    <tr key={task.id}>
+                      <td>
+                        <Link href={`/tasks/${task.id}`}>{task.name}</Link>
+                      </td>
+                      <td>{task.groupName ?? <span className="muted">Gruplar arası</span>}</td>
+                      <td>
+                        <Badge tone={taskStatusTone[task.status]}>
+                          {taskStatusLabels[task.status]}
+                        </Badge>
+                      </td>
+                      <td>{taskPriorityLabels[task.priority]}</td>
+                      <td>
+                        {task.assignees.length === 0 ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          task.assignees.map((assignee) => assignee.fullName).join(", ")
+                        )}
+                      </td>
+                      <td>{formatDate(task.dueDate)}</td>
+                      <td>
+                        <RowActions>
+                          {/* Authorized against the group the task is in, read
+                              from the stored row rather than any form state. */}
+                          {can(permissions, "TASKS", "update", task.groupId) ? (
+                            <button className="btn btn-sm" type="button" onClick={() => openEdit(task)}>
+                              Düzenle
+                            </button>
+                          ) : null}
+                          {can(permissions, "TASKS", "delete", task.groupId) ? (
+                            <ConfirmButton
+                              question={`${task.name} silinsin mi? Geçmişi de silinir.`}
+                              onConfirm={() => void remove(task.id)}
+                            >
+                              Sil
+                            </ConfirmButton>
+                          ) : null}
+                        </RowActions>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )
+        }
       </AsyncSection>
     </>
   );

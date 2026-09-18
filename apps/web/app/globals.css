@@ -399,6 +399,51 @@ a {
   margin: 3px 0;
 }
 
+/* --- filter bar -------------------------------------------------------------
+ * A row of Field-wrapped selects, open on a wide screen and folded behind a
+ * "Filtreler" toggle on a phone -- the toggle itself only exists there. A
+ * `.field` normally stacks a label above its control (see .field further
+ * up); inside the desktop bar the label collapses instead, so the row reads
+ * as a strip of compact controls rather than a stack of forms.
+ */
+.filters-toggle {
+  display: none;
+}
+
+.filter-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: calc(var(--space) * 2);
+  margin-bottom: calc(var(--space) * 2);
+}
+
+.filter-panel .field {
+  min-width: 140px;
+}
+
+@media (max-width: 720px) {
+  .filters-toggle {
+    display: inline-flex;
+    margin-bottom: var(--space);
+  }
+
+  .filter-panel {
+    display: none;
+    flex-direction: column;
+    align-items: stretch;
+    gap: calc(var(--space) * 1.5);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: var(--radius);
+    padding: calc(var(--space) * 1.5);
+  }
+
+  .filter-panel.is-open {
+    display: flex;
+  }
+}
+
 /* --- scope tabs ------------------------------------------------------------ */
 
 .scope-tabs {
