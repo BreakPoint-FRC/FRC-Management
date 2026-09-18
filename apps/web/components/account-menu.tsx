@@ -51,11 +51,19 @@ export function AccountMenu({
   // Clicking anywhere outside closes the panel -- <details> has no such
   // behaviour of its own, and a menu that only closes by re-clicking its own
   // summary reads as stuck.
+  //
+  // A click inside the unsaved-changes confirmation is not an "outside"
+  // click in the sense meant here: that native <dialog> already owns its own
+  // modal semantics, and treating its own "stay" button as a reason to close
+  // this menu would hide "Çıkış yap" the moment the guard it just triggered
+  // asks to keep editing -- the one button "stay" is supposed to return
+  // focus to.
   useEffect(() => {
     function onPointerDown(event: MouseEvent) {
-      if (detailsRef.current && !detailsRef.current.contains(event.target as Node)) {
-        detailsRef.current.open = false;
-      }
+      const target = event.target as Node;
+      if (!detailsRef.current || detailsRef.current.contains(target)) return;
+      if ((target as Element).closest?.("dialog")) return;
+      detailsRef.current.open = false;
     }
     document.addEventListener("mousedown", onPointerDown);
     return () => document.removeEventListener("mousedown", onPointerDown);
@@ -67,10 +75,6 @@ export function AccountMenu({
     : team
       ? "Rol atanmamış"
       : "Sistem yöneticisi";
-
-  function close() {
-    if (detailsRef.current) detailsRef.current.open = false;
-  }
 
   function chooseTheme(next: ThemePreference) {
     setTheme(next);
@@ -91,13 +95,9 @@ export function AccountMenu({
 
       <div className="account-menu-panel">
         {team ? (
-          <GuardedLink href="/account" onClick={close}>
-            Rollerim ve yetkilerim
-          </GuardedLink>
+          <GuardedLink href="/account">Rollerim ve yetkilerim</GuardedLink>
         ) : null}
-        <GuardedLink href="/change-password" onClick={close}>
-          Şifre değiştir
-        </GuardedLink>
+        <GuardedLink href="/change-password">Şifre değiştir</GuardedLink>
 
         <hr className="account-menu-divider" />
 
@@ -120,7 +120,10 @@ export function AccountMenu({
         <button
           type="button"
           onClick={() => {
-            close();
+            // No manual close here: a confirmed sign-out unmounts this whole
+            // shell anyway, and closing eagerly -- before requestLeave even
+            // resolves -- hid this same button behind its own collapsed
+            // panel, so "stay" had nothing visible left to return focus to.
             requestLeave(() => {
               void signOut().catch(() => {});
             });

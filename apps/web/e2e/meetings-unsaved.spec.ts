@@ -106,6 +106,9 @@ for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as
       : action === "detail" ? page.getByRole("link", { name: "Beta", exact: true })
       : action === "menu" ? page.getByRole("link", { name: "Ana Sayfa", exact: true })
       : page.getByRole("button", { name: "Çıkış yap", exact: true });
+    // Sign-out lives behind the account menu's collapsed panel; everything
+    // else is a plain sidebar link.
+    if (action === "logout") await page.locator(".account-menu summary").click();
     await trigger.click();
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByRole("button", { name: stay })).toBeFocused();
@@ -283,7 +286,7 @@ for (const mode of ["edit", "create"] as const) {
     await page.getByRole("button", { name: "Kaydet", exact: true }).click();
     await expect(report(page)).toHaveCount(0);
     expect(calls.writes()).toBe(1);
-    await page.getByRole("row").filter({ has: page.getByRole("link", { name: mode === "edit" ? "Alpha" : "Created meeting", exact: true }) }).getByRole("button", { name: "Düzenle" }).click();
+    await page.locator(".meeting-card").filter({ has: page.getByRole("link", { name: mode === "edit" ? "Alpha" : "Created meeting", exact: true }) }).getByRole("button", { name: "Düzenle" }).click();
     await expect(report(page)).toHaveValue("Saved update");
     await cancel(page).click();
     await expect(report(page)).toHaveCount(0);
@@ -333,6 +336,7 @@ test("pending and failed saves preserve the draft and the browser protection", a
   await expect(page.getByRole("button", { name: "Düzenle" }).first()).toBeDisabled();
   await page.getByRole("link", { name: "Beta", exact: true }).click();
   await page.getByRole("link", { name: "Ana Sayfa", exact: true }).click();
+  await page.locator(".account-menu summary").click();
   await page.getByRole("button", { name: "Çıkış yap", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText(/Toplantı kaydediliyor/);
   await page.goBack();

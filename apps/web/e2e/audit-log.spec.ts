@@ -20,7 +20,9 @@ async function login(page: Page, grant: "audit" | "roles" | "group" = "audit") {
   await page.getByLabel("E-posta").fill("reader@example.test");
   await page.getByLabel("Şifre", { exact: true }).fill("test-password");
   await page.getByRole("button", { name: "Giriş yap", exact: true }).click();
-  await expect(page.getByRole("button", { name: "Çıkış yap" })).toBeVisible();
+  // Proves the authenticated shell rendered without requiring the account
+  // menu's collapsed panel (where "Çıkış yap" now lives) to be open.
+  await expect(page.locator(".account-menu-name")).toHaveText("Reader");
 }
 
 test("paginates, filters, validates dates and clears back to page one", async ({ page }) => {

@@ -23,10 +23,10 @@ export const meetingAttendanceSchema = z.object({
 });
 
 export const attendanceStatusLabels: Record<AttendanceStatus, string> = {
-  PRESENT: "Katildi",
-  ABSENT: "Katilmadi",
-  LATE: "Gec geldi",
-  EXCUSED: "Izinli",
+  PRESENT: "Katıldı",
+  ABSENT: "Katılmadı",
+  LATE: "Geç geldi",
+  EXCUSED: "İzinli",
 };
 
 /** Statuses that count as having shown up, for attendance rates. */
