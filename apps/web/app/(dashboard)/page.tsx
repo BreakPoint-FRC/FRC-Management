@@ -1,179 +1,321 @@
 "use client";
 
-import { TOOL_KEYS, formatAccountRoles, type PermissionSet } from "@breakpoint/types";
+import Link from "next/link";
+import { taskPriorityLabels, taskStatusLabels } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, PageHeader } from "@/components/ui";
+import { GuardedLink } from "@/components/unsaved-changes";
 import { useApi } from "@/hooks/use-api";
 import { formatDate } from "@/lib/format";
-import type { SeasonRow } from "@/lib/api-types";
-
-const ACTIONS = [
-  { key: "canRead", short: "O", label: "Okuma" },
-  { key: "canCreate", short: "E", label: "Ekleme" },
-  { key: "canUpdate", short: "G", label: "Güncelleme" },
-  { key: "canDelete", short: "S", label: "Silme" },
-] as const;
-
-function Flags({ set }: { set: PermissionSet | undefined }) {
-  return (
-    <>
-      {ACTIONS.map((action) => {
-        const granted = set?.[action.key] ?? false;
-        return (
-          <td key={action.key} className="numeric" title={action.label}>
-            <span className={granted ? "" : "muted"}>{granted ? "✓" : "·"}</span>
-          </td>
-        );
-      })}
-    </>
-  );
-}
+import { canAnywhere } from "@/lib/permissions";
+import type { DashboardRow } from "@/lib/api-types";
 
 /**
- * The overview exists to make the authorization model visible.
+ * The homepage: what to do today, not why you can or cannot do it.
  *
- * Everything else in the app is a list of records; this is the one page that
- * answers "why can I see that and not this", by putting the account, its roles,
- * its departments and the resolved permission matrix on one screen. Signing in
- * as an admin, a lead and a member and comparing this page is the fastest way
- * to check the model is behaving.
+ * The old overview page answered "why can I see that and not this" by
+ * putting the resolved permission matrix front and center -- useful for
+ * checking the authorization model, useless for a member opening the app to
+ * find out what is due. That diagnostic view still exists, moved to
+ * "Hesabım" (/account); this page is what replaces it as "/".
+ *
+ * Which sections render comes entirely from GET /dashboard's `tier`, decided
+ * server-side from the account's actual resolved grants -- never guessed
+ * here from a role's name. See dashboard.service.ts.
  */
-export default function OverviewPage() {
-  const { account, team, roles = [], groups = [], permissions } = useAuth();
-
-  // A platform system admin belongs to no team, so there is no season to ask
-  // for -- /seasons/current answers 403 for an account with no team. Passing
-  // null skips the request rather than rendering an error nobody can act on.
-  const season = useApi<SeasonRow>(team ? "/seasons/current" : null);
-  const platformOnly = team === null;
+export default function DashboardPage() {
+  const { account, permissions } = useAuth();
+  const dashboard = useApi<DashboardRow>("/dashboard");
 
   return (
     <>
       <PageHeader title={`Merhaba, ${account?.fullName ?? ""}`} />
 
-      <div className="stack">
-        {platformOnly ? (
-          <p className="muted" style={{ margin: 0 }}>
-            Bu bir platform hesabı. Takımların dışında durur: takım açar, arşivler ve her
-            takımın yöneticisini oluşturur. Görevler, toplantılar ve finans bir takımın
-            içindedir, bu yüzden burada yoklar.
-          </p>
-        ) : null}
+      <AsyncSection state={dashboard}>
+        {(data) =>
+          data.scope === "platform" && data.platform ? (
+            <PlatformSummary data={data.platform} />
+          ) : (
+            <div className="stack">
+              {data.tier === "team_admin" && data.teamAdmin ? (
+                <TeamAdminSummary data={data.teamAdmin} />
+              ) : null}
+              {data.tier === "lead" && data.lead ? (
+                <LeadSummary lead={data.lead} canCreateTask={canAnywhere(permissions, "TASKS", "create")} canCreateMeeting={canAnywhere(permissions, "MEETINGS", "create")} />
+              ) : null}
+              {data.member ? <MemberSummary data={data.member} /> : null}
+            </div>
+          )
+        }
+      </AsyncSection>
+    </>
+  );
+}
 
-        <div className="grid">
-          <Card title="Rollerim">
-            {roles.length === 0 ? (
-              <p className="muted" style={{ margin: 0 }}>
-                Henüz rol atanmamış.
-              </p>
-            ) : (
-              <p style={{ margin: 0 }}>{formatAccountRoles(roles)}</p>
-            )}
-          </Card>
+function PlatformSummary({ data }: { data: NonNullable<DashboardRow["platform"]> }) {
+  return (
+    <div className="stack">
+      <div className="grid">
+        <Card title="Aktif takımlar">
+          <div className="stat">{data.activeTeamCount}</div>
+        </Card>
+        <Card title="Arşivlenmiş takımlar">
+          <div className="stat">{data.archivedTeamCount}</div>
+        </Card>
+      </div>
 
-          {/* Both are about life inside a team, and a platform account has
-              none. Drawing them empty would say "you are in no groups" where
-              the truth is that groups are not a thing this account has. */}
-          {platformOnly ? null : (
-            <>
-              <Card title="Gruplarım">
-                {groups.length === 0 ? (
-                  <p className="muted" style={{ margin: 0 }}>
-                    Hiçbir gruba üye değilsiniz.
-                  </p>
-                ) : (
-                  <div className="row">
-                    {groups.map((group) => (
-                      <Badge key={group.id}>{group.name}</Badge>
-                    ))}
-                  </div>
-                )}
-              </Card>
-
-              <Card title="Aktif sezon">
-                <AsyncSection state={season} empty="Aktif sezon yok.">
-                  {(data) => (
-                    <div>
-                      <div className="stat">{data.name}</div>
-                      <div className="small muted">
-                        {formatDate(data.startDate)} — {formatDate(data.endDate)}
-                      </div>
-                      <div className="small muted" style={{ marginTop: 4 }}>
-                        {data._count.tasks} görev · {data._count.meetings} toplantı ·{" "}
-                        {data._count.transactions} finans kaydı ·{" "}
-                        {data._count.sponsorships} sponsorluk
-                      </div>
-                    </div>
-                  )}
-                </AsyncSection>
-              </Card>
-            </>
-          )}
+      <div>
+        <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+          <h2 style={{ margin: 0 }}>Son oluşturulan takımlar</h2>
+          <Link className="btn btn-primary btn-sm" href="/teams">
+            + Yeni takım
+          </Link>
         </div>
-
-        <div>
-          <h2>Yetkilerim</h2>
-          <p className="small muted" style={{ marginTop: 0 }}>
-            {platformOnly
-              ? "Platform hesabının tek modülü budur. Diğer modüller bir takımın içindedir ve bu hesap hiçbir takıma ait değildir."
-              : "Takım geneli yetkiler her yerde geçerlidir. Grup sütunları yalnızca üye olduğunuz departmanlar için, ve o departmanda o modül açıkken geçerlidir."}{" "}
-            Bu tablo neyin gösterileceğine karar verir; isteği kabul veya reddeden sunucudur.
-          </p>
-
+        {data.recentTeams.length === 0 ? (
+          <p className="muted">Henüz takım oluşturulmamış.</p>
+        ) : (
           <div className="table-wrap">
             <table className="table">
               <thead>
                 <tr>
-                  <th>Modül</th>
-                  <th className="numeric" colSpan={4}>
-                    Takım geneli
-                  </th>
-                  {groups.map((group) => (
-                    <th key={group.id} className="numeric" colSpan={4}>
-                      {group.name}
-                    </th>
-                  ))}
-                </tr>
-                <tr>
+                  <th>Takım</th>
+                  <th>Oluşturulma</th>
                   <th />
-                  {[null, ...groups].map((group, index) =>
-                    ACTIONS.map((action) => (
-                      <th key={`${group?.id ?? "global"}-${action.key}-${index}`} className="numeric small">
-                        {action.short}
-                      </th>
-                    ))
-                  )}
                 </tr>
               </thead>
               <tbody>
-                {/* A team account sees every module, because "you cannot do
-                    this" is half of what the table is for. A platform account
-                    sees only what it holds: the other fourteen rows would be
-                    fourteen dots explaining an absence it already knows. */}
-                {(platformOnly
-                  ? TOOL_KEYS.filter((tool) =>
-                      ACTIONS.some((action) => permissions?.global[tool]?.[action.key])
-                    )
-                  : TOOL_KEYS
-                ).map((tool) => (
-                  <tr key={tool}>
-                    <td>{tool}</td>
-                    <Flags set={permissions?.global[tool]} />
-                    {groups.map((group) => (
-                      <Flags key={group.id} set={permissions?.byGroup[group.id]?.[tool]} />
-                    ))}
+                {data.recentTeams.map((team) => (
+                  <tr key={team.id}>
+                    <td>{team.name}</td>
+                    <td className="muted small">{formatDate(team.createdAt)}</td>
+                    <td>
+                      <Link className="btn btn-sm" href="/teams">
+                        Aç
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
             </table>
           </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-          <p className="small muted">
-            O = okuma, E = ekleme, G = güncelleme, S = silme.
+function TeamAdminSummary({ data }: { data: NonNullable<DashboardRow["teamAdmin"]> }) {
+  return (
+    <div>
+      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
+        <h2 style={{ margin: 0 }}>Takım yönetimi</h2>
+        <Link className="btn btn-primary btn-sm" href="/accounts">
+          Hesapları yönet
+        </Link>
+      </div>
+
+      {data.setupIncomplete ? (
+        <p className="small" style={{ margin: "0 0 12px" }}>
+          <Link href="/setup">Takım kurulumu henüz tamamlanmadı — devam etmek için tıklayın.</Link>
+        </p>
+      ) : null}
+
+      <div className="grid">
+        <Card title="Aktif hesap">
+          <div className="stat">{data.activeAccountCount}</div>
+        </Card>
+        <Card title="Şifresini değiştirmemiş">
+          <div className="stat">{data.mustChangePasswordCount}</div>
+        </Card>
+        <Card title="Rolü olmayan hesap">
+          <div className="stat">{data.withoutRoleCount}</div>
+        </Card>
+        <Card title="Grubu olmayan hesap">
+          <div className="stat">{data.withoutGroupCount}</div>
+        </Card>
+        <Card title="Aktif sezon">
+          {data.activeSeason ? (
+            <div>
+              <div className="stat" style={{ fontSize: 16 }}>
+                {data.activeSeason.name}
+              </div>
+              <div className="small muted">
+                {formatDate(data.activeSeason.startDate)} — {formatDate(data.activeSeason.endDate)}
+              </div>
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              Aktif sezon yok.
+            </p>
+          )}
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function LeadSummary({
+  lead,
+  canCreateTask,
+  canCreateMeeting,
+}: {
+  lead: NonNullable<DashboardRow["lead"]>;
+  canCreateTask: boolean;
+  canCreateMeeting: boolean;
+}) {
+  return (
+    <div>
+      <h2 style={{ marginBottom: 8 }}>Takımın durumu</h2>
+      <div className="grid">
+        <Card title="Açık görev">
+          <div className="stat">{lead.teamOpenTaskCount}</div>
+        </Card>
+        <Card title="Geciken görev">
+          <div className="stat">{lead.teamOverdueTaskCount}</div>
+        </Card>
+      </div>
+      <div className="row" style={{ marginTop: 12 }}>
+        {canCreateTask ? (
+          <Link className="btn btn-sm" href="/tasks">
+            + Görev oluştur
+          </Link>
+        ) : null}
+        {canCreateMeeting ? (
+          <Link className="btn btn-sm" href="/meetings">
+            + Toplantı oluştur
+          </Link>
+        ) : null}
+        <Link className="btn btn-sm" href="/calendar">
+          Takvimi aç
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function MemberSummary({ data }: { data: NonNullable<DashboardRow["member"]> }) {
+  const nothingAssigned = data.groups.length === 0 && data.roles.length === 0;
+
+  return (
+    <div className="stack">
+      {nothingAssigned ? (
+        <div className="card">
+          <p className="card-title" style={{ margin: "0 0 4px" }}>
+            Henüz rol veya grup atanmamış
+          </p>
+          <p className="small muted" style={{ margin: 0 }}>
+            Takım yöneticiniz hesabınızı henüz tamamlamamış olabilir. Bir role ya da gruba
+            atandığınızda burada göreviniz, toplantılarınız ve grubunuz görünür.
           </p>
         </div>
+      ) : (
+        <div className="grid">
+          <Card title="Gruplarım">
+            {data.groups.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Hiçbir gruba üye değilsiniz.
+              </p>
+            ) : (
+              <div className="row">
+                {data.groups.map((group) => (
+                  <Badge key={group.id}>{group.name}</Badge>
+                ))}
+              </div>
+            )}
+          </Card>
+          <Card title="Rollerim">
+            {data.roles.length === 0 ? (
+              <p className="muted" style={{ margin: 0 }}>
+                Henüz rol atanmamış.
+              </p>
+            ) : (
+              <div className="stack-sm">
+                {data.roles.map((role, index) => (
+                  <div key={index} className="small">
+                    {role.roleName}
+                    {role.groupName ? ` — ${role.groupName}` : ""}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      )}
+
+      <div className="grid">
+        <div>
+          <h2 style={{ marginBottom: 8 }}>Görevlerim</h2>
+          <TaskList
+            tasks={[...data.overdueTasks, ...data.openTasks]}
+            empty="Size atanmış açık göreviniz yok."
+          />
+        </div>
+        <div>
+          <h2 style={{ marginBottom: 8 }}>Yaklaşan toplantılar</h2>
+          {data.upcomingMeetings.length === 0 ? (
+            <p className="muted">Önümüzdeki 7 gün içinde toplantı yok.</p>
+          ) : (
+            <div className="stack-sm">
+              {data.upcomingMeetings.map((meeting) => (
+                <GuardedLink key={meeting.id} className="card" href={`/meetings/${meeting.id}`}>
+                  <p className="card-title" style={{ margin: 0 }}>
+                    {meeting.title}
+                  </p>
+                  <p className="small muted" style={{ margin: 0 }}>
+                    {formatDate(meeting.meetingDate)}
+                    {meeting.groupName ? ` · ${meeting.groupName}` : ""}
+                  </p>
+                </GuardedLink>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
-    </>
+    </div>
+  );
+}
+
+function TaskList({
+  tasks,
+  empty,
+}: {
+  tasks: NonNullable<DashboardRow["member"]>["openTasks"];
+  empty: string;
+}) {
+  if (tasks.length === 0) return <p className="muted">{empty}</p>;
+
+  return (
+    <div className="table-wrap">
+      <table className="table">
+        <thead>
+          <tr>
+            <th>Görev</th>
+            <th>Grup</th>
+            <th>Durum</th>
+            <th>Öncelik</th>
+            <th>Bitiş</th>
+          </tr>
+        </thead>
+        <tbody>
+          {tasks.map((task) => {
+            const overdue = task.dueDate !== null && new Date(task.dueDate) < new Date();
+            return (
+              <tr key={task.id}>
+                <td>
+                  <GuardedLink href={`/tasks/${task.id}`}>{task.name}</GuardedLink>
+                </td>
+                <td className="muted small">{task.groupName ?? "Gruplar arası"}</td>
+                <td>{taskStatusLabels[task.status]}</td>
+                <td>{taskPriorityLabels[task.priority]}</td>
+                <td style={overdue ? { color: "var(--danger-text)" } : undefined}>
+                  {task.dueDate ? formatDate(task.dueDate) : "—"}
+                </td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
   );
 }

@@ -29,6 +29,7 @@ import { financeRoutes } from "./modules/finance/finance.routes";
 import { sponsorsRoutes } from "./modules/sponsors/sponsors.routes";
 import { ganttRoutes } from "./modules/gantt/gantt.routes";
 import { calendarRoutes } from "./modules/calendar/calendar.routes";
+import { dashboardRoutes } from "./modules/dashboard/dashboard.routes";
 
 // Prisma error codes we can turn into a meaningful status instead of a 500.
 const PRISMA_ERROR_STATUS: Record<string, { status: number; message: string }> = {
@@ -251,6 +252,10 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.register(sponsorsRoutes, { prefix: "/sponsors" });
   app.register(ganttRoutes, { prefix: "/gantt" });
   app.register(calendarRoutes, { prefix: "/calendar" });
+
+  // One account's operational summary, shaped by the same permission rows
+  // every module above already reads -- see dashboard.service.ts.
+  app.register(dashboardRoutes, { prefix: "/dashboard" });
 
   return app;
 }

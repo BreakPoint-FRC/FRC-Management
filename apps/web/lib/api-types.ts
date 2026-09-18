@@ -341,3 +341,55 @@ export interface CalendarRangeRow {
    */
   season: { id: string; name: string; startDate: string; endDate: string } | null;
 }
+
+interface DashboardTaskRow {
+  id: string;
+  name: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  groupName: string | null;
+}
+
+interface DashboardMeetingRow {
+  id: string;
+  title: string;
+  meetingDate: string;
+  groupName: string | null;
+}
+
+/**
+ * GET /dashboard. `tier` says which extra block the account gets, decided
+ * server-side from the same permission rows every other page already reads
+ * -- never from a role's name. `member` is always present for a team
+ * account, `lead`/`teamAdmin` only for their own tier, and `platform` only
+ * for a platform account (which gets no team-scoped block at all).
+ */
+export interface DashboardRow {
+  scope: "platform" | "team";
+  tier: "platform" | "team_admin" | "lead" | "member";
+  platform: {
+    activeTeamCount: number;
+    archivedTeamCount: number;
+    recentTeams: Array<{ id: string; name: string; createdAt: string; setupStage: TeamSetupStage }>;
+  } | null;
+  member: {
+    openTasks: DashboardTaskRow[];
+    overdueTasks: DashboardTaskRow[];
+    upcomingMeetings: DashboardMeetingRow[];
+    groups: Array<{ id: string; name: string }>;
+    roles: Array<{ roleName: string; groupName: string | null }>;
+  } | null;
+  lead: {
+    teamOpenTaskCount: number;
+    teamOverdueTaskCount: number;
+  } | null;
+  teamAdmin: {
+    activeAccountCount: number;
+    mustChangePasswordCount: number;
+    withoutRoleCount: number;
+    withoutGroupCount: number;
+    activeSeason: { id: string; name: string; startDate: string; endDate: string } | null;
+    setupIncomplete: boolean;
+  } | null;
+}

@@ -14,6 +14,7 @@ export interface NavigationItem {
 
 export const NAV_ITEMS: readonly NavigationItem[] = [
   { href: "/", label: "Genel bakış" },
+  { href: "/account", label: "Hesabım" },
   { href: "/teams", label: "Takımlar", tool: "TEAMS", platformOnly: true },
   { href: "/tasks", label: "Görevler", tool: "TASKS" },
   { href: "/meetings", label: "Toplantılar", tool: "MEETINGS" },
