@@ -126,20 +126,20 @@ export function createAccountsService(prisma: PrismaClient) {
     ];
     if (groupIds.length > 0) {
       const found = await prisma.group.count({ where: { id: { in: groupIds }, teamId } });
-      if (found !== groupIds.length) throw new NotFoundError("Grup bulunamadi");
+      if (found !== groupIds.length) throw new NotFoundError("Grup bulunamadı");
     }
 
     for (const entry of roles) {
       const role = byId.get(entry.roleId);
-      if (!role) throw new NotFoundError("Rol bulunamadi");
+      if (!role) throw new NotFoundError("Rol bulunamadı");
 
       const placement = role.placement as RolePlacement;
       if (placementUsesAssignmentGroup(placement) && !entry.groupId) {
-        throw new ConflictError(`${role.name} rolu bir grup icinde atanmali`);
+        throw new ConflictError(`${role.name} rolü bir grup içinde atanmalı`);
       }
       if (!placementUsesAssignmentGroup(placement) && entry.groupId) {
         throw new ConflictError(
-          `${role.name} rolu kapsamini kendisi tasir, ayrica bir gruba atanamaz`
+          `${role.name} rolü kapsamını kendisi taşır, ayrıca bir gruba atanamaz`
         );
       }
     }
@@ -163,7 +163,7 @@ export function createAccountsService(prisma: PrismaClient) {
     });
     if (remaining === 0) {
       throw new ConflictError(
-        "Takimin son yoneticisi kaldirilamaz, once baska bir takim yoneticisi atayin"
+        "Takımın son yöneticisi kaldırılamaz, önce başka bir takım yöneticisi atayın"
       );
     }
   };
@@ -313,7 +313,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!existing) throw new NotFoundError("Hesap bulunamadi");
+      if (!existing) throw new NotFoundError("Hesap bulunamadı");
 
       // Suspending the last team admin locks the team out exactly as archiving
       // it would, so it is refused the same way.
@@ -341,7 +341,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
 
       // Losing the role is what matters, not gaining it: demoting the last team
       // admin is the same lockout as archiving them.
@@ -397,7 +397,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
       if (await isTeamAdmin(teamId, id)) await assertNotLastAdmin(teamId, id);
 
       await prisma.$transaction([
@@ -424,7 +424,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
 
       await prisma.$transaction([
         prisma.account.update({

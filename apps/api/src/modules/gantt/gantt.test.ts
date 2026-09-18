@@ -82,7 +82,7 @@ describe("listing boards", () => {
         id: "b1",
         seasonId: "s1",
         groupId: "g1",
-        name: "Yazilim yol haritasi",
+        name: "Yazılım yol haritası",
         createdAt: new Date(2026, 0, 1),
         group: { name: "Programlama" },
         season: { name: "2026" },
@@ -97,7 +97,7 @@ describe("listing boards", () => {
               startDate: new Date(2026, 0, 10),
               dueDate: new Date(2026, 1, 1),
               groupId: "g1",
-              assignees: [{ account: { id: "a1", fullName: "Ada Yilmaz" } }],
+              assignees: [{ account: { id: "a1", fullName: "Ada Yılmaz" } }],
             },
           },
         ],
@@ -112,7 +112,7 @@ describe("listing boards", () => {
       displayOrder: 0,
       startDate: new Date(2026, 0, 10),
       dueDate: new Date(2026, 1, 1),
-      assignees: [{ id: "a1", fullName: "Ada Yilmaz" }],
+      assignees: [{ id: "a1", fullName: "Ada Yılmaz" }],
     });
   });
 });
@@ -221,7 +221,7 @@ describe("replacing the task list", () => {
 
     await expect(
       createGanttService(prisma).replaceTasks(TEAM, "b1", { taskIds: ["t1", "t2"] })
-    ).rejects.toThrow("Gorevlerin hepsi bu sezona ait degil");
+    ).rejects.toThrow("Görevlerin hepsi bu sezona ait değil");
   });
 
   it("clears the board without writing an empty createMany", async () => {

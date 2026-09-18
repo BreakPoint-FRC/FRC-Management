@@ -32,7 +32,7 @@ export async function resolveSeasonId(
     });
     // 404 rather than 403: a season of another team is not a permission
     // problem, it is a record this caller has no business knowing exists.
-    if (!named) throw new NotFoundError("Sezon bulunamadi");
+    if (!named) throw new NotFoundError("Sezon bulunamadı");
     return named.id;
   }
 
@@ -42,7 +42,7 @@ export async function resolveSeasonId(
   });
 
   if (!active) {
-    throw new ConflictError("Aktif sezon yok, once bir sezon olusturun veya sezon secin");
+    throw new ConflictError("Aktif sezon yok, önce bir sezon oluşturun veya sezon seçin");
   }
 
   return active.id;

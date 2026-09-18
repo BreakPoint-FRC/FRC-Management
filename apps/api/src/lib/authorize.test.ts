@@ -257,7 +257,7 @@ describe("authorize", () => {
         permissions: { "role-member": ALL },
       });
 
-      await expect(authorize(prisma, request)).rejects.toThrow(/takim genelinde yetkiniz yok/);
+      await expect(authorize(prisma, request)).rejects.toThrow(/takım genelinde yetkiniz yok/);
     });
   });
 });
@@ -315,7 +315,7 @@ describe("scoped placements", () => {
 
     await expect(
       authorize(prisma, { ...request, groupId: "medya" })
-    ).rejects.toThrow(/bu grup icin yetkiniz yok/i);
+    ).rejects.toThrow(/bu grup için yetkiniz yok/i);
   });
 
   it("ABOVE_GROUPS cannot authorize a request with no group", async () => {
@@ -327,7 +327,7 @@ describe("scoped placements", () => {
       groupTools: ALL_TOOLS_ON,
     });
 
-    await expect(authorize(prisma, request)).rejects.toThrow(/takim genelinde yetkiniz yok/);
+    await expect(authorize(prisma, request)).rejects.toThrow(/takım genelinde yetkiniz yok/);
   });
 
   it("MANAGES_GROUP needs no membership in the group it runs", async () => {
@@ -353,7 +353,7 @@ describe("scoped placements", () => {
 
     await expect(
       authorize(prisma, { ...request, groupId: "mekanik" })
-    ).rejects.toThrow(/bu grup icin kapali/);
+    ).rejects.toThrow(/bu grup için kapalı/);
   });
 });
 
@@ -449,7 +449,7 @@ describe("tools inherit down the group tree", () => {
 
     await expect(
       authorize(prisma, { ...request, groupId: "tasarim" })
-    ).rejects.toThrow(/bu grup icin kapali/);
+    ).rejects.toThrow(/bu grup için kapalı/);
   });
 
   it("no row anywhere up the chain reads as off", async () => {
@@ -463,7 +463,7 @@ describe("tools inherit down the group tree", () => {
 
     await expect(
       authorize(prisma, { ...request, groupId: "tasarim" })
-    ).rejects.toThrow(/bu grup icin kapali/);
+    ).rejects.toThrow(/bu grup için kapalı/);
   });
 });
 

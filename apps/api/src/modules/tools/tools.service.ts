@@ -36,7 +36,7 @@ export function createToolsService(prisma: PrismaClient) {
       if (input.isActive === false) {
         const tool = await prisma.tool.findUnique({ where: { id }, select: { key: true } });
         if (tool?.key === CATALOGUE_TOOL_KEY) {
-          throw new ConflictError("TOOLS modulu pasife alinamaz");
+          throw new ConflictError("TOOLS modülü pasife alınamaz");
         }
       }
 
@@ -53,7 +53,7 @@ export function createToolsService(prisma: PrismaClient) {
     async deactivate(id: string) {
       const tool = await prisma.tool.findUnique({ where: { id }, select: { key: true } });
       if (tool?.key === CATALOGUE_TOOL_KEY) {
-        throw new ConflictError("TOOLS modulu pasife alinamaz");
+        throw new ConflictError("TOOLS modülü pasife alınamaz");
       }
 
       return prisma.tool.update({ where: { id }, data: { isActive: false }, select: toolSelect });

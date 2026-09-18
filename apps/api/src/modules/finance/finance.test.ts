@@ -66,7 +66,7 @@ describe("serialization", () => {
           transactionDate: new Date("2026-08-20"),
           createdAt: new Date("2026-08-20"),
           group: null,
-          createdBy: { id: "a1", fullName: "Ada Yilmaz" },
+          createdBy: { id: "a1", fullName: "Ada Yılmaz" },
         }),
       },
     } as unknown as PrismaClient;

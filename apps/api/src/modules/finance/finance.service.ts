@@ -245,13 +245,13 @@ export function createFinanceService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { sponsorshipId: true, type: true, category: true, groupId: true },
       });
-      if (!existing) throw new NotFoundError("Kayit bulunamadi");
+      if (!existing) throw new NotFoundError("Kayıt bulunamadı");
 
       if (existing.sponsorshipId) {
         for (const field of PROTECTED_ON_LINKED_TRANSACTION) {
           if (field in rest && rest[field] !== existing[field]) {
             throw new ConflictError(
-              "Sponsorluktan islenen bir kaydin turu, kategorisi ve grubu degistirilemez"
+              "Sponsorluktan işlenen bir kaydın türü, kategorisi ve grubu değiştirilemez"
             );
           }
         }
@@ -276,7 +276,7 @@ export function createFinanceService(prisma: PrismaClient) {
      */
     remove: async (teamId: string, id: string) => {
       const existing = await prisma.financeTransaction.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Kayit bulunamadi");
+      if (existing === 0) throw new NotFoundError("Kayıt bulunamadı");
       await prisma.financeTransaction.delete({ where: { id } });
     },
   };

@@ -65,7 +65,7 @@ export async function teamsRoutes(app: FastifyInstance) {
     await authorize(app.prisma, { accountId: req.account.id, tool: "TEAMS", action: "read" });
 
     const team = await service.getById(id);
-    if (!team) throw new NotFoundError("Takim bulunamadi");
+    if (!team) throw new NotFoundError("Takım bulunamadı");
     return team;
   });
 

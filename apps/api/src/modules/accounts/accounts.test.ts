@@ -13,7 +13,7 @@ describe("account payload validation", () => {
   it("rejects a password short enough to guess", async () => {
     const result = createAccountSchema.safeParse({
       email: "yeni@breakpoint.test",
-      fullName: "Yeni Uye",
+      fullName: "Yeni Üye",
       password: "kisa",
     });
 
@@ -117,7 +117,7 @@ describe("role placement enforcement", () => {
         { roles: [{ roleId: "role-president", groupId: "group-business" }] },
         "admin-1"
       )
-    ).rejects.toThrow(/kapsamini kendisi tasir/);
+    ).rejects.toThrow(/kapsamını kendisi taşır/);
   });
 
   it("refuses a role id that does not exist", async () => {
@@ -125,7 +125,7 @@ describe("role placement enforcement", () => {
 
     await expect(
       service.replaceRoles(TEAM, "account-1", { roles: [{ roleId: "role-ghost" }] }, "admin-1")
-    ).rejects.toThrow(/Rol bulunamadi/);
+    ).rejects.toThrow(/Rol bulunamadı/);
   });
 
   it("creates the matching group membership alongside a group role", async () => {
@@ -216,7 +216,7 @@ describe("the last team admin", () => {
   it("refuses to archive the only one", async () => {
     const service = createAccountsService(stubPrisma(0, true));
 
-    await expect(service.archive(TEAM, "account-1")).rejects.toThrow(/son yoneticisi/);
+    await expect(service.archive(TEAM, "account-1")).rejects.toThrow(/son yöneticisi/);
   });
 
   it("allows archiving one of two", async () => {
@@ -236,6 +236,6 @@ describe("the last team admin", () => {
 
     await expect(
       service.update(TEAM, "account-1", { isActive: false })
-    ).rejects.toThrow(/son yoneticisi/);
+    ).rejects.toThrow(/son yöneticisi/);
   });
 });

@@ -61,8 +61,8 @@ test("a saved role permission appears in the real audit trail", async ({ page })
       expect.objectContaining({ tool: "TASKS", canUpdate: !previous }),
     ]));
     const audit = page.locator(`tbody tr[data-audit-id="${fresh[0].id}"]`);
-    await expect(audit).toContainText("Ada Yilmaz");
-    await expect(audit).toContainText("Rol izinleri degistirildi");
+    await expect(audit).toContainText("Ada Yılmaz");
+    await expect(audit).toContainText("Rol izinleri değiştirildi");
     await expect(audit).toContainText("TASKS");
     const sides = audit.locator(".audit-log-change > span");
     await expect(sides.nth(previous ? 0 : 2)).toContainText("Güncelleme");

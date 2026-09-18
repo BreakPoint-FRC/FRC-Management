@@ -18,7 +18,7 @@ export class NotFoundError extends Error {
 export class UnauthorizedError extends Error {
   readonly statusCode = 401;
 
-  constructor(message = "Kimlik dogrulama gerekli") {
+  constructor(message = "Kimlik doğrulama gerekli") {
     super(message);
     this.name = "UnauthorizedError";
   }
@@ -29,7 +29,7 @@ export class UnauthorizedError extends Error {
 export class ForbiddenError extends Error {
   readonly statusCode = 403;
 
-  constructor(message = "Bu islem icin yetkiniz yok") {
+  constructor(message = "Bu işlem için yetkiniz yok") {
     super(message);
     this.name = "ForbiddenError";
   }
@@ -41,7 +41,7 @@ export class ForbiddenError extends Error {
 export class ConflictError extends Error {
   readonly statusCode = 409;
 
-  constructor(message = "Istek mevcut kayitlarla celisiyor") {
+  constructor(message = "İstek mevcut kayıtlarla çelişiyor") {
     super(message);
     this.name = "ConflictError";
   }

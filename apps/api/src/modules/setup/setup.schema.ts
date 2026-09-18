@@ -11,13 +11,13 @@ export const goToStageSchema = z.object({ stage: teamSetupStageSchema });
 // lands on a dashboard where nothing can be created.
 export const namingSchema = z
   .object({
-    name: z.string().min(1, "Takim adi gerekli").max(120),
-    seasonName: z.string().min(1, "Sezon adi gerekli").max(80),
+    name: z.string().min(1, "Takım adı gerekli").max(120),
+    seasonName: z.string().min(1, "Sezon adı gerekli").max(80),
     seasonStartDate: z.coerce.date(),
     seasonEndDate: z.coerce.date(),
   })
   .refine((value) => value.seasonEndDate > value.seasonStartDate, {
-    message: "Sezon bitisi baslangicindan sonra olmali",
+    message: "Sezon bitişi başlangıcından sonra olmalı",
     path: ["seasonEndDate"],
   });
 

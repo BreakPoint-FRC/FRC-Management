@@ -65,7 +65,7 @@ export async function accountsRoutes(app: FastifyInstance) {
     });
 
     const account = await service.getById(requireTeam(req.account), id);
-    if (!account) throw new NotFoundError("Hesap bulunamadi");
+    if (!account) throw new NotFoundError("Hesap bulunamadı");
     return account;
   });
 
@@ -152,7 +152,7 @@ export async function accountsRoutes(app: FastifyInstance) {
     // Archiving yourself would revoke your own session mid-request and, if you
     // were the last admin, lock the team out of its own instance.
     if (id === req.account.id) {
-      throw new ConflictError("Kendi hesabinizi arsivleyemezsiniz");
+      throw new ConflictError("Kendi hesabınızı arşivleyemezsiniz");
     }
 
     await service.archive(requireTeam(req.account), id);

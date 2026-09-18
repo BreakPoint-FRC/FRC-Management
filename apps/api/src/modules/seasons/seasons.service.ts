@@ -43,7 +43,7 @@ export function createSeasonsService(prisma: PrismaClient) {
   /** 404 unless the season exists and belongs to this team. */
   const assertInTeam = async (teamId: string, id: string) => {
     const found = await prisma.season.count({ where: { id, teamId } });
-    if (found === 0) throw new NotFoundError("Sezon bulunamadi");
+    if (found === 0) throw new NotFoundError("Sezon bulunamadı");
   };
 
   return {
@@ -111,7 +111,7 @@ export function createSeasonsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: seasonSelect,
       });
-      if (!season) throw new NotFoundError("Sezon bulunamadi");
+      if (!season) throw new NotFoundError("Sezon bulunamadı");
 
       const records =
         season._count.tasks +
@@ -122,7 +122,7 @@ export function createSeasonsService(prisma: PrismaClient) {
 
       if (records > 0) {
         throw new ConflictError(
-          `${season.name} sezonuna bagli ${records} kayit var, sezon silinemez`
+          `${season.name} sezonuna bağlı ${records} kayıt var, sezon silinemez`
         );
       }
       if (season.isActive) throw new ConflictError("Aktif sezon silinemez");

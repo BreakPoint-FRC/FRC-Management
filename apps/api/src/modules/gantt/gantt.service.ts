@@ -105,7 +105,7 @@ export function createGanttService(prisma: PrismaClient) {
 
     update: async (teamId: string, id: string, input: UpdateBoardInput) => {
       const existing = await prisma.ganttBoard.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Pano bulunamadi");
+      if (existing === 0) throw new NotFoundError("Pano bulunamadı");
 
       const board = await prisma.ganttBoard.update({
         where: { id },
@@ -131,7 +131,7 @@ export function createGanttService(prisma: PrismaClient) {
         where: { id: boardId, teamId },
         select: { seasonId: true },
       });
-      if (!board) throw new NotFoundError("Pano bulunamadi");
+      if (!board) throw new NotFoundError("Pano bulunamadı");
 
       if (input.taskIds.length > 0) {
         // The season check already implies the team -- a season belongs to one
@@ -140,7 +140,7 @@ export function createGanttService(prisma: PrismaClient) {
           where: { id: { in: input.taskIds }, teamId, seasonId: board.seasonId },
         });
         if (valid !== input.taskIds.length) {
-          throw new ConflictError("Gorevlerin hepsi bu sezona ait degil");
+          throw new ConflictError("Görevlerin hepsi bu sezona ait değil");
         }
       }
 
@@ -164,7 +164,7 @@ export function createGanttService(prisma: PrismaClient) {
     /** Deletes the board and its ordering. The tasks themselves are untouched. */
     remove: async (teamId: string, id: string) => {
       const existing = await prisma.ganttBoard.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Pano bulunamadi");
+      if (existing === 0) throw new NotFoundError("Pano bulunamadı");
       await prisma.ganttBoard.delete({ where: { id } });
     },
   };

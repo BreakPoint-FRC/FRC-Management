@@ -157,7 +157,7 @@ describeIntegration("api smoke suite", () => {
       headers: admin(),
       payload: {
         email: "yeni@alpha.test",
-        fullName: "Yeni Uye",
+        fullName: "Yeni Üye",
         password: FIXTURE_PASSWORD,
         roles: [{ roleId: ctx.fixture.alpha.memberRoleId, groupId: ctx.fixture.alpha.groupId }],
       },

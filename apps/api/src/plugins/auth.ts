@@ -61,12 +61,12 @@ export default fp(async (app: FastifyInstance) => {
       try {
         await request.jwtVerify();
       } catch {
-        throw new UnauthorizedError("Oturum acmaniz gerekiyor");
+        throw new UnauthorizedError("Oturum açmanız gerekiyor");
       }
 
       const accountId = (request.user as { sub?: unknown }).sub;
       if (typeof accountId !== "string") {
-        throw new UnauthorizedError("Gecersiz oturum");
+        throw new UnauthorizedError("Geçersiz oturum");
       }
 
       const account = await app.prisma.account.findUnique({
@@ -89,7 +89,7 @@ export default fp(async (app: FastifyInstance) => {
         account.archivedAt !== null ||
         (account.team !== null && !account.team.isActive)
       ) {
-        throw new UnauthorizedError("Hesap aktif degil");
+        throw new UnauthorizedError("Hesap aktif değil");
       }
 
       request.account = {
@@ -104,7 +104,7 @@ export default fp(async (app: FastifyInstance) => {
       // client must not react by asking for it again. The message is what the
       // web app matches on to send the user to the password screen.
       if (account.mustChangePassword && !PASSWORD_CHANGE_ALLOWED.has(request.routeOptions.url ?? "")) {
-        throw new ForbiddenError("Devam etmek icin sifrenizi degistirmelisiniz");
+        throw new ForbiddenError("Devam etmek için şifrenizi değiştirmelisiniz");
       }
     }
   );

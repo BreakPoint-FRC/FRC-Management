@@ -37,7 +37,7 @@ export async function ganttRoutes(app: FastifyInstance) {
     action: "read" | "update" | "delete"
   ) => {
     const board = await service.groupOf(requireTeam(account), boardId);
-    if (!board) throw new NotFoundError("Pano bulunamadi");
+    if (!board) throw new NotFoundError("Pano bulunamadı");
 
     await authorize(app.prisma, {
       accountId: account.id,
@@ -66,7 +66,7 @@ export async function ganttRoutes(app: FastifyInstance) {
     await authorizeExisting(req.account, id, "read");
 
     const board = await service.getById(requireTeam(req.account), id);
-    if (!board) throw new NotFoundError("Pano bulunamadi");
+    if (!board) throw new NotFoundError("Pano bulunamadı");
     return board;
   });
 

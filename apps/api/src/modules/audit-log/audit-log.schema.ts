@@ -9,7 +9,7 @@ export const listAuditLogQuerySchema = paginationSchema
     to: z.coerce.date().optional(),
   })
   .refine((query) => !query.from || !query.to || query.from <= query.to, {
-    message: "Baslangic tarihi bitis tarihinden sonra olamaz",
+    message: "Başlangıç tarihi bitiş tarihinden sonra olamaz",
     path: ["to"],
   });
 

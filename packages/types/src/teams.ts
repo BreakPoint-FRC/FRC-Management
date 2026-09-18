@@ -25,21 +25,21 @@ export const TEAM_SETUP_STAGES = teamSetupStageSchema.options;
 export const TEAM_SETUP_STAGE_LABELS: Record<TeamSetupStage, string> = {
   GROUPS: "Gruplar",
   ROLES: "Roller",
-  TOOLS: "Moduller",
-  PERMISSIONS: "Izinler",
-  NAMING: "Takim bilgileri",
+  TOOLS: "Modüller",
+  PERMISSIONS: "İzinler",
+  NAMING: "Takım bilgileri",
   ACCOUNTS: "Hesaplar",
-  DONE: "Tamamlandi",
+  DONE: "Tamamlandı",
 };
 
 export const TEAM_SETUP_STAGE_DESCRIPTIONS: Record<TeamSetupStage, string> = {
-  GROUPS: "Gruplari ve alt gruplari kurun. Ornek: Teknik > Mekanik > Tasarim.",
-  ROLES: "Rolleri tanimlayin, hangi gruplari kapsadiklarini ve birbirlerine bagliliklarini secin.",
-  TOOLS: "Her gruba kullanacagi modulleri atayin. Alt gruplar ust gruptan devralir.",
-  PERMISSIONS: "Her rolun her modulde ne yapabilecegini belirleyin.",
-  NAMING: "Takimin adini ve ilk sezonunu girin.",
-  ACCOUNTS: "Hesaplari acin ve rollerini atayin.",
-  DONE: "Kurulum tamamlandi.",
+  GROUPS: "Grupları ve alt grupları kurun. Örnek: Teknik > Mekanik > Tasarım.",
+  ROLES: "Rolleri tanımlayın, hangi grupları kapsadıklarını ve birbirlerine bağlılıklarını seçin.",
+  TOOLS: "Her gruba kullanacağı modülleri atayın. Alt gruplar üst gruptan devralır.",
+  PERMISSIONS: "Her rolün her modülde ne yapabileceğini belirleyin.",
+  NAMING: "Takımın adını ve ilk sezonunu girin.",
+  ACCOUNTS: "Hesapları açın ve rollerini atayın.",
+  DONE: "Kurulum tamamlandı.",
 };
 
 /** The stage after this one, or null at the end. */
@@ -72,9 +72,9 @@ export const teamSchema = z.object({
 // the groups created in step one already need a teamId to hang from. Only the
 // admin name is required here -- everything else the team decides for itself.
 export const createTeamSchema = z.object({
-  name: z.string().min(1, "Takim adi gerekli").max(120),
-  adminFullName: z.string().min(1, "Yonetici adi gerekli").max(120),
-  adminEmail: z.string().email("Gecerli bir e-posta adresi girin"),
+  name: z.string().min(1, "Takım adı gerekli").max(120),
+  adminFullName: z.string().min(1, "Yönetici adı gerekli").max(120),
+  adminEmail: z.string().email("Geçerli bir e-posta adresi girin"),
 });
 
 // Archiving is deliberately not a PATCH field. It has session and account
@@ -82,7 +82,7 @@ export const createTeamSchema = z.object({
 // workflow yet that can safely decide which accounts and sessions to restore.
 export const updateTeamSchema = z
   .object({
-    name: z.string().min(1, "Takim adi gerekli").max(120),
+    name: z.string().min(1, "Takım adı gerekli").max(120),
   })
   .strict();
 

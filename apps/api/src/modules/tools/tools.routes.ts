@@ -49,7 +49,7 @@ export async function toolsRoutes(app: FastifyInstance) {
     await authorize(app.prisma, { accountId: req.account.id, tool: "TOOLS", action: "read" });
 
     const tool = await service.getById(id);
-    if (!tool) throw new NotFoundError("Modul bulunamadi");
+    if (!tool) throw new NotFoundError("Modül bulunamadı");
     return tool;
   });
 

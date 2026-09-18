@@ -7,16 +7,16 @@ export const loginSchema = z.object({
   // *setting*, not the one they are typing to get in. Applying it here would
   // lock out anyone whose password predates the rule and would leak the rule
   // to an attacker one failed login at a time.
-  password: z.string().min(1, "Sifre gerekli"),
+  password: z.string().min(1, "Şifre gerekli"),
 });
 
 export const changePasswordSchema = z
   .object({
-    currentPassword: z.string().min(1, "Mevcut sifre gerekli"),
+    currentPassword: z.string().min(1, "Mevcut şifre gerekli"),
     newPassword: passwordSchema,
   })
   .refine((input) => input.currentPassword !== input.newPassword, {
-    message: "Yeni sifre eskisiyle ayni olamaz",
+    message: "Yeni şifre eskisiyle aynı olamaz",
     path: ["newPassword"],
   });
 
@@ -24,7 +24,7 @@ export const changePasswordSchema = z
 // Logout accepts a missing one -- a client with nothing to revoke still wanted
 // the session gone -- so only /refresh parses with this.
 export const refreshSchema = z.object({
-  refreshToken: z.string().min(1, "Oturum bulunamadi"),
+  refreshToken: z.string().min(1, "Oturum bulunamadı"),
 });
 
 export type LoginInput = z.infer<typeof loginSchema>;

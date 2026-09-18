@@ -9,8 +9,8 @@ const BASE_TOOLS = [
   {
     id: "tool-tools",
     key: "TOOLS",
-    name: "Moduller",
-    description: "Global modul katalogu",
+    name: "Modüller",
+    description: "Global modül kataloğu",
     isActive: true,
   },
   {
@@ -23,14 +23,14 @@ const BASE_TOOLS = [
   {
     id: "tool-tasks",
     key: "TASKS",
-    name: "Gorevler",
+    name: "Görevler",
     description: null,
     isActive: true,
   },
   {
     id: "tool-teams",
     key: "TEAMS",
-    name: "Takimlar",
+    name: "Takımlar",
     description: null,
     isActive: true,
   },
@@ -39,7 +39,7 @@ const BASE_TOOLS = [
 const GROUP = {
   id: "group-software",
   parentId: null,
-  name: "Yazilim",
+  name: "Yazılım",
   description: null,
   isActive: true,
 };
@@ -64,7 +64,7 @@ function statefulApp(options: {
   const account = {
     id: "account-1",
     email: options.platform ? "system@breakpoint.test" : "ada@breakpoint.test",
-    fullName: options.platform ? "System Admin" : "Ada Yilmaz",
+    fullName: options.platform ? "System Admin" : "Ada Yılmaz",
     teamId,
     isActive: true,
     mustChangePassword: false,
@@ -142,7 +142,7 @@ function statefulApp(options: {
     team: {
       findUnique: async () => ({
         id: "team-1",
-        name: "Cekirdek",
+        name: "Çekirdek",
         slug: "cekirdek",
         isActive: true,
         setupStage,
@@ -239,7 +239,7 @@ describe("the global tool catalogue boundary", () => {
     expect((await inject(state.app, "GET", "/tools/tool-tasks")).statusCode).toBe(200);
 
     expect(
-      (await inject(state.app, "POST", "/tools", { key: "TODO", name: "Yapilacaklar" }))
+      (await inject(state.app, "POST", "/tools", { key: "TODO", name: "Yapılacaklar" }))
         .statusCode
     ).toBe(403);
     expect(
@@ -300,7 +300,7 @@ describe("the global tool catalogue boundary", () => {
 
     const createResponse = await inject(state.app, "POST", "/tools", {
       key: "TODO",
-      name: "Yapilacaklar",
+      name: "Yapılacaklar",
     });
     expect(createResponse.statusCode).toBe(201);
     const created = createResponse.json() as { id: string };
@@ -325,7 +325,7 @@ describe("the global tool catalogue boundary", () => {
     await state.app.ready();
 
     expect(
-      (await inject(state.app, "POST", "/tools", { key: "TODO", name: "Yapilacaklar" }))
+      (await inject(state.app, "POST", "/tools", { key: "TODO", name: "Yapılacaklar" }))
         .statusCode
     ).toBe(403);
     expect(
@@ -369,7 +369,7 @@ describe("the tool catalogue service branches", () => {
 
     const response = await inject(state.app, "POST", "/tools", {
       key: "TASKS",
-      name: "Ikinci Gorevler",
+      name: "İkinci Görevler",
     });
     expect(response.statusCode).toBe(409);
     expect(state.tools.filter((tool) => tool.key === "TASKS")).toHaveLength(1);
@@ -417,7 +417,7 @@ describe("the TOOLS catalogue cannot lock itself out", () => {
 
     expect((await inject(state.app, "GET", "/tools")).statusCode).toBe(200);
     expect(
-      (await inject(state.app, "PATCH", "/tools/tool-tools", { name: "Moduller" })).statusCode
+      (await inject(state.app, "PATCH", "/tools/tool-tools", { name: "Modüller" })).statusCode
     ).toBe(200);
 
     await state.app.close();

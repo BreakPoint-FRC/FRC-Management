@@ -17,7 +17,7 @@ import { ForbiddenError, NotFoundError } from "./http-errors";
  */
 export function requireTeam(account: AuthenticatedAccount): string {
   if (account.teamId === null) {
-    throw new ForbiddenError("Bu islem bir takim hesabiyla yapilir");
+    throw new ForbiddenError("Bu işlem bir takım hesabıyla yapılır");
   }
   return account.teamId;
 }
@@ -43,7 +43,7 @@ export function requireTeam(account: AuthenticatedAccount): string {
  */
 export function requirePlatform(account: AuthenticatedAccount): void {
   if (account.teamId !== null) {
-    throw new ForbiddenError("Bu islem platform hesabiyla yapilir");
+    throw new ForbiddenError("Bu işlem platform hesabıyla yapılır");
   }
 }
 
@@ -66,5 +66,5 @@ export async function assertAccountsBelongToTeam(
   const found = await prisma.account.count({
     where: { id: { in: uniqueIds }, teamId },
   });
-  if (found !== uniqueIds.length) throw new NotFoundError("Hesap bulunamadi");
+  if (found !== uniqueIds.length) throw new NotFoundError("Hesap bulunamadı");
 }

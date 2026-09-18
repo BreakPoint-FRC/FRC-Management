@@ -94,7 +94,7 @@ async function seedPlatformAdmin(prisma: PrismaClient, toolIds: Record<ToolKey, 
     data: {
       teamId: null,
       key: "SYSTEM_ADMIN",
-      name: "Sistem Yoneticisi",
+      name: "Sistem Yöneticisi",
       placement: "TEAM_WIDE",
       isSystemRole: true,
     },
@@ -211,7 +211,7 @@ async function seedTeam(
 
   const adminEmail = `admin@${slug}.test`;
   const admin = await prisma.account.create({
-    data: { teamId: team.id, email: adminEmail, fullName: "Ada Yilmaz", passwordHash },
+    data: { teamId: team.id, email: adminEmail, fullName: "Ada Yılmaz", passwordHash },
     select: { id: true },
   });
   await prisma.accountRole.create({ data: { accountId: admin.id, roleId: adminRole.id } });

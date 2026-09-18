@@ -8,7 +8,7 @@ const accountIdList = z.array(z.string().min(1)).superRefine((ids, ctx) => {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: [index],
-        message: "Bu kisi zaten listede var",
+        message: "Bu kişi zaten listede var",
       });
     }
     seen.add(id);
@@ -22,7 +22,7 @@ const taskFields = z.object({
   // Null is a cross-group task, which the V1 scope has. It is not the same as
   // omitted on a PATCH, so this is nullish rather than optional.
   groupId: z.string().min(1).nullish(),
-  name: z.string().min(1, "Gorev adi gerekli").max(200),
+  name: z.string().min(1, "Görev adı gerekli").max(200),
   description: z.string().max(5000).nullish(),
   startDate: z.coerce.date().nullish(),
   dueDate: z.coerce.date().nullish(),
@@ -35,7 +35,7 @@ const dueAfterStart = (input: { startDate?: Date | null; dueDate?: Date | null }
   !input.startDate || !input.dueDate || input.dueDate >= input.startDate;
 
 export const createTaskSchema = taskFields.refine(dueAfterStart, {
-  message: "Bitis tarihi baslangictan once olamaz",
+  message: "Bitiş tarihi başlangıçtan önce olamaz",
   path: ["dueDate"],
 });
 
@@ -46,7 +46,7 @@ export const updateTaskSchema = taskFields
   .omit({ assigneeIds: true, seasonId: true })
   .partial()
   .refine(dueAfterStart, {
-    message: "Bitis tarihi baslangictan once olamaz",
+    message: "Bitiş tarihi başlangıçtan önce olamaz",
     path: ["dueDate"],
   });
 
