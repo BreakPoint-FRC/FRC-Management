@@ -32,8 +32,8 @@ test("paginates, filters, validates dates and clears back to page one", async ({
     await route.fulfill({ json: { items: empty ? [] : rows.slice((current - 1) * 25, current * 25), page: current, pageSize: 25, total: empty ? 0 : 26, totalPages: empty ? 0 : 2 } });
   });
   await login(page);
-  await expect(page.getByRole("link", { name: "Roller", exact: true })).toHaveCount(0);
-  await page.getByRole("link", { name: "Denetim kaydı" }).click();
+  await expect(page.getByRole("link", { name: "Roller ve Yetkiler", exact: true })).toHaveCount(0);
+  await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
   await expect(page.locator("tbody tr")).toHaveCount(25);
   await expect(page.getByRole("button", { name: "Önceki" })).toBeDisabled();
   await page.getByRole("button", { name: "Sonraki" }).click();
@@ -65,7 +65,7 @@ test("shows changed account assignments beyond the unchanged prefix", async ({ p
     }], page: 1, pageSize: 25, total: 1, totalPages: 1,
   } }));
   await login(page);
-  await page.getByRole("link", { name: "Denetim kaydı" }).click();
+  await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
   const sides = page.locator(".audit-log-change > span");
   await expect(sides.nth(0)).toHaveText("removed-role");
   await expect(sides.nth(2)).toHaveText("added-role");
@@ -80,7 +80,7 @@ for (const failure of ["500", "network", "empty", "403"] as const) {
       return route.fulfill({ status: Number(failure), json: { message: "Test server error" } });
     });
     await login(page);
-    await page.getByRole("link", { name: "Denetim kaydı" }).click();
+    await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
     await expect(page.locator("tbody")).toHaveCount(0);
     if (failure === "403") await expect(page.locator("main [role=alert]")).toHaveText("Denetim kaydını görüntüleme yetkiniz yok.");
     else if (failure === "empty") await expect(page.getByText("Filtrelere uygun denetim kaydı yok.")).toBeVisible();
@@ -104,7 +104,7 @@ test("disables paging while pending and removes stale rows when access is revoke
     return route.fulfill({ json: { items: rows.slice(0, 25), page: 1, pageSize: 25, total: 26, totalPages: 2 } });
   });
   await login(page);
-  await page.getByRole("link", { name: "Denetim kaydı" }).click();
+  await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
   await expect(page.locator("tbody tr")).toHaveCount(25);
   await page.getByRole("button", { name: "Sonraki" }).click();
   await expect(page.getByRole("button", { name: "Sonraki" })).toBeDisabled();
@@ -118,7 +118,7 @@ for (const grant of ["roles", "group"] as const) {
   test(`hides audit navigation for ${grant} access`, async ({ page }) => {
     await page.route("http://localhost:4100/audit-log?*", (route) => route.fulfill({ status: 403, json: { message: "Forbidden" } }));
     await login(page, grant);
-    await expect(page.getByRole("link", { name: "Denetim kaydı" })).toHaveCount(0);
+    await expect(page.getByRole("link", { name: "Denetim Kayıtları" })).toHaveCount(0);
   });
 }
 
@@ -128,7 +128,7 @@ for (const width of [360, 1280]) for (const colorScheme of ["light", "dark"] as 
     await page.emulateMedia({ colorScheme });
     await page.route("http://localhost:4100/audit-log?*", (route) => route.fulfill({ json: { items: [{ ...rows[0], actor: { id: "actor", fullName: "LongActorName".repeat(15) }, entityId: "long-id".repeat(30) }], page: 1, pageSize: 25, total: 1, totalPages: 1 } }));
     await login(page);
-    await page.getByRole("link", { name: "Denetim kaydı" }).click();
+    await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
     await expect(page.locator("tbody tr")).toHaveCount(1);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await expect(page.getByRole("button", { name: "Uygula" })).toBeInViewport();

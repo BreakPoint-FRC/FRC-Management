@@ -359,32 +359,55 @@ interface DashboardMeetingRow {
 }
 
 /**
- * GET /dashboard. `tier` says which extra block the account gets, decided
- * server-side from the same permission rows every other page already reads
- * -- never from a role's name. `member` is always present for a team
- * account, `lead`/`teamAdmin` only for their own tier, and `platform` only
- * for a platform account (which gets no team-scoped block at all).
+ * GET /dashboard. Scope tabs, not a role mode: `mine`/`group`/`team`/
+ * `management` are independent and can all be present at once for one
+ * account, exactly like the OR-merged permission model they are computed
+ * from -- a software captain who is also the team captain and a finance
+ * reader gets all three non-`mine` blocks together. Each is non-null only
+ * when the account's resolved grants actually qualify for it (see
+ * dashboard.service.ts's computeScopes); a plain member gets `mine` alone.
+ * `platform` is the one exclusive case: a platform account gets it and
+ * nothing else, because it belongs to no team.
  */
 export interface DashboardRow {
   scope: "platform" | "team";
-  tier: "platform" | "team_admin" | "lead" | "member";
   platform: {
     activeTeamCount: number;
     archivedTeamCount: number;
     recentTeams: Array<{ id: string; name: string; createdAt: string; setupStage: TeamSetupStage }>;
   } | null;
-  member: {
+  mine: {
     openTasks: DashboardTaskRow[];
     overdueTasks: DashboardTaskRow[];
     upcomingMeetings: DashboardMeetingRow[];
     groups: Array<{ id: string; name: string }>;
     roles: Array<{ roleName: string; groupName: string | null }>;
   } | null;
-  lead: {
-    teamOpenTaskCount: number;
-    teamOverdueTaskCount: number;
+  group: Array<{
+    groupId: string;
+    groupName: string;
+    openCount: number;
+    overdueCount: number;
+    unassignedCount: number;
+    completedThisWeekCount: number;
+    topTasks: DashboardTaskRow[];
+    upcomingMeeting: DashboardMeetingRow | null;
+  }> | null;
+  team: {
+    departments: Array<{
+      groupId: string;
+      groupName: string;
+      openCount: number;
+      overdueCount: number;
+      unassignedCount: number;
+    }>;
+    activeSeason: { id: string; name: string; endDate: string } | null;
+    seasonDaysRemaining: number | null;
+    upcomingMeeting: DashboardMeetingRow | null;
+    crossGroupOpenTaskCount: number;
+    crossGroupUnassignedTaskCount: number;
   } | null;
-  teamAdmin: {
+  management: {
     activeAccountCount: number;
     mustChangePasswordCount: number;
     withoutRoleCount: number;

@@ -347,7 +347,7 @@ export default function GroupsPage() {
                     ) : null}
                     {can(permissions, "TOOLS", "update") ? (
                       <button className="btn btn-sm" type="button" onClick={() => openTools(group)}>
-                        Modüller
+                        Modül ayarları
                       </button>
                     ) : null}
                     {can(permissions, "GROUPS", "update") ? (

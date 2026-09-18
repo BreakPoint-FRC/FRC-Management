@@ -82,7 +82,7 @@ export default function ToolsPage() {
 
   return (
     <>
-      <PageHeader title="Modüller" />
+      <PageHeader title="Platform Modülleri" />
 
       <p className="small muted">
         Yeni modül eklemek kod değişikliği ister: anahtar önce{" "}

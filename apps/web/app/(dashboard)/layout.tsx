@@ -3,20 +3,20 @@
 import { useRouter } from "next/navigation";
 import { useEffect, type ReactNode } from "react";
 
+import { AccountMenu } from "@/components/account-menu";
 import { useAuth } from "@/components/auth/auth-provider";
 import { Loading, NavLink } from "@/components/ui";
-import { visibleNavigationItems } from "@/lib/navigation";
-import { useLeaveGuard } from "@/components/unsaved-changes";
+import { visibleNavigationSections } from "@/lib/navigation";
 
 /**
  * Each link carries the tool it leads to, so the nav is filtered by the same
  * vocabulary the server authorizes against instead of a second hand-kept list.
- * The overview has no tool -- everyone who is signed in can see their own
- * roles and permissions.
+ * Sections group related tools and disappear entirely once nothing under them
+ * is visible -- see visibleNavigationSections -- so a plain member's sidebar
+ * is five lines, not fourteen with most of them greyed out.
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const { requestLeave } = useLeaveGuard();
-  const { status, account, team, permissions, signOut } = useAuth();
+  const { status, account, team, roles, permissions } = useAuth();
   const router = useRouter();
 
   // The whole dashboard waits for setup, not part of it.
@@ -54,9 +54,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   if (account?.mustChangePassword) return <Loading />;
   if (blockedBySetup) return <Loading />;
 
-  // Hiding a link the account cannot follow is a courtesy, not a control: the
-  // route behind it is authorized on the server on every request.
-  const visible = visibleNavigationItems(account?.teamId, permissions);
+  const sections = visibleNavigationSections(account?.teamId, permissions);
 
   return (
     <div className="app-shell">
@@ -66,35 +64,22 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <span>BreakPoint</span>
         </div>
 
-        <nav>
-          <ul>
-            {visible.map((item) => (
-              <li key={item.href}>
-                <NavLink href={item.href}>{item.label}</NavLink>
-              </li>
-            ))}
-          </ul>
+        <nav className="sidebar-sections">
+          {sections.map((section) => (
+            <div key={section.label ?? "top"}>
+              {section.label ? <p className="sidebar-section-label">{section.label}</p> : null}
+              <ul>
+                {section.items.map((item) => (
+                  <li key={item.href}>
+                    <NavLink href={item.href}>{item.label}</NavLink>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ))}
         </nav>
 
-        <div className="stack-sm" style={{ marginTop: "auto" }}>
-          <div className="small">
-            <div>{account?.fullName}</div>
-            <div className="muted">{account?.email}</div>
-            {/* A platform system admin belongs to no team, which is the whole
-                point of the role -- saying so beats an empty line. */}
-            <div className="muted">{team ? team.name : "Sistem yöneticisi"}</div>
-          </div>
-          <button
-            className="btn btn-sm"
-            type="button"
-            onClick={() => requestLeave(() => {
-              // signOut clears the local session even when the logout request fails.
-              void signOut().catch(() => {});
-            })}
-          >
-            Çıkış yap
-          </button>
-        </div>
+        {account ? <AccountMenu account={account} team={team ?? null} roles={roles ?? []} /> : null}
       </aside>
 
       <main className="content">{children}</main>

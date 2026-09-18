@@ -90,6 +90,58 @@
   }
 }
 
+/*
+ * A manual override of the block above, for the account menu's theme picker.
+ * "Sistem" leaves no attribute set and falls back to the OS media query above;
+ * "Açık"/"Koyu" set data-theme and win over it here because these rules come
+ * after it in the cascade.
+ */
+:root[data-theme="dark"] {
+  --bg: #0f172a;
+  --surface: #1e293b;
+  --surface-2: #334155;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #334155;
+
+  --ok-bg: #14532d;
+  --ok-text: #bbf7d0;
+  --warn-bg: #78350f;
+  --warn-text: #fde68a;
+  --off-bg: #334155;
+  --off-text: #cbd5e1;
+  --danger-bg: #7f1d1d;
+  --danger-text: #fecaca;
+
+  --chart-income: #3987e5;
+  --chart-expense: #d95926;
+  --chart-grid: #334155;
+  --chart-axis: #94a3b8;
+}
+
+:root[data-theme="light"] {
+  --bg: #ffffff;
+  --surface: #f8fafc;
+  --surface-2: #f1f5f9;
+  --text: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+
+  --ok-bg: #dcfce7;
+  --ok-text: #166534;
+  --warn-bg: #fef3c7;
+  --warn-text: #92400e;
+  --off-bg: #f1f5f9;
+  --off-text: #64748b;
+  --danger-bg: #fee2e2;
+  --danger-text: #991b1b;
+
+  --chart-income: #2a78d6;
+  --chart-expense: #eb6834;
+  --chart-grid: #e2e8f0;
+  --chart-axis: #64748b;
+}
+
 * {
   box-sizing: border-box;
 }
@@ -204,6 +256,177 @@ a {
 .nav-link[aria-current="page"] {
   background: var(--surface-2);
   color: var(--text);
+  font-weight: 600;
+}
+
+/* --- sidebar sections ----------------------------------------------------- */
+
+.sidebar-sections {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--space) * 1.5);
+  overflow-y: auto;
+}
+
+.sidebar-section-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: var(--muted);
+  padding: 0 var(--space) 2px;
+}
+
+/* --- account menu ----------------------------------------------------------- */
+
+.account-menu {
+  margin-top: auto;
+  position: relative;
+}
+
+.account-menu > summary {
+  list-style: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: var(--space);
+  padding: var(--space);
+  border-radius: var(--radius);
+}
+
+.account-menu > summary::-webkit-details-marker,
+.account-menu > summary::marker {
+  display: none;
+  content: "";
+}
+
+.account-menu > summary:hover,
+.account-menu[open] > summary {
+  background: var(--surface-2);
+}
+
+.account-avatar {
+  width: 32px;
+  height: 32px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--accent-text);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 13px;
+}
+
+.account-menu-info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.account-menu-name,
+.account-menu-sub {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-menu-name {
+  font-weight: 600;
+}
+
+.account-menu-sub {
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.account-menu-panel {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: 0 2px 8px rgb(0 0 0 / 12%);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  z-index: 5;
+}
+
+.account-menu-panel a,
+.account-menu-panel button {
+  font: inherit;
+  text-align: left;
+  padding: 6px var(--space);
+  border-radius: var(--radius);
+  border: none;
+  background: none;
+  color: var(--text);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.account-menu-panel a:hover,
+.account-menu-panel button:hover {
+  background: var(--surface-2);
+}
+
+.account-menu-theme {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.account-menu-theme button {
+  flex: 1;
+  text-align: center;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+
+.account-menu-theme button.is-active {
+  background: var(--surface-2);
+  font-weight: 600;
+}
+
+.account-menu-divider {
+  border: none;
+  border-top: 1px solid var(--border);
+  margin: 3px 0;
+}
+
+/* --- scope tabs ------------------------------------------------------------ */
+
+.scope-tabs {
+  display: flex;
+  gap: 2px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: calc(var(--space) * 2);
+  overflow-x: auto;
+}
+
+.scope-tab {
+  font: inherit;
+  padding: 8px calc(var(--space) * 1.5);
+  border: none;
+  border-bottom: 2px solid transparent;
+  background: none;
+  color: var(--muted);
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.scope-tab:hover {
+  color: var(--text);
+}
+
+.scope-tab.is-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
   font-weight: 600;
 }
 

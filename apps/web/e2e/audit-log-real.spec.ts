@@ -14,7 +14,7 @@ test("a saved role permission appears in the real audit trail", async ({ page })
   const apiOrigin = new URL(loginResponse.url()).origin;
   const { accessToken } = await loginResponse.json();
   const rolesLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/roles?`) && response.request().method() === "GET");
-  await page.getByRole("link", { name: "Roller", exact: true }).click();
+  await page.getByRole("link", { name: "Roller ve Yetkiler", exact: true }).click();
   const rolesResponse = await rolesLoaded;
   const roles: Paginated<RoleRow> = await rolesResponse.json();
   const memberRole = roles.items.find((role) => role.key === "MEMBER");
@@ -50,7 +50,7 @@ test("a saved role permission appears in the real audit trail", async ({ page })
     expect(response.status()).toBe(204);
     expect(new URL(response.url()).pathname).toBe(permissionsUrl.pathname);
     const auditLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/audit-log?`) && response.request().method() === "GET");
-    await page.getByRole("link", { name: "Denetim kaydı" }).click();
+    await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
     const auditResponse = await auditLoaded;
     expect(auditResponse.status()).toBe(200);
     const history: Paginated<AuditLogRow> = await auditResponse.json();

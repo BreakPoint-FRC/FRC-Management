@@ -5,8 +5,8 @@ import { EMPTY_PERMISSIONS, type PermissionSet } from "@breakpoint/types";
 // dashboard.service.ts calls resolvePermissionMatrix/canPerform directly
 // (rather than authorize(), which throws) -- both are already covered by
 // authorize.test.ts, so this file stubs their *output* and tests only what
-// this service does with it: which tier a matrix produces, and which query
-// each tier runs. A full Account/Role/GroupTool stub would only re-test
+// this service does with it: which scopes a matrix produces, and which query
+// each scope runs. A full Account/Role/GroupTool stub would only re-test
 // resolvePermissionMatrix a second time under a different file name.
 vi.mock("../../lib/authorize", () => ({
   resolvePermissionMatrix: vi.fn(),
@@ -54,6 +54,8 @@ function stubPrisma(overrides: Record<string, unknown> = {}) {
     taskFindMany: vi.fn().mockResolvedValue([]),
     taskCount: vi.fn().mockResolvedValue(0),
     meetingFindMany: vi.fn().mockResolvedValue([]),
+    meetingFindFirst: vi.fn().mockResolvedValue(null),
+    groupFindMany: vi.fn().mockResolvedValue([]),
     groupMembershipFindMany: vi.fn().mockResolvedValue([]),
     accountRoleFindMany: vi.fn().mockResolvedValue([]),
     accountCount: vi.fn().mockResolvedValue(0),
@@ -66,7 +68,8 @@ function stubPrisma(overrides: Record<string, unknown> = {}) {
 
   const prisma = {
     task: { findMany: calls.taskFindMany, count: calls.taskCount },
-    meeting: { findMany: calls.meetingFindMany },
+    meeting: { findMany: calls.meetingFindMany, findFirst: calls.meetingFindFirst },
+    group: { findMany: calls.groupFindMany },
     groupMembership: { findMany: calls.groupMembershipFindMany },
     accountRole: { findMany: calls.accountRoleFindMany },
     account: { count: calls.accountCount },
@@ -75,6 +78,19 @@ function stubPrisma(overrides: Record<string, unknown> = {}) {
   } as unknown as PrismaClient;
 
   return { prisma, calls };
+}
+
+/** accountRole.findMany is called twice: once for "mine"'s role list, once for scope detection. */
+function withRoles(roles: Array<{ placement: string; groupId: string | null }>) {
+  return vi.fn().mockImplementation(({ select }: { select: Record<string, unknown> }) => {
+    if ("role" in select && typeof select.role === "object" && select.role && "select" in select.role) {
+      const roleSelect = (select.role as { select: Record<string, unknown> }).select;
+      if ("placement" in roleSelect) {
+        return Promise.resolve(roles.map((r) => ({ groupId: r.groupId, role: { placement: r.placement } })));
+      }
+    }
+    return Promise.resolve([]);
+  });
 }
 
 afterEach(() => {
@@ -92,15 +108,16 @@ describe("platform accounts", () => {
 
     const result = await createDashboardService(prisma).summary(account(null));
 
-    expect(result).toMatchObject({ scope: "platform", tier: "platform" });
+    expect(result.scope).toBe("platform");
     expect(result.platform).toEqual({
       activeTeamCount: 3,
       archivedTeamCount: 1,
       recentTeams: [{ id: "t1", name: "A", createdAt: expect.any(Date), setupStage: "DONE" }],
     });
-    expect(result.member).toBeNull();
-    expect(result.lead).toBeNull();
-    expect(result.teamAdmin).toBeNull();
+    expect(result.mine).toBeNull();
+    expect(result.group).toBeNull();
+    expect(result.team).toBeNull();
+    expect(result.management).toBeNull();
     expect(mockedResolve).not.toHaveBeenCalled();
     expect(calls.taskFindMany).not.toHaveBeenCalled();
     expect(calls.meetingFindMany).not.toHaveBeenCalled();
@@ -117,80 +134,142 @@ describe("platform accounts", () => {
   });
 });
 
-describe("tier classification", () => {
-  it("is team_admin only when ACCOUNTS is both readable and creatable team-wide", async () => {
+describe("scope detection", () => {
+  it("gives management to a team-wide ACCOUNTS create grant, without needing group anchoring", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canCreate: true } } }));
-    const { prisma } = stubPrisma();
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).toBe("team_admin");
-    expect(result.teamAdmin).not.toBeNull();
-    expect(result.lead).toBeNull();
+    expect(result.management).not.toBeNull();
+    expect(result.group).toBeNull();
   });
 
-  it("does not grant team_admin from ACCOUNTS read+update without create", async () => {
-    // The seeded TEAM_LEAD role: can read and update accounts, cannot create
-    // one, so it cannot actually do what the team-admin view is for.
+  it("gives management from an ACCOUNTS update grant alone -- update is still management authority", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canUpdate: true } } }));
-    const { prisma } = stubPrisma();
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).not.toBe("team_admin");
-    expect(result.teamAdmin).toBeNull();
+    expect(result.management).not.toBeNull();
   });
 
-  it("is lead when a team-wide role grants MEETINGS or TASKS write", async () => {
-    mockedResolve.mockResolvedValue(matrix({ global: { MEETINGS: { canCreate: true } } }));
-    const { prisma } = stubPrisma();
+  it("gives team scope from team-wide ACCOUNTS read alone, with no management and no group", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).toBe("lead");
-    expect(result.lead).not.toBeNull();
+    expect(result.team).not.toBeNull();
+    expect(result.management).toBeNull();
+    expect(result.group).toBeNull();
   });
 
-  it("is lead when an in-group role grants MEETINGS write there", async () => {
+  it("does not give group scope from a merged team-wide MEETINGS grant alone -- a real group-anchored role is required", async () => {
+    // The exact TEAM_ADMIN/MENTOR trap: a TEAM_WIDE role's grants are merged
+    // into byGroup for every department, but that is not the same as running
+    // one. Without a real IN_GROUP/MANAGES_GROUP assignment, "Grubum" must
+    // not appear for every department in the team.
+    mockedResolve.mockResolvedValue(
+      matrix({
+        global: { MEETINGS: { canCreate: true } },
+        byGroup: { g1: { MEETINGS: { canCreate: true } }, g2: { MEETINGS: { canCreate: true } } },
+      })
+    );
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.group).toBeNull();
+  });
+
+  it("gives group scope for a real MANAGES_GROUP role with MEETINGS write at that department", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
-    const { prisma } = stubPrisma();
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+    });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).toBe("lead");
+    expect(result.group).toEqual([
+      expect.objectContaining({ groupId: "g1", groupName: "Yazılım" }),
+    ]);
+    expect(calls.groupFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { id: { in: ["g1"] } } })
+    );
   });
 
-  it("is member, not lead, from an in-group TASKS write grant alone", async () => {
-    // The seeded MEMBER role: canCreate/canUpdate TASKS in its own group but
-    // never MEETINGS. TASKS write alone must not read as organizing the group,
-    // or every plain member would land on the lead view.
+  it("does not give group scope from an in-group TASKS write grant alone -- the seeded MEMBER role's baseline", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { TASKS: { canCreate: true, canUpdate: true } } } }));
-    const { prisma } = stubPrisma();
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "IN_GROUP", groupId: "g1" }]),
+    });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).toBe("member");
-    expect(result.lead).toBeNull();
+    expect(result.group).toBeNull();
   });
 
-  it("falls back to member, with an empty roster, for a read-only or roleless account", async () => {
-    // Exactly the seeded "nobody has decided where this one belongs yet"
-    // account: a read-only floor role and no group. Must not be promoted to
-    // lead by its placement alone, or this empty-state case breaks.
-    mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true }, MEETINGS: { canRead: true } } }));
-    const { prisma } = stubPrisma();
+  it("covers more than one department for a two-group captain", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } }, g2: { MEETINGS: { canUpdate: true } } } })
+    );
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([
+        { placement: "MANAGES_GROUP", groupId: "g1" },
+        { placement: "MANAGES_GROUP", groupId: "g2" },
+      ]),
+      groupFindMany: vi.fn().mockResolvedValue([
+        { id: "g1", name: "Programming" },
+        { id: "g2", name: "Electrical" },
+      ]),
+    });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.tier).toBe("member");
-    expect(result.member).toMatchObject({ groups: [], roles: [] });
+    expect(result.group).toHaveLength(2);
+  });
+
+  it("gives none of group/team/management to a plain member, only mine", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { TASKS: { canRead: true, canCreate: true } } } }));
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "IN_GROUP", groupId: "g1" }]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.mine).not.toBeNull();
+    expect(result.group).toBeNull();
+    expect(result.team).toBeNull();
+    expect(result.management).toBeNull();
+  });
+
+  it("gives every scope at once to an account that qualifies for all four", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({
+        global: { ACCOUNTS: { canRead: true, canCreate: true } },
+        byGroup: { g1: { MEETINGS: { canCreate: true } } },
+      })
+    );
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.mine).not.toBeNull();
+    expect(result.group).not.toBeNull();
+    expect(result.team).not.toBeNull();
+    expect(result.management).not.toBeNull();
   });
 });
 
-describe("member data", () => {
+describe("mine data", () => {
   it("does not query tasks or meetings the account cannot read anywhere", async () => {
     mockedResolve.mockResolvedValue(matrix({}));
-    const { prisma, calls } = stubPrisma();
+    const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     await createDashboardService(prisma).summary(account());
 
@@ -202,7 +281,7 @@ describe("member data", () => {
     mockedResolve.mockResolvedValue(
       matrix({ byGroup: { g1: { TASKS: { canRead: true } }, g2: { TASKS: { canRead: true } } } })
     );
-    const { prisma, calls } = stubPrisma();
+    const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     await createDashboardService(prisma).summary(account());
 
@@ -216,7 +295,7 @@ describe("member data", () => {
 
   it("queries team-wide with no group filter for a team-wide reader", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
-    const { prisma, calls } = stubPrisma();
+    const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
     await createDashboardService(prisma).summary(account());
 
@@ -228,6 +307,7 @@ describe("member data", () => {
     vi.setSystemTime(new Date("2026-09-15T00:00:00.000Z"));
     mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
     const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
       taskFindMany: vi.fn().mockResolvedValue([
         { id: "future", name: "Future", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-20"), group: null },
         { id: "past", name: "Past", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-01"), group: null },
@@ -237,12 +317,12 @@ describe("member data", () => {
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.member?.openTasks.map((t) => t.id)).toEqual(["future", "undated"]);
-    expect(result.member?.overdueTasks.map((t) => t.id)).toEqual(["past"]);
+    expect(result.mine?.openTasks.map((t) => t.id)).toEqual(["future", "undated"]);
+    expect(result.mine?.overdueTasks.map((t) => t.id)).toEqual(["past"]);
   });
 });
 
-describe("team_admin data", () => {
+describe("management data", () => {
   it("counts active, pending-password, roleless and groupless accounts scoped to the team", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canCreate: true } } }));
     const accountCount = vi
@@ -251,11 +331,11 @@ describe("team_admin data", () => {
       .mockResolvedValueOnce(2) // must change password
       .mockResolvedValueOnce(1) // without role
       .mockResolvedValueOnce(3); // without group
-    const { prisma } = stubPrisma({ accountCount });
+    const { prisma } = stubPrisma({ accountCount, accountRoleFindMany: withRoles([]) });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.teamAdmin).toMatchObject({
+    expect(result.management).toMatchObject({
       activeAccountCount: 12,
       mustChangePasswordCount: 2,
       withoutRoleCount: 1,
@@ -268,11 +348,34 @@ describe("team_admin data", () => {
 
   it("flags an unfinished setup wizard", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canCreate: true } } }));
-    const { prisma } = stubPrisma({ teamFindUnique: vi.fn().mockResolvedValue({ setupStage: "TOOLS" }) });
+    const { prisma } = stubPrisma({
+      teamFindUnique: vi.fn().mockResolvedValue({ setupStage: "TOOLS" }),
+      accountRoleFindMany: withRoles([]),
+    });
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.teamAdmin?.setupIncomplete).toBe(true);
+    expect(result.management?.setupIncomplete).toBe(true);
+  });
+});
+
+describe("team data", () => {
+  it("computes a per-department open/overdue/unassigned table for every active group", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Mechanical" }]),
+      taskCount: vi.fn().mockResolvedValue(2),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team?.departments).toEqual([
+      { groupId: "g1", groupName: "Mechanical", openCount: 2, overdueCount: 2, unassignedCount: 2 },
+    ]);
+    expect(calls.groupFindMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { teamId: TEAM, isActive: true } })
+    );
   });
 });
 
@@ -283,7 +386,10 @@ describe("authentication", () => {
         global: { ACCOUNTS: { canRead: true, canCreate: true }, TASKS: { canRead: true }, MEETINGS: { canRead: true } },
       })
     );
-    const { prisma, calls } = stubPrisma();
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([]),
+    });
 
     await createDashboardService(prisma).summary(account("team-a"));
 

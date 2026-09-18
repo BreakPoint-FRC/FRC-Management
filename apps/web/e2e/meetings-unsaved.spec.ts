@@ -104,7 +104,7 @@ for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as
       : action === "edit" ? page.getByRole("button", { name: "Düzenle", exact: true }).nth(1)
       : action === "create" ? page.getByRole("button", { name: "+ Yeni toplantı", exact: true })
       : action === "detail" ? page.getByRole("link", { name: "Beta", exact: true })
-      : action === "menu" ? page.getByRole("link", { name: "Genel bakış", exact: true })
+      : action === "menu" ? page.getByRole("link", { name: "Ana Sayfa", exact: true })
       : page.getByRole("button", { name: "Çıkış yap", exact: true });
     await trigger.click();
     await expect(dialog(page)).toBeVisible();
@@ -135,7 +135,7 @@ for (const action of ["cancel", "navigation"] as const) {
     const calls = await openDirtyEditor(page, "create");
     const trigger = action === "cancel"
       ? cancel(page)
-      : page.getByRole("link", { name: "Genel bakış", exact: true });
+      : page.getByRole("link", { name: "Ana Sayfa", exact: true });
 
     await trigger.click();
     await expect(dialog(page)).toBeVisible();
@@ -193,7 +193,7 @@ test("a repeated browser Back while the decision is open keeps history consisten
 test("browser Forward supports staying and discarding a dirty draft", async ({ page }) => {
   await setup(page);
   await cancel(page).click();
-  await page.getByRole("link", { name: "Genel bakış", exact: true }).click();
+  await page.getByRole("link", { name: "Ana Sayfa", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/meetings$/);
@@ -332,7 +332,7 @@ test("pending and failed saves preserve the draft and the browser protection", a
   await expect(cancel(page)).toBeDisabled();
   await expect(page.getByRole("button", { name: "Düzenle" }).first()).toBeDisabled();
   await page.getByRole("link", { name: "Beta", exact: true }).click();
-  await page.getByRole("link", { name: "Genel bakış", exact: true }).click();
+  await page.getByRole("link", { name: "Ana Sayfa", exact: true }).click();
   await page.getByRole("button", { name: "Çıkış yap", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText(/Toplantı kaydediliyor/);
   await page.goBack();

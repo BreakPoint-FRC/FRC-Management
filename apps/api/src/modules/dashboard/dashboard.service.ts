@@ -6,6 +6,7 @@ import type { AuthenticatedAccount } from "../../plugins/auth";
 
 const DAY = 24 * 60 * 60 * 1000;
 const UPCOMING_MEETING_WINDOW = 7 * DAY;
+const RECENT_WINDOW = 7 * DAY;
 const LIST_LIMIT = 5;
 
 const taskSummarySelect = {
@@ -40,8 +41,7 @@ function serializeMeeting(meeting: Prisma.MeetingGetPayload<{ select: typeof mee
  *
  * Mirrors what calendar.routes.ts and tasks.routes.ts each ask `authorize` one
  * group at a time -- this asks once, for every group, which is what a
- * dashboard needs and a single client request could not get any other way
- * (see the roadmap note this endpoint exists to answer).
+ * dashboard needs and a single client request could not get any other way.
  */
 function readableScope(
   matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
@@ -63,48 +63,55 @@ function scopeWhere(scope: { teamWide: boolean; groupIds: string[] }): { groupId
   return null;
 }
 
+const MANAGEMENT_TOOLS = ["ACCOUNTS", "ROLES", "GROUPS", "SEASONS"] as const;
+
 /**
- * Which of the four dashboard views this account gets, decided from the same
- * permission rows `authorize()` already trusts -- never from a role's name.
+ * Which of the four scope tabs this account gets -- never mutually exclusive.
+ * A software captain who is also the team captain and a finance reader gets
+ * all three tabs at once, because that is a real, ordinary combination of
+ * roles the OR-merged permission model already produces.
  *
- * team_admin: can actually read and create accounts team-wide. TEAM_LEAD in
- * the seeded set holds ACCOUNTS read+update but not create and lands in
- * "lead" instead, which matches what it can actually do.
+ * "Benim" is unconditional. The other three are decided from the same
+ * resolved matrix `authorize()` trusts, never from a role's name:
  *
- * lead: either a TEAM_WIDE/EXTERNAL role grants TASKS or MEETINGS write
- * somewhere, or an IN_GROUP role grants MEETINGS write in some group -- the
- * seeded MEMBER role grants TASKS write in its own group same as LEAD does,
- * so TASKS alone cannot tell the two apart; MEETINGS write is what a group's
- * organizer holds and a plain member does not.
- *
- * A read-only TEAM_WIDE/EXTERNAL role (the seeded MENTOR, or a bare
- * TEAM_MEMBER floor role with nothing else attached) satisfies neither check
- * and falls through to "member". That undersells an actual mentor, who
- * reasonably belongs beside a lead, but the alternative -- reading a role's
- * name or placement alone -- misclassifies the exact case this dashboard has
- * to get right: an account holding only the floor role nobody has assigned
- * anywhere yet, which must land on the empty-state "member" view and not on
- * an aggregate admin-style one it has no data behind.
+ * - "Grubum" needs an actually group-anchored role (IN_GROUP or
+ *   MANAGES_GROUP placement, so a real department assignment exists) whose
+ *   resolved grant at that specific department includes MEETINGS write. A
+ *   TEAM_WIDE role's grants are merged into every group's entry in `byGroup`
+ *   too, so scanning `byGroup` alone -- without first checking that the
+ *   account holds a real, group-scoped assignment there -- would hand a
+ *   TEAM_ADMIN or a MENTOR a "Grubum" tab for every single department in the
+ *   team, which is not a department they run.
+ * - "Takım" is team-wide ACCOUNTS read: what a captain, a mentor and every
+ *   admin-flavoured role have in common is visibility into the whole
+ *   roster, not just their own group's.
+ * - "Yönetim" is any team-wide create/update/delete on ACCOUNTS, ROLES,
+ *   GROUPS or SEASONS -- literally "authority to manage an account, a role,
+ *   a group or a season", matching the roadmap's own wording rather than a
+ *   narrower single-tool heuristic.
  */
-function classify(
-  account: AuthenticatedAccount,
-  matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
-): "platform" | "team_admin" | "lead" | "member" {
-  if (account.teamId === null) return "platform";
-
-  const accounts = matrix.global.ACCOUNTS;
-  if (accounts?.canRead && accounts?.canCreate) return "team_admin";
-
-  const teamWideLead =
-    matrix.global.TASKS?.canCreate ||
-    matrix.global.TASKS?.canUpdate ||
-    matrix.global.MEETINGS?.canCreate ||
-    matrix.global.MEETINGS?.canUpdate;
-  const groupLead = Object.values(matrix.byGroup).some(
-    (perTool) => perTool.MEETINGS?.canCreate || perTool.MEETINGS?.canUpdate
+function computeScopes(
+  matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
+  myGroupRoles: readonly { placement: string; groupId: string | null }[]
+): { groupIds: string[]; team: boolean; management: boolean } {
+  const anchoredGroupIds = [
+    ...new Set(
+      myGroupRoles
+        .filter((role) => (role.placement === "IN_GROUP" || role.placement === "MANAGES_GROUP") && role.groupId)
+        .map((role) => role.groupId as string)
+    ),
+  ];
+  const groupIds = anchoredGroupIds.filter(
+    (groupId) => matrix.byGroup[groupId]?.MEETINGS?.canCreate || matrix.byGroup[groupId]?.MEETINGS?.canUpdate
   );
 
-  return teamWideLead || groupLead ? "lead" : "member";
+  const team = matrix.global.ACCOUNTS?.canRead ?? false;
+  const management = MANAGEMENT_TOOLS.some((tool) => {
+    const set = matrix.global[tool];
+    return set?.canCreate || set?.canUpdate || set?.canDelete;
+  });
+
+  return { groupIds, team, management };
 }
 
 export function createDashboardService(prisma: PrismaClient) {
@@ -124,7 +131,8 @@ export function createDashboardService(prisma: PrismaClient) {
     return { activeTeamCount, archivedTeamCount, recentTeams };
   };
 
-  const memberSummary = async (
+  /** "Benim": always computed, the same for every signed-in team account. */
+  const mineSummary = async (
     teamId: string,
     accountId: string,
     matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
@@ -186,32 +194,148 @@ export function createDashboardService(prisma: PrismaClient) {
     };
   };
 
-  const leadSummary = async (
-    teamId: string,
-    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
-  ) => {
+  /**
+   * "Grubum": one block per department the account actually runs (a real
+   * IN_GROUP/MANAGES_GROUP assignment with MEETINGS write there -- see
+   * computeScopes). Plural on purpose: a person can captain more than one
+   * department at once, same as the seeded "iki departmanin lead'i" case.
+   */
+  const groupSummary = async (teamId: string, groupIds: readonly string[]) => {
     const now = new Date();
-    const taskWhere = scopeWhere(readableScope(matrix, "TASKS"));
-    if (!taskWhere) return { teamOpenTaskCount: 0, teamOverdueTaskCount: 0 };
+    const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
 
-    const [teamOpenTaskCount, teamOverdueTaskCount] = await Promise.all([
-      prisma.task.count({
-        where: { ...taskWhere, teamId, status: { in: [...OPEN_TASK_STATUSES] } },
-      }),
-      prisma.task.count({
-        where: {
-          ...taskWhere,
-          teamId,
-          status: { in: [...OPEN_TASK_STATUSES] },
-          dueDate: { lt: now },
-        },
-      }),
-    ]);
+    const groups = await prisma.group.findMany({
+      where: { id: { in: [...groupIds] } },
+      select: { id: true, name: true },
+    });
 
-    return { teamOpenTaskCount, teamOverdueTaskCount };
+    return Promise.all(
+      groups.map(async (group) => {
+        const [openCount, overdueCount, unassignedCount, completedThisWeekCount, topTasks, upcomingMeeting] =
+          await Promise.all([
+            prisma.task.count({
+              where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
+            }),
+            prisma.task.count({
+              where: {
+                teamId,
+                groupId: group.id,
+                status: { in: [...OPEN_TASK_STATUSES] },
+                dueDate: { lt: now },
+              },
+            }),
+            prisma.task.count({
+              where: {
+                teamId,
+                groupId: group.id,
+                status: { in: [...OPEN_TASK_STATUSES] },
+                assignees: { none: {} },
+              },
+            }),
+            prisma.task.count({
+              where: { teamId, groupId: group.id, status: "COMPLETED", updatedAt: { gte: weekAgo } },
+            }),
+            prisma.task.findMany({
+              where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
+              select: taskSummarySelect,
+              orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
+              take: LIST_LIMIT,
+            }),
+            prisma.meeting.findFirst({
+              where: { teamId, groupId: group.id, meetingDate: { gte: now } },
+              select: meetingSummarySelect,
+              orderBy: { meetingDate: "asc" },
+            }),
+          ]);
+
+        return {
+          groupId: group.id,
+          groupName: group.name,
+          openCount,
+          overdueCount,
+          unassignedCount,
+          completedThisWeekCount,
+          topTasks: topTasks.map(serializeTask),
+          upcomingMeeting: upcomingMeeting ? serializeMeeting(upcomingMeeting) : null,
+        };
+      })
+    );
   };
 
-  const teamAdminSummary = async (teamId: string) => {
+  /**
+   * "Takım": the whole team's shape, for a captain, mentor or admin-flavoured
+   * role reading across departments rather than running just one.
+   */
+  const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
+    const now = new Date();
+    const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
+
+    const [groups, activeSeason, upcomingMeeting, crossGroupOpenCount, crossGroupUnassignedCount] =
+      await Promise.all([
+        prisma.group.findMany({ where: { teamId, isActive: true }, select: { id: true, name: true } }),
+        prisma.season.findFirst({
+          where: { teamId, isActive: true },
+          select: { id: true, name: true, endDate: true },
+        }),
+        meetingWhere
+          ? prisma.meeting.findFirst({
+              where: { ...meetingWhere, teamId, meetingDate: { gte: now } },
+              select: meetingSummarySelect,
+              orderBy: { meetingDate: "asc" },
+            })
+          : Promise.resolve(null),
+        prisma.task.count({ where: { teamId, status: { in: [...OPEN_TASK_STATUSES] }, groupId: null } }),
+        prisma.task.count({
+          where: {
+            teamId,
+            status: { in: [...OPEN_TASK_STATUSES] },
+            groupId: null,
+            assignees: { none: {} },
+          },
+        }),
+      ]);
+
+    const departments = await Promise.all(
+      groups.map(async (group) => {
+        const [openCount, overdueCount, unassignedCount] = await Promise.all([
+          prisma.task.count({
+            where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
+          }),
+          prisma.task.count({
+            where: {
+              teamId,
+              groupId: group.id,
+              status: { in: [...OPEN_TASK_STATUSES] },
+              dueDate: { lt: now },
+            },
+          }),
+          prisma.task.count({
+            where: {
+              teamId,
+              groupId: group.id,
+              status: { in: [...OPEN_TASK_STATUSES] },
+              assignees: { none: {} },
+            },
+          }),
+        ]);
+        return { groupId: group.id, groupName: group.name, openCount, overdueCount, unassignedCount };
+      })
+    );
+
+    return {
+      departments,
+      activeSeason,
+      seasonDaysRemaining: activeSeason
+        ? Math.max(0, Math.ceil((activeSeason.endDate.getTime() - now.getTime()) / DAY))
+        : null,
+      upcomingMeeting: upcomingMeeting ? serializeMeeting(upcomingMeeting) : null,
+      crossGroupOpenTaskCount: crossGroupOpenCount,
+      crossGroupUnassignedTaskCount: crossGroupUnassignedCount,
+    };
+  };
+
+  /** "Yönetim": the health-check cards, unchanged from the old team_admin view. */
+  const managementSummary = async (teamId: string) => {
     const [team, activeAccountCount, mustChangePasswordCount, withoutRoleCount, withoutGroupCount, activeSeason] =
       await Promise.all([
         prisma.team.findUnique({ where: { id: teamId }, select: { setupStage: true } }),
@@ -251,25 +375,36 @@ export function createDashboardService(prisma: PrismaClient) {
       if (account.teamId === null) {
         return {
           scope: "platform" as const,
-          tier: "platform" as const,
           platform: await platformSummary(account.id),
-          member: null,
-          lead: null,
-          teamAdmin: null,
+          mine: null,
+          group: null,
+          team: null,
+          management: null,
         };
       }
 
       const teamId = account.teamId;
-      const matrix = await resolvePermissionMatrix(prisma, account.id);
-      const tier = classify(account, matrix);
-
-      const [member, lead, teamAdmin] = await Promise.all([
-        memberSummary(teamId, account.id, matrix),
-        tier === "lead" ? leadSummary(teamId, matrix) : Promise.resolve(null),
-        tier === "team_admin" ? teamAdminSummary(teamId) : Promise.resolve(null),
+      const [matrix, accountRoles] = await Promise.all([
+        resolvePermissionMatrix(prisma, account.id),
+        prisma.accountRole.findMany({
+          where: { accountId: account.id, isActive: true },
+          select: { groupId: true, role: { select: { placement: true } } },
+        }),
       ]);
 
-      return { scope: "team" as const, tier, platform: null, member, lead, teamAdmin };
+      const scopes = computeScopes(
+        matrix,
+        accountRoles.map((entry) => ({ placement: entry.role.placement, groupId: entry.groupId }))
+      );
+
+      const [mine, group, team, management] = await Promise.all([
+        mineSummary(teamId, account.id, matrix),
+        scopes.groupIds.length > 0 ? groupSummary(teamId, scopes.groupIds) : Promise.resolve(null),
+        scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
+        scopes.management ? managementSummary(teamId) : Promise.resolve(null),
+      ]);
+
+      return { scope: "team" as const, platform: null, mine, group, team, management };
     },
   };
 }

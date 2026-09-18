@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Link from "next/link";
 import { taskPriorityLabels, taskStatusLabels } from "@breakpoint/types";
 
@@ -11,22 +12,35 @@ import { formatDate } from "@/lib/format";
 import { canAnywhere } from "@/lib/permissions";
 import type { DashboardRow } from "@/lib/api-types";
 
+type Scope = "mine" | "group" | "team" | "management";
+
+const SCOPE_LABEL: Record<Scope, string> = {
+  mine: "Benim",
+  group: "Grubum",
+  team: "Takım",
+  management: "Yönetim",
+};
+
 /**
  * The homepage: what to do today, not why you can or cannot do it.
  *
- * The old overview page answered "why can I see that and not this" by
- * putting the resolved permission matrix front and center -- useful for
- * checking the authorization model, useless for a member opening the app to
- * find out what is due. That diagnostic view still exists, moved to
- * "Hesabım" (/account); this page is what replaces it as "/".
+ * Scope tabs, not a role mode: GET /dashboard returns `mine`/`group`/`team`/
+ * `management` independently, each non-null only when the account's actual
+ * resolved grants qualify for it (dashboard.service.ts). A person holding
+ * several roles at once -- a software captain who is also the team captain
+ * and a finance reader -- gets every tab that applies, exactly like the
+ * OR-merged permission model those roles already produce; there is no "which
+ * role is active" to pick.
  *
- * Which sections render comes entirely from GET /dashboard's `tier`, decided
- * server-side from the account's actual resolved grants -- never guessed
- * here from a role's name. See dashboard.service.ts.
+ * The old diagnostic view that used to live here, answering "why can I see
+ * this and not that" with the raw permission matrix, moved to "Hesabım"
+ * (/account) -- useful for checking the authorization model, not for finding
+ * out what is due today.
  */
 export default function DashboardPage() {
   const { account, permissions } = useAuth();
   const dashboard = useApi<DashboardRow>("/dashboard");
+  const [tab, setTab] = useState<Scope>("mine");
 
   return (
     <>
@@ -37,18 +51,55 @@ export default function DashboardPage() {
           data.scope === "platform" && data.platform ? (
             <PlatformSummary data={data.platform} />
           ) : (
-            <div className="stack">
-              {data.tier === "team_admin" && data.teamAdmin ? (
-                <TeamAdminSummary data={data.teamAdmin} />
-              ) : null}
-              {data.tier === "lead" && data.lead ? (
-                <LeadSummary lead={data.lead} canCreateTask={canAnywhere(permissions, "TASKS", "create")} canCreateMeeting={canAnywhere(permissions, "MEETINGS", "create")} />
-              ) : null}
-              {data.member ? <MemberSummary data={data.member} /> : null}
-            </div>
+            <ScopedDashboard data={data} tab={tab} setTab={setTab} permissions={permissions} />
           )
         }
       </AsyncSection>
+    </>
+  );
+}
+
+function ScopedDashboard({
+  data,
+  tab,
+  setTab,
+  permissions,
+}: {
+  data: DashboardRow;
+  tab: Scope;
+  setTab: (tab: Scope) => void;
+  permissions: ReturnType<typeof useAuth>["permissions"];
+}) {
+  const available = (["mine", "group", "team", "management"] as const).filter((scope) => data[scope] !== null);
+  const active = available.includes(tab) ? tab : (available[0] ?? "mine");
+
+  return (
+    <>
+      <div className="scope-tabs" role="tablist" aria-label="Kapsam">
+        {available.map((scope) => (
+          <button
+            key={scope}
+            type="button"
+            role="tab"
+            aria-selected={scope === active}
+            className={`scope-tab${scope === active ? " is-active" : ""}`}
+            onClick={() => setTab(scope)}
+          >
+            {SCOPE_LABEL[scope]}
+          </button>
+        ))}
+      </div>
+
+      {active === "mine" && data.mine ? <MineSummary data={data.mine} /> : null}
+      {active === "group" && data.group ? <GroupSummary data={data.group} /> : null}
+      {active === "team" && data.team ? (
+        <TeamSummary
+          data={data.team}
+          canCreateTask={canAnywhere(permissions, "TASKS", "create")}
+          canCreateMeeting={canAnywhere(permissions, "MEETINGS", "create")}
+        />
+      ) : null}
+      {active === "management" && data.management ? <ManagementSummary data={data.management} /> : null}
     </>
   );
 }
@@ -105,20 +156,36 @@ function PlatformSummary({ data }: { data: NonNullable<DashboardRow["platform"]>
   );
 }
 
-function TeamAdminSummary({ data }: { data: NonNullable<DashboardRow["teamAdmin"]> }) {
+function ManagementSummary({ data }: { data: NonNullable<DashboardRow["management"]> }) {
+  const warnings: string[] = [];
+  if (data.mustChangePasswordCount > 0) {
+    warnings.push(
+      `${data.mustChangePasswordCount} hesap ilk şifresini henüz değiştirmedi.`
+    );
+  }
+  if (data.withoutRoleCount > 0) warnings.push(`${data.withoutRoleCount} hesapta rol bulunmuyor.`);
+  if (data.withoutGroupCount > 0) warnings.push(`${data.withoutGroupCount} hesap hiçbir gruba bağlı değil.`);
+  if (data.setupIncomplete) warnings.push("Takım kurulumu henüz tamamlanmadı.");
+
   return (
-    <div>
-      <div className="row" style={{ justifyContent: "space-between", marginBottom: 8 }}>
-        <h2 style={{ margin: 0 }}>Takım yönetimi</h2>
+    <div className="stack">
+      <div className="row" style={{ justifyContent: "space-between" }}>
+        <h2 style={{ margin: 0 }}>Yönetim sağlığı</h2>
         <Link className="btn btn-primary btn-sm" href="/accounts">
           Hesapları yönet
         </Link>
       </div>
 
-      {data.setupIncomplete ? (
-        <p className="small" style={{ margin: "0 0 12px" }}>
-          <Link href="/setup">Takım kurulumu henüz tamamlanmadı — devam etmek için tıklayın.</Link>
-        </p>
+      {warnings.length > 0 ? (
+        <div className="stack-sm">
+          {warnings.map((text, index) => (
+            <div key={index} className="card">
+              <p style={{ margin: 0 }}>
+                <Badge tone="warn">Dikkat</Badge> {text}
+              </p>
+            </div>
+          ))}
+        </div>
       ) : null}
 
       <div className="grid">
@@ -151,31 +218,108 @@ function TeamAdminSummary({ data }: { data: NonNullable<DashboardRow["teamAdmin"
           )}
         </Card>
       </div>
+
+      {data.setupIncomplete ? (
+        <p className="small">
+          <Link href="/setup">Takım kurulumu henüz tamamlanmadı — devam etmek için tıklayın.</Link>
+        </p>
+      ) : null}
     </div>
   );
 }
 
-function LeadSummary({
-  lead,
+function TeamSummary({
+  data,
   canCreateTask,
   canCreateMeeting,
 }: {
-  lead: NonNullable<DashboardRow["lead"]>;
+  data: NonNullable<DashboardRow["team"]>;
   canCreateTask: boolean;
   canCreateMeeting: boolean;
 }) {
   return (
-    <div>
-      <h2 style={{ marginBottom: 8 }}>Takımın durumu</h2>
+    <div className="stack">
       <div className="grid">
-        <Card title="Açık görev">
-          <div className="stat">{lead.teamOpenTaskCount}</div>
+        <Card title="Sezon">
+          {data.activeSeason ? (
+            <div>
+              <div className="stat" style={{ fontSize: 16 }}>
+                {data.activeSeason.name}
+              </div>
+              <div className="small muted">
+                {data.seasonDaysRemaining !== null
+                  ? `${data.seasonDaysRemaining} gün kaldı`
+                  : "Bitiş tarihi geçti"}
+              </div>
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              Aktif sezon yok.
+            </p>
+          )}
         </Card>
-        <Card title="Geciken görev">
-          <div className="stat">{lead.teamOverdueTaskCount}</div>
+        <Card title="Gruplar arası açık görev">
+          <div className="stat">{data.crossGroupOpenTaskCount}</div>
+        </Card>
+        <Card title="Sorumlusu olmayan (gruplar arası)">
+          <div className="stat">{data.crossGroupUnassignedTaskCount}</div>
+        </Card>
+        <Card title="Yaklaşan takım toplantısı">
+          {data.upcomingMeeting ? (
+            <div>
+              <div className="stat" style={{ fontSize: 15 }}>
+                {data.upcomingMeeting.title}
+              </div>
+              <div className="small muted">{formatDate(data.upcomingMeeting.meetingDate)}</div>
+            </div>
+          ) : (
+            <p className="muted" style={{ margin: 0 }}>
+              Planlanmış toplantı yok.
+            </p>
+          )}
         </Card>
       </div>
-      <div className="row" style={{ marginTop: 12 }}>
+
+      <div>
+        <h2 style={{ marginBottom: 8 }}>Departman durumu</h2>
+        {data.departments.length === 0 ? (
+          <p className="muted">Henüz grup oluşturulmamış.</p>
+        ) : (
+          <div className="table-wrap">
+            <table className="table">
+              <thead>
+                <tr>
+                  <th>Grup</th>
+                  <th className="numeric">Açık</th>
+                  <th className="numeric">Geciken</th>
+                  <th className="numeric">Sorumlusuz</th>
+                  <th>Durum</th>
+                </tr>
+              </thead>
+              <tbody>
+                {[...data.departments]
+                  .sort((a, b) => b.overdueCount - a.overdueCount || b.unassignedCount - a.unassignedCount)
+                  .map((department) => {
+                    const attention = department.overdueCount > 0 || department.unassignedCount > 0;
+                    return (
+                      <tr key={department.groupId}>
+                        <td>{department.groupName}</td>
+                        <td className="numeric">{department.openCount}</td>
+                        <td className="numeric">{department.overdueCount}</td>
+                        <td className="numeric">{department.unassignedCount}</td>
+                        <td>
+                          <Badge tone={attention ? "warn" : "ok"}>{attention ? "Dikkat" : "İyi"}</Badge>
+                        </td>
+                      </tr>
+                    );
+                  })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      <div className="row">
         {canCreateTask ? (
           <Link className="btn btn-sm" href="/tasks">
             + Görev oluştur
@@ -186,15 +330,69 @@ function LeadSummary({
             + Toplantı oluştur
           </Link>
         ) : null}
-        <Link className="btn btn-sm" href="/calendar">
-          Takvimi aç
+        <Link className="btn btn-sm" href="/gantt">
+          Zaman çizelgesini aç
         </Link>
       </div>
     </div>
   );
 }
 
-function MemberSummary({ data }: { data: NonNullable<DashboardRow["member"]> }) {
+function GroupSummary({ data }: { data: NonNullable<DashboardRow["group"]> }) {
+  return (
+    <div className="stack">
+      {data.map((department) => (
+        <div key={department.groupId} className="stack">
+          <div className="row" style={{ justifyContent: "space-between" }}>
+            <h2 style={{ margin: 0 }}>{department.groupName}</h2>
+            <GuardedLink className="btn btn-sm" href="/tasks">
+              Görevleri aç
+            </GuardedLink>
+          </div>
+
+          <div className="grid">
+            <Card title="Açık">
+              <div className="stat">{department.openCount}</div>
+            </Card>
+            <Card title="Gecikmiş">
+              <div className="stat">{department.overdueCount}</div>
+            </Card>
+            <Card title="Sorumlusuz">
+              <div className="stat">{department.unassignedCount}</div>
+            </Card>
+            <Card title="Bu hafta tamamlandı">
+              <div className="stat">{department.completedThisWeekCount}</div>
+            </Card>
+          </div>
+
+          <div className="grid">
+            <div>
+              <h2 style={{ marginBottom: 8, fontSize: 13 }}>Öncelikli görevler</h2>
+              <TaskList tasks={department.topTasks} empty="Açık görev yok." />
+            </div>
+            <div>
+              <h2 style={{ marginBottom: 8, fontSize: 13 }}>Yaklaşan toplantı</h2>
+              {department.upcomingMeeting ? (
+                <GuardedLink className="card" href={`/meetings/${department.upcomingMeeting.id}`}>
+                  <p className="card-title" style={{ margin: 0 }}>
+                    {department.upcomingMeeting.title}
+                  </p>
+                  <p className="small muted" style={{ margin: 0 }}>
+                    {formatDate(department.upcomingMeeting.meetingDate)}
+                  </p>
+                </GuardedLink>
+              ) : (
+                <p className="muted">Planlanmış toplantı yok.</p>
+              )}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function MineSummary({ data }: { data: NonNullable<DashboardRow["mine"]> }) {
   const nothingAssigned = data.groups.length === 0 && data.roles.length === 0;
 
   return (
@@ -280,7 +478,7 @@ function TaskList({
   tasks,
   empty,
 }: {
-  tasks: NonNullable<DashboardRow["member"]>["openTasks"];
+  tasks: NonNullable<DashboardRow["mine"]>["openTasks"];
   empty: string;
 }) {
   if (tasks.length === 0) return <p className="muted">{empty}</p>;

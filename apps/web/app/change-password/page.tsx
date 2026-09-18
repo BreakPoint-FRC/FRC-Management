@@ -11,15 +11,23 @@ import { apiClient } from "@/lib/api-client";
 import { issueFor } from "@/lib/issues";
 
 /**
- * Where an account on a generated password lands, and the only thing it can do.
+ * Two entries, one screen.
  *
- * The API refuses every route but /auth/me, /auth/password and /auth/logout
+ * An account on a generated password lands here and can do nothing else --
+ * the API refuses every route but /auth/me, /auth/password and /auth/logout
  * while `mustChangePassword` is set, so this is not a courtesy screen -- the
  * dashboard behind it would be a page of 403s. A temporary password was typed
  * by an administrator and read off a screen; it is a way in, not a credential.
  *
- * Deliberately outside the (dashboard) route group: that layout redirects here,
- * and a screen inside it would redirect to itself.
+ * The account menu's "Şifre değiştir" reaches the same screen voluntarily,
+ * for anyone already past that: the endpoint underneath (/auth/password) has
+ * no mustChangePassword requirement of its own, so the only difference is
+ * what happens after -- a forced reset has nowhere to cancel into but signing
+ * out, a voluntary one just goes back to the dashboard.
+ *
+ * Deliberately outside the (dashboard) route group: that layout redirects here
+ * while mustChangePassword is set, and a screen inside it would redirect to
+ * itself.
  */
 export default function ChangePasswordPage() {
   const { status, account, signOut } = useAuth();
@@ -32,11 +40,11 @@ export default function ChangePasswordPage() {
 
   useEffect(() => {
     if (status === "anonymous") router.replace("/login");
-    // Someone who reaches this by typing the URL has nothing to do here.
-    else if (status === "authenticated" && !account?.mustChangePassword) router.replace("/");
-  }, [status, account?.mustChangePassword, router]);
+  }, [status, router]);
 
   if (status !== "authenticated") return <Loading />;
+
+  const forced = !!account?.mustChangePassword;
 
   const mismatch = confirmation.length > 0 && confirmation !== newPassword;
 
@@ -56,25 +64,30 @@ export default function ChangePasswordPage() {
 
   return (
     <main className="content" style={{ maxWidth: 480, margin: "0 auto" }}>
-      <PageHeader title="Şifrenizi belirleyin" />
+      <PageHeader title={forced ? "Şifrenizi belirleyin" : "Şifre değiştir"} />
 
-      <p className="muted">
-        Hesabınız yöneticinin verdiği geçici bir şifreyle açıldı. Devam etmek için kendi
-        şifrenizi belirlemelisiniz.
-      </p>
+      {forced ? (
+        <p className="muted">
+          Hesabınız yöneticinin verdiği geçici bir şifreyle açıldı. Devam etmek için kendi
+          şifrenizi belirlemelisiniz.
+        </p>
+      ) : (
+        <p className="muted">Şifreniz değiştirildikten sonra tüm oturumlarınız kapanır.</p>
+      )}
 
       <FormPanel
         title="Yeni şifre"
         error={mutation.error}
         saving={mutation.saving}
         onSubmit={submit}
-        // Nothing to cancel into: this screen is the only route the account can
-        // reach, so the way out is forward or a sign-out.
-        onCancel={() => void signOut()}
+        // A forced reset has nowhere to cancel into but signing out -- this is
+        // the only route the account can reach. A voluntary visit just goes
+        // back to the dashboard.
+        onCancel={forced ? () => void signOut() : () => router.push("/")}
         submitLabel="Şifreyi değiştir"
       >
         <TextField
-          label="Geçici şifre"
+          label={forced ? "Geçici şifre" : "Mevcut şifre"}
           type="password"
           value={currentPassword}
           required
