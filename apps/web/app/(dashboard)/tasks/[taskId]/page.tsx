@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   taskActivityLabels,
@@ -28,7 +29,8 @@ function describe(entry: TaskActivityRow): string {
   return to ?? from ?? "";
 }
 
-export default function TaskDetailPage({ params }: { params: { taskId: string } }) {
+export default function TaskDetailPage() {
+  const params = useParams<{ taskId: string }>();
   const { permissions } = useAuth();
   const task = useApi<TaskRow>(`/tasks/${params.taskId}`);
   const activity = useApi<Paginated<TaskActivityRow>>(`/tasks/${params.taskId}/activity?pageSize=50`);

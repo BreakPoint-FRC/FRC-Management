@@ -357,6 +357,51 @@ describe("management data", () => {
 
     expect(result.management?.setupIncomplete).toBe(true);
   });
+
+  it("does not disclose account or season health through an unrelated ROLES management grant", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ROLES: { canUpdate: true } } }));
+    const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.management).toMatchObject({
+      canReadAccounts: false,
+      canReadSeasons: false,
+      activeAccountCount: null,
+      mustChangePasswordCount: null,
+      withoutRoleCount: null,
+      withoutGroupCount: null,
+      activeSeason: null,
+    });
+    expect(calls.accountCount).not.toHaveBeenCalled();
+    expect(calls.seasonFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("can show season health without also disclosing account health", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ global: { SEASONS: { canRead: true, canUpdate: true } } })
+    );
+    const activeSeason = {
+      id: "season-1",
+      name: "2026",
+      startDate: new Date("2026-01-01"),
+      endDate: new Date("2026-12-31"),
+    };
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      seasonFindFirst: vi.fn().mockResolvedValue(activeSeason),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.management).toMatchObject({
+      canReadAccounts: false,
+      canReadSeasons: true,
+      activeAccountCount: null,
+      activeSeason,
+    });
+    expect(calls.accountCount).not.toHaveBeenCalled();
+  });
 });
 
 describe("team data", () => {
@@ -385,7 +430,7 @@ describe("team data", () => {
   // independently. A department's task counts must not appear just because
   // the tab itself is visible, the same as GET /tasks?groupId=g1 would refuse
   // this account with no TASKS grant on g1.
-  it("does not leak a department's task counts when the account cannot read TASKS there", async () => {
+  it("does not enumerate departments when the account cannot read TASKS there", async () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
     const { prisma, calls } = stubPrisma({
       accountRoleFindMany: withRoles([]),
@@ -395,9 +440,7 @@ describe("team data", () => {
 
     const result = await createDashboardService(prisma).summary(account());
 
-    expect(result.team?.departments).toEqual([
-      { groupId: "g1", groupName: "Mechanical", openCount: 0, overdueCount: 0, unassignedCount: 0 },
-    ]);
+    expect(result.team?.departments).toEqual([]);
     expect(calls.taskCount).not.toHaveBeenCalled();
   });
 
@@ -505,8 +548,10 @@ describe("group data", () => {
     expect(calls.taskFindMany).not.toHaveBeenCalled();
   });
 
-  it("still shows the department's upcoming meeting even without TASKS read -- MEETINGS is what unlocked the tab", async () => {
-    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
+  it("still shows the department's upcoming meeting with MEETINGS/read even without TASKS read", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ byGroup: { g1: { MEETINGS: { canRead: true, canCreate: true } } } })
+    );
     const { prisma } = stubPrisma({
       accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
@@ -521,6 +566,25 @@ describe("group data", () => {
     const result = await createDashboardService(prisma).summary(account());
 
     expect(result.group?.[0]?.upcomingMeeting).toMatchObject({ id: "m1", title: "Standup" });
+  });
+
+  it("does not leak an upcoming meeting from MEETINGS/write alone", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+      meetingFindFirst: vi.fn().mockResolvedValue({
+        id: "m1",
+        title: "Secret meeting",
+        meetingDate: new Date("2026-09-20"),
+        group: { name: "Yazılım" },
+      }),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.group?.[0]?.upcomingMeeting).toBeNull();
+    expect(calls.meetingFindFirst).not.toHaveBeenCalled();
   });
 });
 
