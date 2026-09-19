@@ -291,26 +291,31 @@ export function createDashboardService(prisma: PrismaClient) {
    * role reading across departments rather than running just one.
    *
    * Gated on team-wide ACCOUNTS read (see computeScopes), which says nothing
-   * about TASKS -- the two are independent grants an admin can and does set
+   * about TASKS or SEASONS -- all independent grants an admin can and does set
    * separately. Every task field below is therefore additionally scoped by
    * `taskScope`, the same `readableScope(matrix, "TASKS")` mineSummary already
    * uses: a cross-group count needs team-wide TASKS read (a scoped reader
    * cannot see a task naming no department at all, same as GET /tasks would
    * answer), and each department's counts need TASKS read for that specific
-   * department.
+   * department. The active season is SEASONS data for the same reason --
+   * `activeSeason`/`seasonDaysRemaining` stay `null` for a caller without
+   * team-wide SEASONS read, exactly like GET /seasons would answer them.
    */
   const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
     const now = new Date();
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
     const taskScope = readableScope(matrix, "TASKS");
+    const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
 
     const [groups, activeSeason, upcomingMeeting, crossGroupOpenCount, crossGroupUnassignedCount] =
       await Promise.all([
         prisma.group.findMany({ where: { teamId, isActive: true }, select: { id: true, name: true } }),
-        prisma.season.findFirst({
-          where: { teamId, isActive: true },
-          select: { id: true, name: true, endDate: true },
-        }),
+        canReadSeasons
+          ? prisma.season.findFirst({
+              where: { teamId, isActive: true },
+              select: { id: true, name: true, endDate: true },
+            })
+          : Promise.resolve(null),
         meetingWhere
           ? prisma.meeting.findFirst({
               where: { ...meetingWhere, teamId, meetingDate: { gte: now } },
@@ -377,30 +382,58 @@ export function createDashboardService(prisma: PrismaClient) {
     };
   };
 
-  /** "Yönetim": the health-check cards, unchanged from the old team_admin view. */
-  const managementSummary = async (teamId: string) => {
+  /**
+   * "Yönetim": the health-check cards, unchanged from the old team_admin view
+   * except for one fix -- that view predates this file's scope-tab/OR-merged
+   * model and never went back to apply its rule (every field gated by its own
+   * tool's grant, never inferred from the tab it lives on). The tab itself is
+   * unlocked by ANY team-wide create/update/delete on ACCOUNTS/ROLES/GROUPS/
+   * SEASONS (see computeScopes), so a role holding only e.g. ROLES: cud has no
+   * ACCOUNTS or SEASONS read at all -- the account-health counts and the
+   * active season are gated on those specific reads, same as `teamSummary`'s
+   * `activeSeason` above. `setupIncomplete` is left unconditional: it is a
+   * team-wide operational flag, not data behind any one of these four tools,
+   * and TEAMS itself authorizes nothing for a non-platform account.
+   */
+  const managementSummary = async (
+    teamId: string,
+    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
+  ) => {
+    const canReadAccounts = matrix.global.ACCOUNTS?.canRead ?? false;
+    const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
+
     const [team, activeAccountCount, mustChangePasswordCount, withoutRoleCount, withoutGroupCount, activeSeason] =
       await Promise.all([
         prisma.team.findUnique({ where: { id: teamId }, select: { setupStage: true } }),
-        prisma.account.count({ where: { teamId, archivedAt: null, isActive: true } }),
-        prisma.account.count({
-          where: { teamId, archivedAt: null, isActive: true, mustChangePassword: true },
-        }),
-        prisma.account.count({
-          where: { teamId, archivedAt: null, isActive: true, roles: { none: { isActive: true } } },
-        }),
-        prisma.account.count({
-          where: {
-            teamId,
-            archivedAt: null,
-            isActive: true,
-            memberships: { none: { isActive: true } },
-          },
-        }),
-        prisma.season.findFirst({
-          where: { teamId, isActive: true },
-          select: { id: true, name: true, startDate: true, endDate: true },
-        }),
+        canReadAccounts
+          ? prisma.account.count({ where: { teamId, archivedAt: null, isActive: true } })
+          : Promise.resolve(0),
+        canReadAccounts
+          ? prisma.account.count({
+              where: { teamId, archivedAt: null, isActive: true, mustChangePassword: true },
+            })
+          : Promise.resolve(0),
+        canReadAccounts
+          ? prisma.account.count({
+              where: { teamId, archivedAt: null, isActive: true, roles: { none: { isActive: true } } },
+            })
+          : Promise.resolve(0),
+        canReadAccounts
+          ? prisma.account.count({
+              where: {
+                teamId,
+                archivedAt: null,
+                isActive: true,
+                memberships: { none: { isActive: true } },
+              },
+            })
+          : Promise.resolve(0),
+        canReadSeasons
+          ? prisma.season.findFirst({
+              where: { teamId, isActive: true },
+              select: { id: true, name: true, startDate: true, endDate: true },
+            })
+          : Promise.resolve(null),
       ]);
 
     return {
@@ -446,7 +479,7 @@ export function createDashboardService(prisma: PrismaClient) {
           ? groupSummary(teamId, scopes.groupIds, readableScope(matrix, "TASKS"))
           : Promise.resolve(null),
         scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
-        scopes.management ? managementSummary(teamId) : Promise.resolve(null),
+        scopes.management ? managementSummary(teamId, matrix) : Promise.resolve(null),
       ]);
 
       return { scope: "team" as const, platform: null, mine, group, team, management };

@@ -357,6 +357,54 @@ describe("management data", () => {
 
     expect(result.management?.setupIncomplete).toBe(true);
   });
+
+  // Any of ACCOUNTS/ROLES/GROUPS/SEASONS create/update/delete unlocks the
+  // "Yönetim" tab (see computeScopes), but ACCOUNTS/read is a separate grant
+  // -- a role holding only ROLES: cud has no visibility into the roster at
+  // all. The account-health counts must not appear just because the tab is
+  // visible, the same as GET /accounts would refuse this account.
+  it("does not leak account counts when only a non-ACCOUNTS management grant unlocks the tab", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ROLES: { canCreate: true } } }));
+    const accountCount = vi.fn().mockResolvedValue(99);
+    const { prisma, calls } = stubPrisma({ accountCount, accountRoleFindMany: withRoles([]) });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.management).toMatchObject({
+      activeAccountCount: 0,
+      mustChangePasswordCount: 0,
+      withoutRoleCount: 0,
+      withoutGroupCount: 0,
+    });
+    expect(calls.accountCount).not.toHaveBeenCalled();
+  });
+
+  // Same shape, for SEASONS: an ACCOUNTS-only admin unlocks "Yönetim" and can
+  // read the roster, but has no SEASONS grant and must not see the season
+  // that gates it, the same as GET /seasons would refuse this account.
+  it("does not leak the active season when the account cannot read SEASONS", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canCreate: true } } }));
+    const seasonFindFirst = vi.fn().mockResolvedValue({ id: "s1", name: "2026 Season", startDate: new Date(), endDate: new Date() });
+    const { prisma, calls } = stubPrisma({ seasonFindFirst, accountRoleFindMany: withRoles([]) });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.management?.activeSeason).toBeNull();
+    expect(calls.seasonFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("shows the active season with team-wide SEASONS read", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { SEASONS: { canRead: true, canCreate: true } } }));
+    const season = { id: "s1", name: "2026 Season", startDate: new Date("2026-01-01"), endDate: new Date("2026-12-31") };
+    const { prisma } = stubPrisma({
+      seasonFindFirst: vi.fn().mockResolvedValue(season),
+      accountRoleFindMany: withRoles([]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.management?.activeSeason).toEqual(season);
+  });
 });
 
 describe("team data", () => {
@@ -452,6 +500,37 @@ describe("team data", () => {
 
     expect(result.team).toMatchObject({ crossGroupOpenTaskCount: 5, crossGroupUnassignedTaskCount: 5 });
     expect(calls.taskCount.mock.calls.some((call) => call[0]?.where?.groupId === null)).toBe(true);
+  });
+
+  // ACCOUNTS/read is what unlocks "Takım" (see computeScopes) and says
+  // nothing about SEASONS, a separate grant an admin sets independently. The
+  // active season must not appear just because the tab is visible, the same
+  // as GET /seasons would refuse this account.
+  it("does not leak the active season without team-wide SEASONS read", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+    const seasonFindFirst = vi.fn().mockResolvedValue({ id: "s1", name: "2026 Season", endDate: new Date("2026-12-31") });
+    const { prisma, calls } = stubPrisma({ seasonFindFirst, accountRoleFindMany: withRoles([]) });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team).toMatchObject({ activeSeason: null, seasonDaysRemaining: null });
+    expect(calls.seasonFindFirst).not.toHaveBeenCalled();
+  });
+
+  it("shows the active season with team-wide SEASONS read", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ global: { ACCOUNTS: { canRead: true }, SEASONS: { canRead: true } } })
+    );
+    const season = { id: "s1", name: "2026 Season", endDate: new Date("2026-12-31") };
+    const { prisma } = stubPrisma({
+      seasonFindFirst: vi.fn().mockResolvedValue(season),
+      accountRoleFindMany: withRoles([]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team?.activeSeason).toEqual(season);
+    expect(result.team?.seasonDaysRemaining).not.toBeNull();
   });
 });
 

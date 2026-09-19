@@ -16,6 +16,17 @@ async function login(page: Page, grant: "audit" | "roles" | "group" = "audit") {
     permissions: { global: grant === "audit" ? { AUDIT_LOG: read } : grant === "roles" ? { ROLES: read } : {},
       byGroup: grant === "group" ? { group: { AUDIT_LOG: read } } : {} },
   } }));
+  // Login lands on "/" first, which fetches its own GET /dashboard before the
+  // test navigates on to the audit log. Left unmocked, that request fails
+  // (nothing listens on :4100 in this suite) and renders the exact same
+  // generic offline/retry UI the audit-log failure tests assert on -- a race
+  // between two unrelated "Tekrar dene" buttons, one of which gets unmounted
+  // out from under Playwright's click the moment the real navigation lands.
+  await page.route("**/dashboard", (route) => route.fulfill({ json: {
+    scope: "team", platform: null,
+    mine: { openTasks: [], overdueTasks: [], upcomingMeetings: [], groups: [], roles: [] },
+    group: null, team: null, management: null,
+  } }));
   await page.goto("/login");
   await page.getByLabel("E-posta").fill("reader@example.test");
   await page.getByLabel("Şifre", { exact: true }).fill("test-password");
