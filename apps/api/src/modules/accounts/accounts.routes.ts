@@ -123,26 +123,36 @@ export async function accountsRoutes(app: FastifyInstance) {
   // fails re-validation (a row went stale, a race lost an email to someone
   // else) is not a client error, it is the answer "no, and here is why" --
   // the same shape /preview sends, not an HTTP error code standing in for it.
-  app.post("/bulk-import/commit", async (req) => {
-    const input = bulkImportCommitSchema.parse(req.body);
+  app.post(
+    "/bulk-import/commit",
+    {
+      // Every accepted row needs a memory-hard Argon2 hash. Bounded workers in
+      // the service protect one request; this route limit also stops repeated
+      // imports from multiplying that work into a trivial resource-exhaustion
+      // path. Two full batches per minute is still far beyond normal setup use.
+      config: { rateLimit: { max: 2, timeWindow: "1 minute" } },
+    },
+    async (req) => {
+      const input = bulkImportCommitSchema.parse(req.body);
 
-    await authorize(app.prisma, {
-      accountId: req.account.id,
-      tool: "ACCOUNTS",
-      action: "create",
-    });
-    // Same rule as POST / above: granting roles needs ROLES/update, whether
-    // one account is created or two hundred.
-    if (input.roles.length > 0) {
       await authorize(app.prisma, {
         accountId: req.account.id,
-        tool: "ROLES",
-        action: "update",
+        tool: "ACCOUNTS",
+        action: "create",
       });
-    }
+      // Same rule as POST / above: granting roles needs ROLES/update, whether
+      // one account is created or two hundred.
+      if (input.roles.length > 0) {
+        await authorize(app.prisma, {
+          accountId: req.account.id,
+          tool: "ROLES",
+          action: "update",
+        });
+      }
 
-    return service.commitBulkImport(requireTeam(req.account), input.csv, input.roles, req.account.id);
-  });
+      return service.commitBulkImport(requireTeam(req.account), input.csv, input.roles, req.account.id);
+    }
+  );
 
   // -> 200 | 400 | 401 | 403 | 404 | 409
   app.patch("/:id", async (req) => {

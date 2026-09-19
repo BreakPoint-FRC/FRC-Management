@@ -23,11 +23,12 @@ const MAX_ROWS = 250;
 const MAX_LENGTH = 300_000;
 
 /** Splits raw CSV text into records of raw (already unescaped) field strings. */
-function tokenize(text: string): string[][] {
+function tokenize(text: string): { records: string[][]; error: string | null } {
   const records: string[][] = [];
   let field = "";
   let record: string[] = [];
   let inQuotes = false;
+  let afterQuote = false;
   let i = 0;
   const n = text.length;
 
@@ -52,6 +53,7 @@ function tokenize(text: string): string[][] {
           continue;
         }
         inQuotes = false;
+        afterQuote = true;
         i += 1;
         continue;
       }
@@ -60,7 +62,34 @@ function tokenize(text: string): string[][] {
       continue;
     }
 
+    if (afterQuote) {
+      if (char === ",") {
+        endField();
+        afterQuote = false;
+        i += 1;
+        continue;
+      }
+      if (char === "\r" || char === "\n") {
+        if (char === "\r" && text[i + 1] === "\n") i += 1;
+        endRecord();
+        afterQuote = false;
+        i += 1;
+        continue;
+      }
+      // Spreadsheet exporters sometimes leave harmless spaces after a quoted
+      // cell. Any other character means the closing quote was not actually a
+      // delimiter and accepting it would silently change the uploaded value.
+      if (char === " " || char === "\t") {
+        i += 1;
+        continue;
+      }
+      return { records: [], error: "CSV biçimi geçersiz: kapanan tırnaktan sonra beklenmeyen karakter var." };
+    }
+
     if (char === '"') {
+      if (field.length > 0) {
+        return { records: [], error: "CSV biçimi geçersiz: tırnak işareti alanın ortasında başlayamaz." };
+      }
       inQuotes = true;
       i += 1;
       continue;
@@ -87,9 +116,12 @@ function tokenize(text: string): string[][] {
 
   // A trailing field or record with no closing newline still counts -- most
   // hand-edited or pasted files end this way.
-  if (field.length > 0 || record.length > 0) endRecord();
+  if (inQuotes) {
+    return { records: [], error: "CSV biçimi geçersiz: kapanmamış tırnak işareti var." };
+  }
+  if (field.length > 0 || record.length > 0 || afterQuote) endRecord();
 
-  return records;
+  return { records, error: null };
 }
 
 /**
@@ -114,7 +146,10 @@ export function parseAccountsCsv(text: string): AccountCsvResult {
     return { rows: [], error: "Dosya boş." };
   }
 
-  const records = tokenize(normalized)
+  const tokenized = tokenize(normalized);
+  if (tokenized.error) return { rows: [], error: tokenized.error };
+
+  const records = tokenized.records
     .map((fields, index) => ({ fields, line: index + 1 }))
     .filter(({ fields }) => !fields.every((field) => field.trim() === ""));
 

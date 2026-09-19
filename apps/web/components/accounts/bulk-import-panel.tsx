@@ -6,6 +6,7 @@ import { Badge, ErrorBox } from "@/components/ui";
 import { useUnsavedChanges } from "@/components/unsaved-changes";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
+import { buildCredentialsCsv } from "@/lib/credentials-csv";
 import type {
   BulkImportCommitResult,
   BulkImportPreviewResult,
@@ -27,14 +28,7 @@ const ROW_STATUS: Record<BulkImportRowResult["status"], { label: string; tone: "
 };
 
 function downloadCredentials(rows: Array<{ fullName: string; email: string; temporaryPassword: string }>) {
-  const header = "fullName,email,temporaryPassword";
-  const lines = rows.map((row) => {
-    // Only fullName can plausibly contain a comma; email and the generated
-    // password never do.
-    const name = row.fullName.includes(",") ? `"${row.fullName.replace(/"/g, '""')}"` : row.fullName;
-    return `${name},${row.email},${row.temporaryPassword}`;
-  });
-  const blob = new Blob([[header, ...lines].join("\n")], { type: "text/csv;charset=utf-8" });
+  const blob = new Blob([buildCredentialsCsv(rows)], { type: "text/csv;charset=utf-8" });
   const url = URL.createObjectURL(blob);
   const link = document.createElement("a");
   link.href = url;
@@ -60,10 +54,12 @@ export function BulkImportPanel({
   roles,
   groups,
   onImported,
+  allowRoleAssignment = true,
 }: {
   roles: readonly RoleRow[];
   groups: readonly GroupTreeRow[];
   onImported: () => void;
+  allowRoleAssignment?: boolean;
 }) {
   const [csv, setCsv] = useState("");
   const [preview, setPreview] = useState<BulkImportPreviewResult | null>(null);
@@ -104,7 +100,7 @@ export function BulkImportPanel({
     const response = await commitMutation.runFor<BulkImportCommitResult>(() =>
       apiClient.post("/accounts/bulk-import/commit", {
         csv,
-        roles: roleAssignmentPayload(roleDrafts),
+        roles: allowRoleAssignment ? roleAssignmentPayload(roleDrafts) : [],
       })
     );
     if (!response) return;
@@ -296,7 +292,7 @@ export function BulkImportPanel({
         )
       ) : null}
 
-      <div className="field">
+      {allowRoleAssignment ? <div className="field">
         <label>Roller (tüm hesaplara uygulanır)</label>
         <p className="small muted" style={{ margin: "0 0 6px" }}>
           Boş bırakılırsa hesaplar rolsüz oluşturulur ve sonradan tek tek atanabilir.
@@ -308,7 +304,11 @@ export function BulkImportPanel({
           groups={groups}
           error={commitMutation.error}
         />
-      </div>
+      </div> : (
+        <p className="small muted" style={{ margin: 0 }}>
+          Hesaplar rolsüz oluşturulacak. Rol atama yetkisi olan bir yönetici daha sonra rol ekleyebilir.
+        </p>
+      )}
 
       <div className="row">
         <button

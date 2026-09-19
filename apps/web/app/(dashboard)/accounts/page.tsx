@@ -73,16 +73,17 @@ export default function AccountsPage() {
   const [roleDrafts, setRoleDrafts] = useState<RoleAssignmentDraft[]>([]);
   const [password, setPassword] = useState("");
 
-  // Assigning a role, or a bulk import's role picker, needs every role and
-  // every group -- not just the ones the signed-in account belongs to.
-  const needsCatalog = panel.kind === "roles" || panel.kind === "bulk";
-  const roles = useApi<Paginated<RoleRow>>(needsCatalog ? "/roles?pageSize=100" : null);
-  const allGroups = useApi<GroupTreeRow[]>(needsCatalog ? "/groups/tree" : null);
-
   const mayCreate = can(permissions, "ACCOUNTS", "create");
   const mayUpdate = can(permissions, "ACCOUNTS", "update");
   const mayDelete = can(permissions, "ACCOUNTS", "delete");
   const mayAssignRoles = can(permissions, "ROLES", "update");
+
+  // Assigning a role needs every role and group, not just the caller's own.
+  // An ACCOUNTS/create-only operator may still bulk-create blank accounts;
+  // do not make that valid path fetch catalog endpoints they cannot read.
+  const needsCatalog = panel.kind === "roles" || (panel.kind === "bulk" && mayAssignRoles);
+  const roles = useApi<Paginated<RoleRow>>(needsCatalog ? "/roles?pageSize=100" : null);
+  const allGroups = useApi<GroupTreeRow[]>(needsCatalog ? "/groups/tree" : null);
 
   useEffect(() => {
     if (panel.kind !== "roles") return;
@@ -330,21 +331,28 @@ export default function AccountsPage() {
       ) : null}
 
       {panel.kind === "bulk" ? (
-        <AsyncSection state={roles}>
-          {(roleList) => (
-            <AsyncSection state={allGroups}>
-              {(groupTree) => (
-                <BulkImportPanel
-                  roles={roleList.items}
-                  groups={groupTree}
-                  onImported={() => {
-                    accounts.reload();
-                  }}
-                />
-              )}
-            </AsyncSection>
-          )}
-        </AsyncSection>
+        mayAssignRoles ? (
+          <AsyncSection state={roles}>
+            {(roleList) => (
+              <AsyncSection state={allGroups}>
+                {(groupTree) => (
+                  <BulkImportPanel
+                    roles={roleList.items}
+                    groups={groupTree}
+                    onImported={() => accounts.reload()}
+                  />
+                )}
+              </AsyncSection>
+            )}
+          </AsyncSection>
+        ) : (
+          <BulkImportPanel
+            roles={[]}
+            groups={[]}
+            allowRoleAssignment={false}
+            onImported={() => accounts.reload()}
+          />
+        )
       ) : null}
 
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}

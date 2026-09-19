@@ -45,6 +45,20 @@ describe("parseAccountsCsv", () => {
     expect(result.rows[0]?.fullName).toBe("Ada\nYılmaz");
   });
 
+  it("rejects an unclosed quoted field instead of silently accepting corrupted data", () => {
+    const result = parseAccountsCsv('fullName,email\n"Ada Yılmaz,ada@example.com\n');
+
+    expect(result.rows).toEqual([]);
+    expect(result.error).toMatch(/kapanmamış tırnak/i);
+  });
+
+  it("rejects characters appended after a closing quote", () => {
+    const result = parseAccountsCsv('fullName,email\n"Ada"oops,ada@example.com\n');
+
+    expect(result.rows).toEqual([]);
+    expect(result.error).toMatch(/beklenmeyen karakter/i);
+  });
+
   it("handles CRLF line endings", () => {
     const result = parseAccountsCsv("fullName,email\r\nAda Yılmaz,ada@example.com\r\n");
 
