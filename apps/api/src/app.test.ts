@@ -79,6 +79,38 @@ describe("health", () => {
   });
 });
 
+describe("browser CORS preflights", () => {
+  it.each(["PUT", "PATCH", "DELETE"])(
+    "allows the %s mutations used by the cross-origin web app",
+    async (method) => {
+      const app = buildWithPrisma(stubClient({}));
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/gantt/board-1/tasks",
+        headers: {
+          origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+          "access-control-request-method": method,
+          "access-control-request-headers": "authorization,content-type",
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(
+        process.env.WEB_ORIGIN ?? "http://localhost:3000"
+      );
+      expect(
+        response.headers["access-control-allow-methods"]
+          ?.split(",")
+          .map((allowedMethod) => allowedMethod.trim())
+      ).toContain(method);
+      expect(response.headers["access-control-allow-headers"]).toBe(
+        "authorization,content-type"
+      );
+      await app.close();
+    }
+  );
+});
+
 describe("readiness", () => {
   it("uses and closes an isolated readiness probe when one is supplied", async () => {
     const check = vi.fn().mockResolvedValue(undefined);
