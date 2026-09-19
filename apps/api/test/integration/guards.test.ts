@@ -274,7 +274,7 @@ describeIntegration("api guards", () => {
       });
 
       expect(response.statusCode).toBe(403);
-      expect(response.json().message).toBe("Bu islem platform hesabiyla yapilir");
+      expect(response.json().message).toBe("Bu işlem platform hesabıyla yapılır");
     }
 
     expect(await ctx.prisma.team.count({ where: { name: "Kacak Takim" } })).toBe(0);

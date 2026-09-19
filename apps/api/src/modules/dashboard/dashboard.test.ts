@@ -360,8 +360,10 @@ describe("management data", () => {
 });
 
 describe("team data", () => {
-  it("computes a per-department open/overdue/unassigned table for every active group", async () => {
-    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+  it("computes a per-department open/overdue/unassigned table for every active group the account can read TASKS in", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ global: { ACCOUNTS: { canRead: true }, TASKS: { canRead: true } } })
+    );
     const { prisma, calls } = stubPrisma({
       accountRoleFindMany: withRoles([]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Mechanical" }]),
@@ -376,6 +378,149 @@ describe("team data", () => {
     expect(calls.groupFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { teamId: TEAM, isActive: true } })
     );
+  });
+
+  // ACCOUNTS/read is what unlocks the "Takım" tab (see computeScopes), and it
+  // is a separate grant from TASKS/read -- an admin can and does set them
+  // independently. A department's task counts must not appear just because
+  // the tab itself is visible, the same as GET /tasks?groupId=g1 would refuse
+  // this account with no TASKS grant on g1.
+  it("does not leak a department's task counts when the account cannot read TASKS there", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Mechanical" }]),
+      taskCount: vi.fn().mockResolvedValue(2),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team?.departments).toEqual([
+      { groupId: "g1", groupName: "Mechanical", openCount: 0, overdueCount: 0, unassignedCount: 0 },
+    ]);
+    expect(calls.taskCount).not.toHaveBeenCalled();
+  });
+
+  it("leaks counts only for the specific departments a group-scoped TASKS reader can see, not every department", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({
+        global: { ACCOUNTS: { canRead: true } },
+        byGroup: { g1: { TASKS: { canRead: true } } },
+      })
+    );
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([
+        { id: "g1", name: "Mechanical" },
+        { id: "g2", name: "Electrical" },
+      ]),
+      taskCount: vi.fn().mockResolvedValue(2),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team?.departments).toEqual([
+      { groupId: "g1", groupName: "Mechanical", openCount: 2, overdueCount: 2, unassignedCount: 2 },
+      { groupId: "g2", groupName: "Electrical", openCount: 0, overdueCount: 0, unassignedCount: 0 },
+    ]);
+  });
+
+  it("does not query cross-group task counts without team-wide TASKS read", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team).toMatchObject({ crossGroupOpenTaskCount: 0, crossGroupUnassignedTaskCount: 0 });
+    expect(calls.taskCount).not.toHaveBeenCalled();
+  });
+
+  it("does query cross-group task counts with team-wide TASKS read", async () => {
+    mockedResolve.mockResolvedValue(
+      matrix({ global: { ACCOUNTS: { canRead: true }, TASKS: { canRead: true } } })
+    );
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([]),
+      groupFindMany: vi.fn().mockResolvedValue([]),
+      taskCount: vi.fn().mockResolvedValue(5),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.team).toMatchObject({ crossGroupOpenTaskCount: 5, crossGroupUnassignedTaskCount: 5 });
+    expect(calls.taskCount.mock.calls.some((call) => call[0]?.where?.groupId === null)).toBe(true);
+  });
+});
+
+describe("group data", () => {
+  it("computes real task counts and top tasks for a department the account can read TASKS in", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true }, TASKS: { canRead: true } } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+      taskCount: vi.fn().mockResolvedValue(3),
+      taskFindMany: vi.fn().mockResolvedValue([
+        { id: "t1", name: "Task", status: "TODO", priority: "MEDIUM", dueDate: null, group: { name: "Yazılım" } },
+      ]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.group?.[0]).toMatchObject({ groupId: "g1", openCount: 3, overdueCount: 3, unassignedCount: 3 });
+    expect(result.group?.[0]?.topTasks).toHaveLength(1);
+    expect(calls.taskFindMany).toHaveBeenCalled();
+  });
+
+  // "Grubum" is unlocked by running the department (a real group-anchored
+  // role with MEETINGS write there -- see computeScopes), not by holding
+  // TASKS there. The two are independent grants, so a lead who runs a
+  // department on MEETINGS alone must see the same nothing GET
+  // /tasks?groupId=g1 would answer with -- not the department's real task
+  // names, priorities and due dates.
+  it("does not leak a department's task names or counts when the account cannot read TASKS there", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
+    const { prisma, calls } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+      taskCount: vi.fn().mockResolvedValue(3),
+      taskFindMany: vi.fn().mockResolvedValue([
+        { id: "t1", name: "Secret task", status: "TODO", priority: "MEDIUM", dueDate: null, group: { name: "Yazılım" } },
+      ]),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.group?.[0]).toMatchObject({
+      groupId: "g1",
+      openCount: 0,
+      overdueCount: 0,
+      unassignedCount: 0,
+      completedThisWeekCount: 0,
+      topTasks: [],
+    });
+    expect(calls.taskCount).not.toHaveBeenCalled();
+    expect(calls.taskFindMany).not.toHaveBeenCalled();
+  });
+
+  it("still shows the department's upcoming meeting even without TASKS read -- MEETINGS is what unlocked the tab", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
+      meetingFindFirst: vi.fn().mockResolvedValue({
+        id: "m1",
+        title: "Standup",
+        meetingDate: new Date("2026-09-20"),
+        group: { name: "Yazılım" },
+      }),
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.group?.[0]?.upcomingMeeting).toMatchObject({ id: "m1", title: "Standup" });
   });
 });
 

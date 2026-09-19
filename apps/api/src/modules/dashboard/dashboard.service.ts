@@ -199,8 +199,20 @@ export function createDashboardService(prisma: PrismaClient) {
    * IN_GROUP/MANAGES_GROUP assignment with MEETINGS write there -- see
    * computeScopes). Plural on purpose: a person can captain more than one
    * department at once, same as the seeded "iki departmanin lead'i" case.
+   *
+   * Running a department is what unlocks the tab; it is not what unlocks its
+   * task fields. A department's task names, priorities and due dates are
+   * TASKS data, and MEETINGS write is a different grant -- a lead who runs a
+   * department on MEETINGS alone (TASKS never granted, or switched off for
+   * that group via GroupTool) must see the same nothing here that
+   * GET /tasks?groupId=that would answer with. `taskScope` is the same
+   * `readableScope(matrix, "TASKS")` mineSummary already uses.
    */
-  const groupSummary = async (teamId: string, groupIds: readonly string[]) => {
+  const groupSummary = async (
+    teamId: string,
+    groupIds: readonly string[],
+    taskScope: { teamWide: boolean; groupIds: readonly string[] }
+  ) => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
 
@@ -211,36 +223,48 @@ export function createDashboardService(prisma: PrismaClient) {
 
     return Promise.all(
       groups.map(async (group) => {
+        const canReadTasks = taskScope.teamWide || taskScope.groupIds.includes(group.id);
+
         const [openCount, overdueCount, unassignedCount, completedThisWeekCount, topTasks, upcomingMeeting] =
           await Promise.all([
-            prisma.task.count({
-              where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
-            }),
-            prisma.task.count({
-              where: {
-                teamId,
-                groupId: group.id,
-                status: { in: [...OPEN_TASK_STATUSES] },
-                dueDate: { lt: now },
-              },
-            }),
-            prisma.task.count({
-              where: {
-                teamId,
-                groupId: group.id,
-                status: { in: [...OPEN_TASK_STATUSES] },
-                assignees: { none: {} },
-              },
-            }),
-            prisma.task.count({
-              where: { teamId, groupId: group.id, status: "COMPLETED", updatedAt: { gte: weekAgo } },
-            }),
-            prisma.task.findMany({
-              where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
-              select: taskSummarySelect,
-              orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
-              take: LIST_LIMIT,
-            }),
+            canReadTasks
+              ? prisma.task.count({
+                  where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
+                })
+              : Promise.resolve(0),
+            canReadTasks
+              ? prisma.task.count({
+                  where: {
+                    teamId,
+                    groupId: group.id,
+                    status: { in: [...OPEN_TASK_STATUSES] },
+                    dueDate: { lt: now },
+                  },
+                })
+              : Promise.resolve(0),
+            canReadTasks
+              ? prisma.task.count({
+                  where: {
+                    teamId,
+                    groupId: group.id,
+                    status: { in: [...OPEN_TASK_STATUSES] },
+                    assignees: { none: {} },
+                  },
+                })
+              : Promise.resolve(0),
+            canReadTasks
+              ? prisma.task.count({
+                  where: { teamId, groupId: group.id, status: "COMPLETED", updatedAt: { gte: weekAgo } },
+                })
+              : Promise.resolve(0),
+            canReadTasks
+              ? prisma.task.findMany({
+                  where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
+                  select: taskSummarySelect,
+                  orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
+                  take: LIST_LIMIT,
+                })
+              : Promise.resolve([]),
             prisma.meeting.findFirst({
               where: { teamId, groupId: group.id, meetingDate: { gte: now } },
               select: meetingSummarySelect,
@@ -265,10 +289,20 @@ export function createDashboardService(prisma: PrismaClient) {
   /**
    * "Takım": the whole team's shape, for a captain, mentor or admin-flavoured
    * role reading across departments rather than running just one.
+   *
+   * Gated on team-wide ACCOUNTS read (see computeScopes), which says nothing
+   * about TASKS -- the two are independent grants an admin can and does set
+   * separately. Every task field below is therefore additionally scoped by
+   * `taskScope`, the same `readableScope(matrix, "TASKS")` mineSummary already
+   * uses: a cross-group count needs team-wide TASKS read (a scoped reader
+   * cannot see a task naming no department at all, same as GET /tasks would
+   * answer), and each department's counts need TASKS read for that specific
+   * department.
    */
   const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
     const now = new Date();
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
+    const taskScope = readableScope(matrix, "TASKS");
 
     const [groups, activeSeason, upcomingMeeting, crossGroupOpenCount, crossGroupUnassignedCount] =
       await Promise.all([
@@ -284,19 +318,28 @@ export function createDashboardService(prisma: PrismaClient) {
               orderBy: { meetingDate: "asc" },
             })
           : Promise.resolve(null),
-        prisma.task.count({ where: { teamId, status: { in: [...OPEN_TASK_STATUSES] }, groupId: null } }),
-        prisma.task.count({
-          where: {
-            teamId,
-            status: { in: [...OPEN_TASK_STATUSES] },
-            groupId: null,
-            assignees: { none: {} },
-          },
-        }),
+        taskScope.teamWide
+          ? prisma.task.count({ where: { teamId, status: { in: [...OPEN_TASK_STATUSES] }, groupId: null } })
+          : Promise.resolve(0),
+        taskScope.teamWide
+          ? prisma.task.count({
+              where: {
+                teamId,
+                status: { in: [...OPEN_TASK_STATUSES] },
+                groupId: null,
+                assignees: { none: {} },
+              },
+            })
+          : Promise.resolve(0),
       ]);
 
     const departments = await Promise.all(
       groups.map(async (group) => {
+        const canReadTasks = taskScope.teamWide || taskScope.groupIds.includes(group.id);
+        if (!canReadTasks) {
+          return { groupId: group.id, groupName: group.name, openCount: 0, overdueCount: 0, unassignedCount: 0 };
+        }
+
         const [openCount, overdueCount, unassignedCount] = await Promise.all([
           prisma.task.count({
             where: { teamId, groupId: group.id, status: { in: [...OPEN_TASK_STATUSES] } },
@@ -399,7 +442,9 @@ export function createDashboardService(prisma: PrismaClient) {
 
       const [mine, group, team, management] = await Promise.all([
         mineSummary(teamId, account.id, matrix),
-        scopes.groupIds.length > 0 ? groupSummary(teamId, scopes.groupIds) : Promise.resolve(null),
+        scopes.groupIds.length > 0
+          ? groupSummary(teamId, scopes.groupIds, readableScope(matrix, "TASKS"))
+          : Promise.resolve(null),
         scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
         scopes.management ? managementSummary(teamId) : Promise.resolve(null),
       ]);
