@@ -149,15 +149,21 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <span />
         </button>
         <div className="brand">
-          <span className="brand-dot" />
-          <span>BreakPoint</span>
+          <span className="brand-dot" aria-hidden="true" />
+          <span className="brand-copy">
+            <strong>BreakPoint</strong>
+            <small>FRC Management</small>
+          </span>
         </div>
       </div>
 
       <aside ref={sidebarRef} className={`sidebar${drawerOpen ? " is-open" : ""}`}>
         <div className="brand">
-          <span className="brand-dot" />
-          <span>BreakPoint</span>
+          <span className="brand-dot" aria-hidden="true" />
+          <span className="brand-copy">
+            <strong>BreakPoint</strong>
+            <small>FRC Management</small>
+          </span>
         </div>
 
         <nav className="sidebar-sections">

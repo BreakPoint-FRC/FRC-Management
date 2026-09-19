@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { attendanceStatusLabels, type AttendanceStatus } from "@breakpoint/types";
 
@@ -14,7 +15,8 @@ import { can } from "@/lib/permissions";
 import type { MeetingRow } from "@/lib/api-types";
 import { attendanceTone } from "@/lib/status";
 
-export default function MeetingDetailPage({ params }: { params: { meetingId: string } }) {
+export default function MeetingDetailPage() {
+  const params = useParams<{ meetingId: string }>();
   const { permissions } = useAuth();
   const meeting = useApi<MeetingRow>(`/meetings/${params.meetingId}`);
 

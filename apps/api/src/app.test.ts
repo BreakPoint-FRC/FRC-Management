@@ -375,6 +375,18 @@ describe("account creation cannot grant a role without ROLES/update", () => {
     });
   }
 
+  function bulkRequest(app: ReturnType<typeof buildWithPrisma>, roles: unknown[]) {
+    return app.inject({
+      method: "POST",
+      url: "/accounts/bulk-import/commit",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: CREATOR.id })}` },
+      payload: {
+        csv: "fullName,email\nYeni Üye,yeni@breakpoint.test\n",
+        roles,
+      },
+    });
+  }
+
   it("refuses to grant a role on creation without ROLES/update", async () => {
     const app = buildWithPrisma(
       stubClient({ ...transactionalStub(), ...toolScopedStubs(new Set(["ACCOUNTS"])) })
@@ -382,6 +394,18 @@ describe("account creation cannot grant a role without ROLES/update", () => {
     await app.ready();
 
     const response = await createRequest(app, [{ roleId: "role-team-admin" }]);
+
+    expect(response.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("also refuses role grants through bulk import without ROLES/update", async () => {
+    const app = buildWithPrisma(
+      stubClient({ ...transactionalStub(), ...toolScopedStubs(new Set(["ACCOUNTS"])) })
+    );
+    await app.ready();
+
+    const response = await bulkRequest(app, [{ roleId: "role-team-admin" }]);
 
     expect(response.statusCode).toBe(403);
     await app.close();

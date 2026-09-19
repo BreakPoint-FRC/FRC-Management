@@ -124,7 +124,17 @@ export interface BuildAppOptions {
 }
 
 export function buildApp(opts: BuildAppOptions = {}) {
-  const app = Fastify({ logger: true, trustProxy: trustProxyHops() });
+  const trustedProxyHops = trustProxyHops();
+  const app = Fastify({
+    logger: true,
+    // Fastify 5 no longer accepts a numeric hop count directly. Preserve the
+    // existing semantics explicitly: hop 0 is the socket peer, hop 1 is the
+    // proxy immediately in front of it, and so on.
+    trustProxy:
+      trustedProxyHops === 0
+        ? false
+        : (_address: string, hop: number) => hop < trustedProxyHops,
+  });
 
   if (opts.readinessDatabaseUrl && opts.readinessProbe) {
     throw new Error("Pass readinessDatabaseUrl or readinessProbe, not both");
@@ -177,11 +187,24 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
     // Fastify's own client errors (bad JSON, unknown route, rate limit, ...)
     // are safe to surface.
-    if (error.statusCode && error.statusCode < 500) {
-      return reply.code(error.statusCode).send({
-        statusCode: error.statusCode,
-        error: STATUS_TEXT[error.statusCode] ?? "Error",
-        message: error.message,
+    const fastifyError =
+      typeof error === "object" &&
+      error !== null &&
+      "statusCode" in error &&
+      typeof (error as { statusCode?: unknown }).statusCode === "number"
+        ? (error as { statusCode: number; message?: unknown })
+        : null;
+    if (
+      fastifyError &&
+      Number.isInteger(fastifyError.statusCode) &&
+      fastifyError.statusCode >= 400 &&
+      fastifyError.statusCode < 500
+    ) {
+      return reply.code(fastifyError.statusCode).send({
+        statusCode: fastifyError.statusCode,
+        error: STATUS_TEXT[fastifyError.statusCode] ?? "Error",
+        message:
+          typeof fastifyError.message === "string" ? fastifyError.message : "Request failed",
       });
     }
 

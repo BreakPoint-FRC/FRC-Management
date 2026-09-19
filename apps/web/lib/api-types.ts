@@ -412,6 +412,8 @@ export interface DashboardRow {
   group: Array<{
     groupId: string;
     groupName: string;
+    canReadTasks: boolean;
+    canReadMeetings: boolean;
     openCount: number;
     overdueCount: number;
     unassignedCount: number;
@@ -420,6 +422,10 @@ export interface DashboardRow {
     upcomingMeeting: DashboardMeetingRow | null;
   }> | null;
   team: {
+    canReadTasks: boolean;
+    canReadCrossGroupTasks: boolean;
+    canReadSeasons: boolean;
+    canReadMeetings: boolean;
     departments: Array<{
       groupId: string;
       groupName: string;
@@ -434,10 +440,12 @@ export interface DashboardRow {
     crossGroupUnassignedTaskCount: number;
   } | null;
   management: {
-    activeAccountCount: number;
-    mustChangePasswordCount: number;
-    withoutRoleCount: number;
-    withoutGroupCount: number;
+    canReadAccounts: boolean;
+    canReadSeasons: boolean;
+    activeAccountCount: number | null;
+    mustChangePasswordCount: number | null;
+    withoutRoleCount: number | null;
+    withoutGroupCount: number | null;
     activeSeason: { id: string; name: string; startDate: string; endDate: string } | null;
     setupIncomplete: boolean;
   } | null;

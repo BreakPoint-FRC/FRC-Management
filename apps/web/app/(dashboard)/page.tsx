@@ -158,22 +158,24 @@ function PlatformSummary({ data }: { data: NonNullable<DashboardRow["platform"]>
 
 function ManagementSummary({ data }: { data: NonNullable<DashboardRow["management"]> }) {
   const warnings: string[] = [];
-  if (data.mustChangePasswordCount > 0) {
+  if (data.mustChangePasswordCount !== null && data.mustChangePasswordCount > 0) {
     warnings.push(
       `${data.mustChangePasswordCount} hesap ilk şifresini henüz değiştirmedi.`
     );
   }
-  if (data.withoutRoleCount > 0) warnings.push(`${data.withoutRoleCount} hesapta rol bulunmuyor.`);
-  if (data.withoutGroupCount > 0) warnings.push(`${data.withoutGroupCount} hesap hiçbir gruba bağlı değil.`);
+  if (data.withoutRoleCount !== null && data.withoutRoleCount > 0) warnings.push(`${data.withoutRoleCount} hesapta rol bulunmuyor.`);
+  if (data.withoutGroupCount !== null && data.withoutGroupCount > 0) warnings.push(`${data.withoutGroupCount} hesap hiçbir gruba bağlı değil.`);
   if (data.setupIncomplete) warnings.push("Takım kurulumu henüz tamamlanmadı.");
 
   return (
     <div className="stack">
       <div className="row" style={{ justifyContent: "space-between" }}>
         <h2 style={{ margin: 0 }}>Yönetim sağlığı</h2>
-        <Link className="btn btn-primary btn-sm" href="/accounts">
-          Hesapları yönet
-        </Link>
+        {data.canReadAccounts ? (
+          <Link className="btn btn-primary btn-sm" href="/accounts">
+            Hesapları yönet
+          </Link>
+        ) : null}
       </div>
 
       {warnings.length > 0 ? (
@@ -189,34 +191,40 @@ function ManagementSummary({ data }: { data: NonNullable<DashboardRow["managemen
       ) : null}
 
       <div className="grid">
-        <Card title="Aktif hesap">
-          <div className="stat">{data.activeAccountCount}</div>
-        </Card>
-        <Card title="Şifresini değiştirmemiş">
-          <div className="stat">{data.mustChangePasswordCount}</div>
-        </Card>
-        <Card title="Rolü olmayan hesap">
-          <div className="stat">{data.withoutRoleCount}</div>
-        </Card>
-        <Card title="Grubu olmayan hesap">
-          <div className="stat">{data.withoutGroupCount}</div>
-        </Card>
-        <Card title="Aktif sezon">
-          {data.activeSeason ? (
-            <div>
-              <div className="stat" style={{ fontSize: 16 }}>
-                {data.activeSeason.name}
+        {data.canReadAccounts ? (
+          <>
+            <Card title="Aktif hesap">
+              <div className="stat">{data.activeAccountCount}</div>
+            </Card>
+            <Card title="Şifresini değiştirmemiş">
+              <div className="stat">{data.mustChangePasswordCount}</div>
+            </Card>
+            <Card title="Rolü olmayan hesap">
+              <div className="stat">{data.withoutRoleCount}</div>
+            </Card>
+            <Card title="Grubu olmayan hesap">
+              <div className="stat">{data.withoutGroupCount}</div>
+            </Card>
+          </>
+        ) : null}
+        {data.canReadSeasons ? (
+          <Card title="Aktif sezon">
+            {data.activeSeason ? (
+              <div>
+                <div className="stat" style={{ fontSize: 16 }}>
+                  {data.activeSeason.name}
+                </div>
+                <div className="small muted">
+                  {formatDate(data.activeSeason.startDate)} — {formatDate(data.activeSeason.endDate)}
+                </div>
               </div>
-              <div className="small muted">
-                {formatDate(data.activeSeason.startDate)} — {formatDate(data.activeSeason.endDate)}
-              </div>
-            </div>
-          ) : (
-            <p className="muted" style={{ margin: 0 }}>
-              Aktif sezon yok.
-            </p>
-          )}
-        </Card>
+            ) : (
+              <p className="muted" style={{ margin: 0 }}>
+                Aktif sezon yok.
+              </p>
+            )}
+          </Card>
+        ) : null}
       </div>
 
       {data.setupIncomplete ? (
@@ -240,7 +248,7 @@ function TeamSummary({
   return (
     <div className="stack">
       <div className="grid">
-        <Card title="Sezon">
+        {data.canReadSeasons ? <Card title="Sezon">
           {data.activeSeason ? (
             <div>
               <div className="stat" style={{ fontSize: 16 }}>
@@ -257,14 +265,14 @@ function TeamSummary({
               Aktif sezon yok.
             </p>
           )}
-        </Card>
-        <Card title="Gruplar arası açık görev">
+        </Card> : null}
+        {data.canReadCrossGroupTasks ? <Card title="Gruplar arası açık görev">
           <div className="stat">{data.crossGroupOpenTaskCount}</div>
-        </Card>
-        <Card title="Sorumlusu olmayan (gruplar arası)">
+        </Card> : null}
+        {data.canReadCrossGroupTasks ? <Card title="Sorumlusu olmayan (gruplar arası)">
           <div className="stat">{data.crossGroupUnassignedTaskCount}</div>
-        </Card>
-        <Card title="Yaklaşan takım toplantısı">
+        </Card> : null}
+        {data.canReadMeetings ? <Card title="Yaklaşan takım toplantısı">
           {data.upcomingMeeting ? (
             <div>
               <div className="stat" style={{ fontSize: 15 }}>
@@ -277,10 +285,10 @@ function TeamSummary({
               Planlanmış toplantı yok.
             </p>
           )}
-        </Card>
+        </Card> : null}
       </div>
 
-      <div>
+      {data.canReadTasks ? <div>
         <h2 style={{ marginBottom: 8 }}>Departman durumu</h2>
         {data.departments.length === 0 ? (
           <p className="muted">Henüz grup oluşturulmamış.</p>
@@ -317,7 +325,7 @@ function TeamSummary({
             </table>
           </div>
         )}
-      </div>
+      </div> : null}
 
       <div className="row">
         {canCreateTask ? (
@@ -350,7 +358,7 @@ function GroupSummary({ data }: { data: NonNullable<DashboardRow["group"]> }) {
             </GuardedLink>
           </div>
 
-          <div className="grid">
+          {department.canReadTasks ? <div className="grid">
             <Card title="Açık">
               <div className="stat">{department.openCount}</div>
             </Card>
@@ -363,14 +371,14 @@ function GroupSummary({ data }: { data: NonNullable<DashboardRow["group"]> }) {
             <Card title="Bu hafta tamamlandı">
               <div className="stat">{department.completedThisWeekCount}</div>
             </Card>
-          </div>
+          </div> : null}
 
           <div className="grid">
-            <div>
+            {department.canReadTasks ? <div>
               <h2 style={{ marginBottom: 8, fontSize: 13 }}>Öncelikli görevler</h2>
               <TaskList tasks={department.topTasks} empty="Açık görev yok." />
-            </div>
-            <div>
+            </div> : null}
+            {department.canReadMeetings ? <div>
               <h2 style={{ marginBottom: 8, fontSize: 13 }}>Yaklaşan toplantı</h2>
               {department.upcomingMeeting ? (
                 <GuardedLink className="card" href={`/meetings/${department.upcomingMeeting.id}`}>
@@ -384,7 +392,7 @@ function GroupSummary({ data }: { data: NonNullable<DashboardRow["group"]> }) {
               ) : (
                 <p className="muted">Planlanmış toplantı yok.</p>
               )}
-            </div>
+            </div> : null}
           </div>
         </div>
       ))}

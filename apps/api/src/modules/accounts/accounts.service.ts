@@ -53,6 +53,32 @@ const accountSelect = {
 
 type AccountRow = Prisma.AccountGetPayload<{ select: typeof accountSelect }>;
 
+// Argon2 is intentionally memory-hard. Starting 250 hashes at once would turn
+// that protection into a multi-gigabyte burst inside the API process. Four
+// workers keep the CPU busy without letting one authorized import starve the
+// rest of the server.
+const PASSWORD_HASH_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor++;
+        results[index] = await mapper(values[index]!, index);
+      }
+    })
+  );
+
+  return results;
+}
+
 function auditRoles(roles: readonly AccountRoleInput[]): Prisma.InputJsonValue {
   return roles
     .map((entry) => ({ roleId: entry.roleId, groupId: entry.groupId ?? null }))
@@ -424,7 +450,11 @@ export function createAccountsService(prisma: PrismaClient) {
 
       const batchId = randomBytes(9).toString("base64url");
       const passwords = validation.rows.map(() => generateTemporaryPassword(randomBytes));
-      const passwordHashes = await Promise.all(passwords.map((password) => hashPassword(password)));
+      const passwordHashes = await mapWithConcurrency(
+        passwords,
+        PASSWORD_HASH_CONCURRENCY,
+        (password) => hashPassword(password)
+      );
 
       try {
         const created = await prisma.$transaction(
@@ -444,51 +474,78 @@ export function createAccountsService(prisma: PrismaClient) {
               );
             }
 
-            const rows: Array<{
-              id: string;
-              email: string;
-              fullName: string;
-              temporaryPassword: string;
-            }> = [];
+            // Prisma/Postgres can return the generated ids for a bulk insert.
+            // Doing one INSERT per account (and then one per role, membership
+            // and audit row) made a 250-person import hundreds of round trips
+            // inside one transaction. The four writes below keep the same
+            // all-or-nothing boundary with a constant number of queries.
+            const accounts = await tx.account.createManyAndReturn({
+              data: validation.rows.map((row, index) => ({
+                teamId,
+                email: row.email,
+                fullName: row.fullName,
+                passwordHash: passwordHashes[index]!,
+                mustChangePassword: true,
+              })),
+              select: { id: true, email: true, fullName: true },
+            });
+            const accountByEmail = new Map(accounts.map((account) => [account.email, account]));
 
-            for (const [index, row] of validation.rows.entries()) {
-              const account = await tx.account.create({
-                data: {
-                  teamId,
-                  email: row.email,
-                  fullName: row.fullName,
-                  passwordHash: passwordHashes[index]!,
-                  mustChangePassword: true,
-                },
-                select: { id: true },
+            if (roles.length > 0) {
+              await tx.accountRole.createMany({
+                data: accounts.flatMap((account) =>
+                  roles.map((role) => ({
+                    accountId: account.id,
+                    roleId: role.roleId,
+                    groupId: role.groupId ?? null,
+                    assignedById,
+                  }))
+                ),
               });
+            }
 
-              await replaceRolesInTransaction(tx, teamId, account.id, roles, assignedById);
-              await writeAuditLog(tx, {
+            const membershipGroupIds = [
+              ...new Set(roles.map((role) => role.groupId).filter((id): id is string => !!id)),
+            ];
+            if (membershipGroupIds.length > 0) {
+              await tx.groupMembership.createMany({
+                data: accounts.flatMap((account) =>
+                  membershipGroupIds.map((groupId) => ({ accountId: account.id, groupId }))
+                ),
+              });
+            }
+
+            const roleSnapshot = auditRoles(roles);
+            await tx.auditLog.createMany({
+              data: accounts.map((account) => ({
                 teamId,
                 actorId: assignedById,
                 entityType: "ACCOUNT",
                 entityId: account.id,
                 action: "ACCOUNT_CREATED",
-                // batchId ties every row of this import together in the audit
-                // trail; each account is still its own entry, individually
-                // traceable like any other ACCOUNT_CREATED row. The password
-                // is deliberately absent, exactly as the single-account path
-                // leaves it out -- see create() above.
-                newValue: { email: row.email, fullName: row.fullName, roles: auditRoles(roles), batchId },
-              });
+                // batchId ties every row together while every account keeps a
+                // separate, searchable audit entry. Passwords never enter it.
+                newValue: {
+                  email: account.email,
+                  fullName: account.fullName,
+                  roles: roleSnapshot,
+                  batchId,
+                },
+              })),
+            });
 
-              rows.push({
+            return validation.rows.map((row, index) => {
+              const account = accountByEmail.get(row.email);
+              if (!account) throw new Error("Bulk insert did not return a created account");
+              return {
                 id: account.id,
-                email: row.email,
-                fullName: row.fullName,
+                email: account.email,
+                fullName: account.fullName,
                 temporaryPassword: passwords[index]!,
-              });
-            }
-
-            return rows;
+              };
+            });
           },
-          { timeout: 30_000, maxWait: 10_000 }
+          { timeout: 15_000, maxWait: 10_000 }
         );
 
         return { committed: true as const, batchId, created };

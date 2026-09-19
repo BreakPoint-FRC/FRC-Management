@@ -26,7 +26,7 @@ function stubPrisma(options: { existingEmails?: string[]; findManyResponses?: st
 
   const auditLogs: Array<{ entityId: string; newValue: Record<string, unknown> }> = [];
   const accountRoleCreateMany = vi.fn();
-  const groupMembershipUpsert = vi.fn();
+  const groupMembershipCreateMany = vi.fn();
 
   const stub = {
     account: {
@@ -41,10 +41,12 @@ function stubPrisma(options: { existingEmails?: string[]; findManyResponses?: st
         }
         return where.email.in.filter((email) => accounts.has(email)).map((email) => ({ email }));
       },
-      create: async ({ data }: { data: { email: string } }) => {
-        const id = `account-${nextId++}`;
-        accounts.set(data.email, { id, email: data.email });
-        return { id };
+      createManyAndReturn: async ({ data }: { data: Array<{ email: string; fullName: string }> }) => {
+        return data.map((row) => {
+          const id = `account-${nextId++}`;
+          accounts.set(row.email, { id, email: row.email });
+          return { id, email: row.email, fullName: row.fullName };
+        });
       },
     },
     role: {
@@ -53,10 +55,10 @@ function stubPrisma(options: { existingEmails?: string[]; findManyResponses?: st
     },
     group: { count: async () => 1 },
     accountRole: { deleteMany: vi.fn(), createMany: accountRoleCreateMany },
-    groupMembership: { upsert: groupMembershipUpsert },
+    groupMembership: { createMany: groupMembershipCreateMany },
     auditLog: {
-      create: vi.fn(({ data }: { data: { entityId: string; newValue: Record<string, unknown> } }) => {
-        auditLogs.push(data);
+      createMany: vi.fn(({ data }: { data: Array<{ entityId: string; newValue: Record<string, unknown> }> }) => {
+        auditLogs.push(...data);
       }),
     },
   };
@@ -66,7 +68,7 @@ function stubPrisma(options: { existingEmails?: string[]; findManyResponses?: st
       Array.isArray(work) ? Promise.all(work) : (work as (tx: typeof stub) => unknown)(full),
   }) as unknown as PrismaClient;
 
-  return { prisma: full, accounts, auditLogs, accountRoleCreateMany, groupMembershipUpsert };
+  return { prisma: full, accounts, auditLogs, accountRoleCreateMany, groupMembershipCreateMany };
 }
 
 const csv = (rows: string) => `fullName,email\n${rows}\n`;
@@ -199,7 +201,7 @@ describe("bulk import commit", () => {
   });
 
   it("assigns the chosen roles to every created account", async () => {
-    const { prisma, accountRoleCreateMany, groupMembershipUpsert } = stubPrisma();
+    const { prisma, accountRoleCreateMany, groupMembershipCreateMany } = stubPrisma();
     const service = createAccountsService(prisma);
 
     const result = await service.commitBulkImport(
@@ -210,8 +212,10 @@ describe("bulk import commit", () => {
     );
 
     expect(result.committed).toBe(true);
-    expect(accountRoleCreateMany).toHaveBeenCalledTimes(2);
-    expect(groupMembershipUpsert).toHaveBeenCalledTimes(2);
+    expect(accountRoleCreateMany).toHaveBeenCalledTimes(1);
+    expect(accountRoleCreateMany.mock.calls[0]?.[0].data).toHaveLength(2);
+    expect(groupMembershipCreateMany).toHaveBeenCalledTimes(1);
+    expect(groupMembershipCreateMany.mock.calls[0]?.[0].data).toHaveLength(2);
   });
 
   it("refuses a role id from outside the team before writing anything", async () => {

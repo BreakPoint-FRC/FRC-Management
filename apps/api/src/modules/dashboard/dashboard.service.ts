@@ -211,7 +211,8 @@ export function createDashboardService(prisma: PrismaClient) {
   const groupSummary = async (
     teamId: string,
     groupIds: readonly string[],
-    taskScope: { teamWide: boolean; groupIds: readonly string[] }
+    taskScope: { teamWide: boolean; groupIds: readonly string[] },
+    meetingScope: { teamWide: boolean; groupIds: readonly string[] }
   ) => {
     const now = new Date();
     const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
@@ -224,6 +225,7 @@ export function createDashboardService(prisma: PrismaClient) {
     return Promise.all(
       groups.map(async (group) => {
         const canReadTasks = taskScope.teamWide || taskScope.groupIds.includes(group.id);
+        const canReadMeetings = meetingScope.teamWide || meetingScope.groupIds.includes(group.id);
 
         const [openCount, overdueCount, unassignedCount, completedThisWeekCount, topTasks, upcomingMeeting] =
           await Promise.all([
@@ -265,16 +267,20 @@ export function createDashboardService(prisma: PrismaClient) {
                   take: LIST_LIMIT,
                 })
               : Promise.resolve([]),
-            prisma.meeting.findFirst({
-              where: { teamId, groupId: group.id, meetingDate: { gte: now } },
-              select: meetingSummarySelect,
-              orderBy: { meetingDate: "asc" },
-            }),
+            canReadMeetings
+              ? prisma.meeting.findFirst({
+                  where: { teamId, groupId: group.id, meetingDate: { gte: now } },
+                  select: meetingSummarySelect,
+                  orderBy: { meetingDate: "asc" },
+                })
+              : Promise.resolve(null),
           ]);
 
         return {
           groupId: group.id,
           groupName: group.name,
+          canReadTasks,
+          canReadMeetings,
           openCount,
           overdueCount,
           unassignedCount,
@@ -291,15 +297,13 @@ export function createDashboardService(prisma: PrismaClient) {
    * role reading across departments rather than running just one.
    *
    * Gated on team-wide ACCOUNTS read (see computeScopes), which says nothing
-   * about TASKS or SEASONS -- all independent grants an admin can and does set
+   * about TASKS -- the two are independent grants an admin can and does set
    * separately. Every task field below is therefore additionally scoped by
    * `taskScope`, the same `readableScope(matrix, "TASKS")` mineSummary already
    * uses: a cross-group count needs team-wide TASKS read (a scoped reader
    * cannot see a task naming no department at all, same as GET /tasks would
    * answer), and each department's counts need TASKS read for that specific
-   * department. The active season is SEASONS data for the same reason --
-   * `activeSeason`/`seasonDaysRemaining` stay `null` for a caller without
-   * team-wide SEASONS read, exactly like GET /seasons would answer them.
+   * department.
    */
   const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
     const now = new Date();
@@ -307,9 +311,24 @@ export function createDashboardService(prisma: PrismaClient) {
     const taskScope = readableScope(matrix, "TASKS");
     const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
 
+    // Department names are GROUPS data in the dedicated API, but task rows
+    // also legitimately reveal the group they belong to. This dashboard needs
+    // only departments whose task aggregates the caller may read, so do not
+    // enumerate every group merely because ACCOUNTS/read unlocked the tab.
+    const readableTaskGroups = taskScope.teamWide
+      ? undefined
+      : taskScope.groupIds.length > 0
+        ? { id: { in: taskScope.groupIds } }
+        : null;
+
     const [groups, activeSeason, upcomingMeeting, crossGroupOpenCount, crossGroupUnassignedCount] =
       await Promise.all([
-        prisma.group.findMany({ where: { teamId, isActive: true }, select: { id: true, name: true } }),
+        readableTaskGroups === null
+          ? Promise.resolve([])
+          : prisma.group.findMany({
+              where: { teamId, isActive: true, ...readableTaskGroups },
+              select: { id: true, name: true },
+            }),
         canReadSeasons
           ? prisma.season.findFirst({
               where: { teamId, isActive: true },
@@ -371,6 +390,10 @@ export function createDashboardService(prisma: PrismaClient) {
     );
 
     return {
+      canReadTasks: taskScope.teamWide || taskScope.groupIds.length > 0,
+      canReadCrossGroupTasks: taskScope.teamWide,
+      canReadSeasons,
+      canReadMeetings: meetingWhere !== null,
       departments,
       activeSeason,
       seasonDaysRemaining: activeSeason
@@ -383,17 +406,13 @@ export function createDashboardService(prisma: PrismaClient) {
   };
 
   /**
-   * "Yönetim": the health-check cards, unchanged from the old team_admin view
-   * except for one fix -- that view predates this file's scope-tab/OR-merged
-   * model and never went back to apply its rule (every field gated by its own
-   * tool's grant, never inferred from the tab it lives on). The tab itself is
-   * unlocked by ANY team-wide create/update/delete on ACCOUNTS/ROLES/GROUPS/
-   * SEASONS (see computeScopes), so a role holding only e.g. ROLES: cud has no
-   * ACCOUNTS or SEASONS read at all -- the account-health counts and the
-   * active season are gated on those specific reads, same as `teamSummary`'s
-   * `activeSeason` above. `setupIncomplete` is left unconditional: it is a
-   * team-wide operational flag, not data behind any one of these four tools,
-   * and TEAMS itself authorizes nothing for a non-platform account.
+   * "Yönetim": a container for management health, not a permission bypass.
+   *
+   * The tab is intentionally available to someone who manages any one of
+   * ACCOUNTS/ROLES/GROUPS/SEASONS. Its cards are not interchangeable though:
+   * role management must not disclose account counts, and group management
+   * must not disclose the active season. Each family is therefore nullable
+   * unless its own read grant is present.
    */
   const managementSummary = async (
     teamId: string,
@@ -401,23 +420,22 @@ export function createDashboardService(prisma: PrismaClient) {
   ) => {
     const canReadAccounts = matrix.global.ACCOUNTS?.canRead ?? false;
     const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
-
     const [team, activeAccountCount, mustChangePasswordCount, withoutRoleCount, withoutGroupCount, activeSeason] =
       await Promise.all([
         prisma.team.findUnique({ where: { id: teamId }, select: { setupStage: true } }),
         canReadAccounts
           ? prisma.account.count({ where: { teamId, archivedAt: null, isActive: true } })
-          : Promise.resolve(0),
+          : Promise.resolve(null),
         canReadAccounts
           ? prisma.account.count({
               where: { teamId, archivedAt: null, isActive: true, mustChangePassword: true },
             })
-          : Promise.resolve(0),
+          : Promise.resolve(null),
         canReadAccounts
           ? prisma.account.count({
               where: { teamId, archivedAt: null, isActive: true, roles: { none: { isActive: true } } },
             })
-          : Promise.resolve(0),
+          : Promise.resolve(null),
         canReadAccounts
           ? prisma.account.count({
               where: {
@@ -427,7 +445,7 @@ export function createDashboardService(prisma: PrismaClient) {
                 memberships: { none: { isActive: true } },
               },
             })
-          : Promise.resolve(0),
+          : Promise.resolve(null),
         canReadSeasons
           ? prisma.season.findFirst({
               where: { teamId, isActive: true },
@@ -437,6 +455,8 @@ export function createDashboardService(prisma: PrismaClient) {
       ]);
 
     return {
+      canReadAccounts,
+      canReadSeasons,
       activeAccountCount,
       mustChangePasswordCount,
       withoutRoleCount,
@@ -476,7 +496,12 @@ export function createDashboardService(prisma: PrismaClient) {
       const [mine, group, team, management] = await Promise.all([
         mineSummary(teamId, account.id, matrix),
         scopes.groupIds.length > 0
-          ? groupSummary(teamId, scopes.groupIds, readableScope(matrix, "TASKS"))
+          ? groupSummary(
+              teamId,
+              scopes.groupIds,
+              readableScope(matrix, "TASKS"),
+              readableScope(matrix, "MEETINGS")
+            )
           : Promise.resolve(null),
         scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
         scopes.management ? managementSummary(teamId, matrix) : Promise.resolve(null),

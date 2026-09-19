@@ -185,6 +185,54 @@ describeIntegration("api smoke suite", () => {
     expect(membership).toEqual({ isActive: true });
   });
 
+  it("accounts: bulk import commits accounts, roles, memberships and audit rows atomically", async () => {
+    const emails = ["bulk-a@alpha.test", "bulk-b@alpha.test", "bulk-c@alpha.test"];
+    const response = await ctx.app.inject({
+      method: "POST",
+      url: "/accounts/bulk-import/commit",
+      headers: admin(),
+      payload: {
+        csv: `fullName,email\nBulk A,${emails[0]}\nBulk B,${emails[1]}\nBulk C,${emails[2]}\n`,
+        roles: [{ roleId: ctx.fixture.alpha.memberRoleId, groupId: ctx.fixture.alpha.groupId }],
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    const result = response.json();
+    expect(result).toMatchObject({ committed: true });
+    expect(result.created).toHaveLength(3);
+    expect(new Set(result.created.map((row: { temporaryPassword: string }) => row.temporaryPassword)).size).toBe(3);
+
+    const created = await ctx.prisma.account.findMany({
+      where: { email: { in: emails } },
+      select: {
+        id: true,
+        mustChangePassword: true,
+        roles: { select: { roleId: true, groupId: true } },
+        memberships: { select: { groupId: true, isActive: true } },
+      },
+    });
+    expect(created).toHaveLength(3);
+    for (const account of created) {
+      expect(account.mustChangePassword).toBe(true);
+      expect(account.roles).toEqual([
+        { roleId: ctx.fixture.alpha.memberRoleId, groupId: ctx.fixture.alpha.groupId },
+      ]);
+      expect(account.memberships).toEqual([{ groupId: ctx.fixture.alpha.groupId, isActive: true }]);
+    }
+
+    const auditRows = await ctx.prisma.auditLog.findMany({
+      where: { entityId: { in: created.map((account) => account.id) }, action: "ACCOUNT_CREATED" },
+      select: { newValue: true },
+    });
+    expect(auditRows).toHaveLength(3);
+    const batchIds = new Set(
+      auditRows.map((row) => (row.newValue as { batchId?: string } | null)?.batchId)
+    );
+    expect(batchIds.size).toBe(1);
+    expect(batchIds.has(result.batchId)).toBe(true);
+  });
+
   it("tasks: creates one and writes its activity log in the same transaction", async () => {
     const created = await ctx.app.inject({
       method: "POST",
