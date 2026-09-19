@@ -131,8 +131,8 @@ export function AsyncSection<T>({
 
 export function PageHeader({ title, children }: { title: string; children?: ReactNode }) {
   return (
-    <div className="row" style={{ justifyContent: "space-between", marginBottom: 16 }}>
-      <h1 style={{ margin: 0 }}>{title}</h1>
+    <div className="page-header">
+      <h1>{title}</h1>
       {children ? <div className="row">{children}</div> : null}
     </div>
   );

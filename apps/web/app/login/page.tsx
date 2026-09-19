@@ -48,11 +48,15 @@ export default function LoginPage() {
     <main className="login-shell">
       <form className="card login-card stack-sm" onSubmit={onSubmit}>
         <div className="login-brand">
-          <span className="brand-dot login-brand-dot" />
-          <span>BreakPoint</span>
+          <span className="brand-dot login-brand-dot" aria-hidden="true" />
+          <span className="brand-copy">
+            <strong>BreakPoint</strong>
+            <small>FRC Management</small>
+          </span>
         </div>
 
         <h1 className="login-heading">Giriş yap</h1>
+        <p className="login-intro">Takımının görevlerini, toplantılarını ve sezon planını tek yerden yönet.</p>
 
         {error ? <ErrorBox error={error} /> : null}
 
