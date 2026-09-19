@@ -6,6 +6,8 @@ import { authorize } from "../../lib/authorize";
 import { requireTeam } from "../../lib/tenant";
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import {
+  bulkImportCommitSchema,
+  bulkImportPreviewSchema,
   createAccountSchema,
   listAccountsQuerySchema,
   replaceRolesSchema,
@@ -24,6 +26,10 @@ import { createAccountsService } from "./accounts.service";
  *                                                        -> 201 | 400 | 401 | 403 | 409 duplicate email
  *                                                        (a non-empty `roles` also needs ROLES/update,
  *                                                        same as PUT /:id/roles -- see that route)
+ *   POST   /accounts/bulk-import/preview { csv }         -> 200 { fileError, rows, valid } | 400 | 401 | 403
+ *   POST   /accounts/bulk-import/commit  { csv, roles? }  -> 200 { committed: true, batchId, created }
+ *                                                             | { committed: false, fileError, rows, valid }
+ *                                                        -> 400 | 401 | 403 (roles also needs ROLES/update)
  *   PATCH  /accounts/:id        { email?, fullName?, isActive? }
  *                                                        -> 200 | 400 | 401 | 403 | 404 | 409
  *   PUT    /accounts/:id/roles  { roles: [{ roleId, groupId? }] }
@@ -97,6 +103,45 @@ export async function accountsRoutes(app: FastifyInstance) {
 
     const account = await service.create(requireTeam(req.account), input, req.account.id);
     reply.code(201).send(account);
+  });
+
+  // -> 200 | 400 | 401 | 403
+  app.post("/bulk-import/preview", async (req) => {
+    await authorize(app.prisma, {
+      accountId: req.account.id,
+      tool: "ACCOUNTS",
+      action: "create",
+    });
+
+    const { csv } = bulkImportPreviewSchema.parse(req.body);
+    return service.previewBulkImport(csv);
+  });
+
+  // -> 200 { committed: true | false, ... } | 400 | 401 | 403
+  //
+  // Always 200 once past authorization: a well-formed request that simply
+  // fails re-validation (a row went stale, a race lost an email to someone
+  // else) is not a client error, it is the answer "no, and here is why" --
+  // the same shape /preview sends, not an HTTP error code standing in for it.
+  app.post("/bulk-import/commit", async (req) => {
+    const input = bulkImportCommitSchema.parse(req.body);
+
+    await authorize(app.prisma, {
+      accountId: req.account.id,
+      tool: "ACCOUNTS",
+      action: "create",
+    });
+    // Same rule as POST / above: granting roles needs ROLES/update, whether
+    // one account is created or two hundred.
+    if (input.roles.length > 0) {
+      await authorize(app.prisma, {
+        accountId: req.account.id,
+        tool: "ROLES",
+        action: "update",
+      });
+    }
+
+    return service.commitBulkImport(requireTeam(req.account), input.csv, input.roles, req.account.id);
   });
 
   // -> 200 | 400 | 401 | 403 | 404 | 409

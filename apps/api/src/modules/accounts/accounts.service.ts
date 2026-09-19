@@ -1,5 +1,8 @@
-import type { Prisma, PrismaClient } from "@breakpoint/db";
+import { randomBytes } from "node:crypto";
+
+import { Prisma, type PrismaClient } from "@breakpoint/db";
 import {
+  generateTemporaryPassword,
   placementUsesAssignmentGroup,
   roleDepths,
   type AccountRoleInput,
@@ -8,13 +11,15 @@ import {
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { auditValuesEqual, writeAuditLog } from "../../lib/audit-log";
+import { parseAccountsCsv } from "../../lib/csv";
 import { hashPassword } from "../../lib/password";
 import { paginated, toPrismaPage } from "../../lib/pagination";
-import type {
-  CreateAccountInput,
-  ListAccountsQuery,
-  ReplaceRolesInput,
-  UpdateAccountInput,
+import {
+  bulkImportRowSchema,
+  type CreateAccountInput,
+  type ListAccountsQuery,
+  type ReplaceRolesInput,
+  type UpdateAccountInput,
 } from "./accounts.schema";
 
 // Roles are always read with the names needed to render them, so no caller has
@@ -218,6 +223,83 @@ export function createAccountsService(prisma: PrismaClient) {
     );
   };
 
+  /**
+   * Checks a CSV against every rule bulk import enforces, without writing
+   * anything.
+   *
+   * Shared by preview and commit -- commit calls this again itself right
+   * before it writes, rather than trusting whatever a client says an earlier
+   * preview found, so a stale or forged "this was already validated" can
+   * never skip a check.
+   */
+  const validateBulkImport = async (csv: string) => {
+    const parsed = parseAccountsCsv(csv);
+    if (parsed.error) {
+      return { fileError: parsed.error, rows: [], valid: false };
+    }
+
+    const rows = parsed.rows.map((row) => {
+      const checked = bulkImportRowSchema.safeParse({ fullName: row.fullName, email: row.email });
+      if (!checked.success) {
+        return {
+          line: row.line,
+          fullName: row.fullName,
+          email: row.email,
+          status: "invalid" as const,
+          issues: checked.error.issues.map((issue) => issue.message),
+        };
+      }
+      return {
+        line: row.line,
+        fullName: checked.data.fullName,
+        email: checked.data.email,
+        status: "ok" as const,
+        issues: [] as string[],
+      };
+    });
+
+    // A format-valid email repeated in the file is unusable for every row
+    // that shares it -- there is no principled way to say which one the
+    // address "really" belongs to, so all of them come back for a fix.
+    const emailCounts = new Map<string, number>();
+    for (const row of rows) {
+      if (row.status === "ok") emailCounts.set(row.email, (emailCounts.get(row.email) ?? 0) + 1);
+    }
+    for (const row of rows) {
+      if (row.status === "ok" && (emailCounts.get(row.email) ?? 0) > 1) {
+        Object.assign(row, {
+          status: "duplicate_in_file" as const,
+          issues: ["Bu e-posta dosyada birden fazla kez geçiyor"],
+        });
+      }
+    }
+
+    // Email is unique across the whole platform, not just this team -- see
+    // Account.email in schema.prisma and createAdmin in teams.service.ts.
+    const candidates = [...new Set(rows.filter((row) => row.status === "ok").map((row) => row.email))];
+    if (candidates.length > 0) {
+      const existing = await prisma.account.findMany({
+        where: { email: { in: candidates } },
+        select: { email: true },
+      });
+      const taken = new Set(existing.map((account) => account.email));
+      for (const row of rows) {
+        if (row.status === "ok" && taken.has(row.email)) {
+          Object.assign(row, {
+            status: "duplicate_in_db" as const,
+            issues: ["Bu e-posta zaten kullanılıyor"],
+          });
+        }
+      }
+    }
+
+    return {
+      fileError: null as string | null,
+      rows,
+      valid: rows.length > 0 && rows.every((row) => row.status === "ok"),
+    };
+  };
+
   return {
     list: async (teamId: string, query: ListAccountsQuery) => {
       const where: Prisma.AccountWhereInput = {
@@ -306,6 +388,118 @@ export function createAccountsService(prisma: PrismaClient) {
         select: accountSelect,
       });
       return (await serializeMany([created]))[0];
+    },
+
+    previewBulkImport: (csv: string) => validateBulkImport(csv),
+
+    /**
+     * The atomic half of bulk import: every row or none.
+     *
+     * Re-validates from the raw CSV rather than accepting a client's word that
+     * a prior preview passed -- a stale preview, a forged one, or simply
+     * someone else taking one of these emails in the meantime all show up the
+     * same way here, as a fresh `validateBulkImport` that no longer says ok.
+     * When that happens nothing is written; the caller gets the same shape
+     * preview already sends, so the form can show exactly what changed.
+     *
+     * Password hashing happens before the transaction opens: argon2id is
+     * deliberately slow, and holding a transaction open for the length of two
+     * hundred hashes would starve the connection pool for work the write
+     * itself does not need.
+     */
+    commitBulkImport: async (
+      teamId: string,
+      csv: string,
+      roles: readonly AccountRoleInput[],
+      assignedById: string
+    ) => {
+      const validation = await validateBulkImport(csv);
+      if (!validation.valid) {
+        return { committed: false as const, ...validation };
+      }
+
+      // Same gate POST /accounts and PUT /:id/roles apply -- see
+      // assertAssignable's own comment for why this cannot be skipped.
+      await assertAssignable(teamId, roles);
+
+      const batchId = randomBytes(9).toString("base64url");
+      const passwords = validation.rows.map(() => generateTemporaryPassword(randomBytes));
+      const passwordHashes = await Promise.all(passwords.map((password) => hashPassword(password)));
+
+      try {
+        const created = await prisma.$transaction(
+          async (tx) => {
+            // One more look, as close to the write as it gets: a concurrent
+            // import could have taken one of these emails since
+            // validateBulkImport ran a moment ago. Finding one here throws
+            // and rolls the whole batch back -- see the catch below.
+            const emails = validation.rows.map((row) => row.email);
+            const collided = await tx.account.findMany({
+              where: { email: { in: emails } },
+              select: { email: true },
+            });
+            if (collided.length > 0) {
+              throw new ConflictError(
+                `${collided.map((account) => account.email).join(", ")} artık kullanılıyor`
+              );
+            }
+
+            const rows: Array<{
+              id: string;
+              email: string;
+              fullName: string;
+              temporaryPassword: string;
+            }> = [];
+
+            for (const [index, row] of validation.rows.entries()) {
+              const account = await tx.account.create({
+                data: {
+                  teamId,
+                  email: row.email,
+                  fullName: row.fullName,
+                  passwordHash: passwordHashes[index]!,
+                  mustChangePassword: true,
+                },
+                select: { id: true },
+              });
+
+              await replaceRolesInTransaction(tx, teamId, account.id, roles, assignedById);
+              await writeAuditLog(tx, {
+                teamId,
+                actorId: assignedById,
+                entityType: "ACCOUNT",
+                entityId: account.id,
+                action: "ACCOUNT_CREATED",
+                // batchId ties every row of this import together in the audit
+                // trail; each account is still its own entry, individually
+                // traceable like any other ACCOUNT_CREATED row. The password
+                // is deliberately absent, exactly as the single-account path
+                // leaves it out -- see create() above.
+                newValue: { email: row.email, fullName: row.fullName, roles: auditRoles(roles), batchId },
+              });
+
+              rows.push({
+                id: account.id,
+                email: row.email,
+                fullName: row.fullName,
+                temporaryPassword: passwords[index]!,
+              });
+            }
+
+            return rows;
+          },
+          { timeout: 30_000, maxWait: 10_000 }
+        );
+
+        return { committed: true as const, batchId, created };
+      } catch (cause) {
+        const raceLostHere =
+          cause instanceof ConflictError ||
+          (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002");
+        if (!raceLostHere) throw cause;
+
+        return { committed: false as const, ...(await validateBulkImport(csv)) };
+      }
     },
 
     update: async (teamId: string, id: string, input: UpdateAccountInput) => {

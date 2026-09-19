@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { formatAccountRoles, type Paginated } from "@breakpoint/types";
 
+import { BulkImportPanel } from "@/components/accounts/bulk-import-panel";
 import {
   RoleAssignmentRows,
   roleAssignmentPayload,
@@ -17,6 +18,7 @@ import type { AccountRow, GroupTreeRow, RoleRow } from "@/lib/api-types";
 import { issueFor } from "@/lib/issues";
 
 const EMPTY = { email: "", fullName: "", password: "" };
+type Mode = "single" | "bulk";
 
 /**
  * The last step: the people, and what each of them is.
@@ -36,6 +38,7 @@ export function AccountsStep() {
   const groups = useApi<GroupTreeRow[]>("/groups/tree");
   const mutation = useMutation();
 
+  const [mode, setMode] = useState<Mode>("single");
   const [draft, setDraft] = useState(EMPTY);
   const [roleDrafts, setRoleDrafts] = useState<RoleAssignmentDraft[]>([]);
 
@@ -90,65 +93,100 @@ export function AccountsStep() {
         )}
       </AsyncSection>
 
-      <FormPanel
-        title="Hesap ekle"
-        error={mutation.error}
-        saving={mutation.saving}
-        submitLabel="Hesabı oluştur"
-        onSubmit={submit}
-        onCancel={() => {
-          setDraft(EMPTY);
-          setRoleDrafts([]);
-          mutation.reset();
-        }}
-      >
-        <TextField
-          label="Ad soyad"
-          value={draft.fullName}
-          required
-          onChange={(fullName) => setDraft({ ...draft, fullName })}
-          error={issueFor(mutation.error, "fullName")}
-        />
-        <TextField
-          label="E-posta"
-          type="email"
-          value={draft.email}
-          required
-          onChange={(email) => setDraft({ ...draft, email })}
-          error={issueFor(mutation.error, "email")}
-        />
-        <TextField
-          label="Geçici şifre"
-          value={draft.password}
-          required
-          hint="En az 10 karakter. Kişiye iletin: ilk girişte kendi şifresini belirlemeden başka hiçbir şey yapamaz."
-          onChange={(password) => setDraft({ ...draft, password })}
-          error={issueFor(mutation.error, "password")}
-        />
+      <div className="row" role="group" aria-label="Hesap ekleme yöntemi">
+        <button
+          type="button"
+          className={`btn btn-sm${mode === "single" ? " btn-primary" : ""}`}
+          aria-pressed={mode === "single"}
+          onClick={() => setMode("single")}
+        >
+          Tek tek ekle
+        </button>
+        <button
+          type="button"
+          className={`btn btn-sm${mode === "bulk" ? " btn-primary" : ""}`}
+          aria-pressed={mode === "bulk"}
+          onClick={() => setMode("bulk")}
+        >
+          CSV ile toplu ekle
+        </button>
+      </div>
 
-        <div className="field">
-          <label>Roller</label>
-          <p className="small muted" style={{ margin: "0 0 6px" }}>
-            Grup içi bir rol atandığında kişi o gruba da üye yapılır — aksi halde kendi
-            departmanında reddedilirdi.
-          </p>
-          <AsyncSection state={roles}>
-            {(roleList) => (
-              <AsyncSection state={groups}>
-                {(groupTree) => (
-                  <RoleAssignmentRows
-                    value={roleDrafts}
-                    onChange={setRoleDrafts}
-                    roles={roleList.items}
-                    groups={groupTree}
-                    error={mutation.error}
-                  />
-                )}
-              </AsyncSection>
-            )}
-          </AsyncSection>
-        </div>
-      </FormPanel>
+      {mode === "bulk" ? (
+        <AsyncSection state={roles}>
+          {(roleList) => (
+            <AsyncSection state={groups}>
+              {(groupTree) => (
+                <BulkImportPanel
+                  roles={roleList.items}
+                  groups={groupTree}
+                  onImported={() => accounts.reload()}
+                />
+              )}
+            </AsyncSection>
+          )}
+        </AsyncSection>
+      ) : (
+        <FormPanel
+          title="Hesap ekle"
+          error={mutation.error}
+          saving={mutation.saving}
+          submitLabel="Hesabı oluştur"
+          onSubmit={submit}
+          onCancel={() => {
+            setDraft(EMPTY);
+            setRoleDrafts([]);
+            mutation.reset();
+          }}
+        >
+          <TextField
+            label="Ad soyad"
+            value={draft.fullName}
+            required
+            onChange={(fullName) => setDraft({ ...draft, fullName })}
+            error={issueFor(mutation.error, "fullName")}
+          />
+          <TextField
+            label="E-posta"
+            type="email"
+            value={draft.email}
+            required
+            onChange={(email) => setDraft({ ...draft, email })}
+            error={issueFor(mutation.error, "email")}
+          />
+          <TextField
+            label="Geçici şifre"
+            value={draft.password}
+            required
+            hint="En az 10 karakter. Kişiye iletin: ilk girişte kendi şifresini belirlemeden başka hiçbir şey yapamaz."
+            onChange={(password) => setDraft({ ...draft, password })}
+            error={issueFor(mutation.error, "password")}
+          />
+
+          <div className="field">
+            <label>Roller</label>
+            <p className="small muted" style={{ margin: "0 0 6px" }}>
+              Grup içi bir rol atandığında kişi o gruba da üye yapılır — aksi halde kendi
+              departmanında reddedilirdi.
+            </p>
+            <AsyncSection state={roles}>
+              {(roleList) => (
+                <AsyncSection state={groups}>
+                  {(groupTree) => (
+                    <RoleAssignmentRows
+                      value={roleDrafts}
+                      onChange={setRoleDrafts}
+                      roles={roleList.items}
+                      groups={groupTree}
+                      error={mutation.error}
+                    />
+                  )}
+                </AsyncSection>
+              )}
+            </AsyncSection>
+          </div>
+        </FormPanel>
+      )}
     </div>
   );
 }

@@ -42,6 +42,32 @@ export interface AccountRoleRow {
   groupName: string | null;
 }
 
+/** One row of a bulk-import CSV, as /accounts/bulk-import/preview and
+ *  /commit both report it -- commit sends the identical shape when it
+ *  refuses to write, so one type covers both. */
+export interface BulkImportRowResult {
+  line: number;
+  fullName: string;
+  email: string;
+  status: "ok" | "invalid" | "duplicate_in_file" | "duplicate_in_db";
+  issues: string[];
+}
+
+export interface BulkImportPreviewResult {
+  fileError: string | null;
+  rows: BulkImportRowResult[];
+  valid: boolean;
+}
+
+/** POST /accounts/bulk-import/commit. Discriminated on `committed`: the
+ *  false case is the same shape a preview sends, because refusing to write
+ *  a batch that no longer validates is an ordinary answer, not an error. */
+export type BulkImportCommitResult =
+  | ({ committed: true; batchId: string } & {
+      created: Array<{ id: string; email: string; fullName: string; temporaryPassword: string }>;
+    })
+  | ({ committed: false } & BulkImportPreviewResult);
+
 export interface AccountRow {
   id: string;
   teamId: string | null;

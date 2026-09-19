@@ -60,7 +60,26 @@ export const listAccountsQuerySchema = paginationSchema.extend({
     .default(false),
 });
 
+// The same email/fullName rules createAccountSchema uses, so a row that would
+// be refused by POST /accounts is refused here too, with the same messages.
+export const bulkImportRowSchema = accountFields.pick({ email: true, fullName: true });
+
+// Matches lib/csv.ts's own limit -- rejecting an oversized body before it is
+// even parsed as CSV is cheaper, and keeps the two checks from disagreeing.
+const csvSchema = z.string().min(1, "Dosya boş.").max(300_000, "Dosya çok büyük.");
+
+export const bulkImportPreviewSchema = z.object({ csv: csvSchema });
+
+// Roles apply to the whole batch, chosen once rather than per row -- see
+// accounts.service.ts#commitBulkImport.
+export const bulkImportCommitSchema = z.object({
+  csv: csvSchema,
+  roles: roleListSchema.default([]),
+});
+
 export type CreateAccountInput = z.infer<typeof createAccountSchema>;
 export type UpdateAccountInput = z.infer<typeof updateAccountSchema>;
 export type ReplaceRolesInput = z.infer<typeof replaceRolesSchema>;
 export type ListAccountsQuery = z.infer<typeof listAccountsQuerySchema>;
+export type BulkImportPreviewInput = z.infer<typeof bulkImportPreviewSchema>;
+export type BulkImportCommitInput = z.infer<typeof bulkImportCommitSchema>;
