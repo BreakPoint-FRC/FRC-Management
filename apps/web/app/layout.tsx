@@ -41,7 +41,11 @@ export default function RootLayout({
   return (
     // lang="tr": every string a user reads here is Turkish, including the
     // messages the API sends back.
-    <html lang="tr">
+    // The inline script below may add data-theme before React hydrates. That
+    // deliberate pre-paint mutation prevents a light/dark flash, but the
+    // server cannot know localStorage and therefore cannot render the same
+    // attribute. Limit hydration suppression to this root element only.
+    <html lang="tr" suppressHydrationWarning>
       <head>
         {/* Runs before first paint so a stored light/dark preference never
             flashes the OS default first. See lib/theme.ts. */}
