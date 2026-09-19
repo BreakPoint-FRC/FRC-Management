@@ -285,12 +285,16 @@ describe("mine data", () => {
 
     await createDashboardService(prisma).summary(account());
 
-    expect(calls.taskFindMany).toHaveBeenCalledTimes(1);
-    expect(calls.taskFindMany.mock.calls[0]?.[0].where).toMatchObject({
-      teamId: TEAM,
-      groupId: { in: ["g1", "g2"] },
-      assignees: { some: { accountId: ACCOUNT_ID } },
-    });
+    // One call for overdue, one for open-but-not-yet-due -- never one per
+    // group, which is the thing this test actually guards.
+    expect(calls.taskFindMany).toHaveBeenCalledTimes(2);
+    for (const call of calls.taskFindMany.mock.calls) {
+      expect(call[0]?.where).toMatchObject({
+        teamId: TEAM,
+        groupId: { in: ["g1", "g2"] },
+        assignees: { some: { accountId: ACCOUNT_ID } },
+      });
+    }
   });
 
   it("queries team-wide with no group filter for a team-wide reader", async () => {
@@ -302,23 +306,59 @@ describe("mine data", () => {
     expect(calls.taskFindMany.mock.calls[0]?.[0].where).not.toHaveProperty("groupId");
   });
 
-  it("splits assigned open tasks into due-in-the-future and overdue", async () => {
+  it("splits assigned open tasks into due-in-the-future and overdue via two separate queries", async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-15T00:00:00.000Z"));
     mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
-    const { prisma } = stubPrisma({
-      accountRoleFindMany: withRoles([]),
-      taskFindMany: vi.fn().mockResolvedValue([
-        { id: "future", name: "Future", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-20"), group: null },
+    const taskFindMany = vi
+      .fn()
+      .mockResolvedValueOnce([
         { id: "past", name: "Past", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-01"), group: null },
+      ])
+      .mockResolvedValueOnce([
+        { id: "future", name: "Future", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-20"), group: null },
         { id: "undated", name: "Undated", status: "TODO", priority: "MEDIUM", dueDate: null, group: null },
-      ]),
-    });
+      ]);
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]), taskFindMany });
 
     const result = await createDashboardService(prisma).summary(account());
 
     expect(result.mine?.openTasks.map((t) => t.id)).toEqual(["future", "undated"]);
     expect(result.mine?.overdueTasks.map((t) => t.id)).toEqual(["past"]);
+    expect(taskFindMany.mock.calls[0]![0].where).toMatchObject({ dueDate: { lt: expect.any(Date) } });
+    expect(taskFindMany.mock.calls[1]![0].where).toMatchObject({
+      OR: [{ dueDate: null }, { dueDate: { gte: expect.any(Date) } }],
+    });
+  });
+
+  // Ascending due-date sort puts every overdue task before every not-yet-due
+  // one, so a single bounded fetch split client-side afterward could be
+  // entirely consumed by overdue rows -- see dashboard.service.ts's comment
+  // on this exact query. Each bucket is now its own independently bounded
+  // query, so a person swamped with overdue work still sees their soonest
+  // upcoming deadline instead of an empty "Görevlerim" upcoming list.
+  it("still shows upcoming tasks when overdue tasks alone would have filled the old combined fetch", async () => {
+    mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
+    const manyOverdue = Array.from({ length: 5 }, (_, i) => ({
+      id: `overdue-${i}`,
+      name: `Overdue ${i}`,
+      status: "TODO",
+      priority: "MEDIUM",
+      dueDate: new Date("2026-09-01"),
+      group: null,
+    }));
+    const taskFindMany = vi
+      .fn()
+      .mockResolvedValueOnce(manyOverdue)
+      .mockResolvedValueOnce([
+        { id: "soon", name: "Soon", status: "TODO", priority: "MEDIUM", dueDate: new Date("2026-09-20"), group: null },
+      ]);
+    const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]), taskFindMany });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    expect(result.mine?.overdueTasks).toHaveLength(5);
+    expect(result.mine?.openTasks.map((t) => t.id)).toEqual(["soon"]);
   });
 });
 

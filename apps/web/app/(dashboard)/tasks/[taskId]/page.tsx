@@ -222,7 +222,7 @@ export default function TaskDetailPage() {
                   Her kayıt, anlattığı değişiklikle aynı işlemde yazılır. Görevin kaydı olmadan
                   değişmesi mümkün değildir.
                 </p>
-                <AsyncSection state={activity} empty="Henüz kayıt yok.">
+                <AsyncSection state={activity} empty="Henüz kayıt yok." isEmpty={(data) => data.items.length === 0}>
                   {(log) => (
                     <div className="table-wrap">
                       <table className="table">

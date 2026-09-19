@@ -16,8 +16,8 @@ export const sponsorshipStatusSchema = z.enum([
 export const organizationSchema = z.object({
   id: z.string(),
   name: z.string().min(1),
-  website: z.string().url("Gecerli bir adres girin").nullish(),
-  email: z.string().email("Gecerli bir e-posta adresi girin").nullish(),
+  website: z.string().url("Geçerli bir adres girin").nullish(),
+  email: z.string().email("Geçerli bir e-posta adresi girin").nullish(),
   phone: z.string().max(40).nullish(),
   notes: z.string().max(2000).nullish(),
 });

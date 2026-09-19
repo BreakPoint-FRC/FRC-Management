@@ -102,15 +102,26 @@ export function ErrorBox({ error }: { error: ApiError }) {
   );
 }
 
-/** Loading, error and empty in one place, so no page reimplements the three. */
+/**
+ * Loading, error and empty in one place, so no page reimplements the three.
+ *
+ * `data === null` is not the only shape of "nothing to show" -- a paginated
+ * list answers a filter with no matches as a perfectly normal `{items: [],
+ * total: 0}`, still a truthy object. Without `isEmpty`, that falls through to
+ * `children`, which is why several pages ended up re-deriving their own
+ * `items.length === 0` check beneath this one: pass the same check here
+ * instead and let `empty` render it.
+ */
 export function AsyncSection<T>({
   state,
   children,
   empty,
+  isEmpty,
 }: {
   state: { data: T | null; error: ApiError | null; loading: boolean; reload?: () => void };
   children: (data: T) => ReactNode;
   empty?: ReactNode;
+  isEmpty?: (data: T) => boolean;
 }) {
   if (state.loading && !state.data) return <Loading />;
   if (state.error) {
@@ -125,7 +136,7 @@ export function AsyncSection<T>({
       </div>
     );
   }
-  if (!state.data) return <Empty>{empty}</Empty>;
+  if (!state.data || (isEmpty && isEmpty(state.data))) return <Empty>{empty}</Empty>;
   return <>{children(state.data)}</>;
 }
 

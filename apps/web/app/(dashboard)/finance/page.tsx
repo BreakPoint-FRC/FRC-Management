@@ -277,7 +277,7 @@ export default function FinancePage() {
           tam olarak budur.
         </p>
 
-        <AsyncSection state={transactions} empty="Bu filtrelerle kayıt yok.">
+        <AsyncSection state={transactions} empty="Bu filtrelerle kayıt yok." isEmpty={(data) => data.items.length === 0}>
           {(data) => (
             <div className="table-wrap table-responsive-wrap">
               <table className="table table-responsive">

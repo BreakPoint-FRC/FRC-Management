@@ -327,11 +327,9 @@ export default function TasksPage() {
 
       {!editing && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={tasks} empty="Bu filtrelerle görev yok.">
+      <AsyncSection state={tasks} empty="Bu filtrelerle görev yok." isEmpty={() => items.length === 0}>
         {() =>
-          items.length === 0 ? (
-            <p className="empty">Bu filtrelerle görev yok.</p>
-          ) : (
+          (
             <div className="table-wrap table-responsive-wrap">
               <table className="table table-responsive">
                 <thead>

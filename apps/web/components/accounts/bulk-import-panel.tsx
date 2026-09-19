@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Badge, ErrorBox } from "@/components/ui";
 import { useUnsavedChanges } from "@/components/unsaved-changes";
@@ -70,6 +70,17 @@ export function BulkImportPanel({
   const commitMutation = useMutation();
   const fileInput = useRef<HTMLInputElement>(null);
 
+  // Preview has no natural cancellation the way a route change gives useApi
+  // one, so a slow response is guarded by hand: if the csv this response
+  // belongs to is no longer the csv on screen (the user kept typing, or
+  // pasted something else, while it was in flight), it is dropped instead of
+  // overwriting a preview -- or the `null` an edit already set -- for content
+  // nobody is looking at anymore.
+  const csvRef = useRef(csv);
+  useEffect(() => {
+    csvRef.current = csv;
+  }, [csv]);
+
   // The one moment these passwords exist anywhere is this screen. Leaving it
   // unacknowledged -- a stray nav click, an accidental reload -- must not be
   // silent, the same contract every other editor with something to lose
@@ -90,10 +101,11 @@ export function BulkImportPanel({
   }
 
   async function runPreview() {
+    const requestedCsv = csv;
     const response = await previewMutation.runFor<BulkImportPreviewResult>(() =>
-      apiClient.post("/accounts/bulk-import/preview", { csv })
+      apiClient.post("/accounts/bulk-import/preview", { csv: requestedCsv })
     );
-    if (response) setPreview(response);
+    if (response && csvRef.current === requestedCsv) setPreview(response);
   }
 
   async function runCommit() {

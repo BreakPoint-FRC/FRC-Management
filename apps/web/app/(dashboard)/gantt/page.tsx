@@ -277,7 +277,11 @@ export default function GanttPage() {
 
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={boards} empty="Henüz pano oluşturulmamış.">
+      <AsyncSection
+        state={boards}
+        empty="Henüz pano oluşturulmamış."
+        isEmpty={(data) => data.items.length === 0}
+      >
         {(data) => {
           // "Takım geneli" is not a group the API can filter on, so it is
           // applied here -- see the comment on `scoped`.

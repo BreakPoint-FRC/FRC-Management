@@ -357,7 +357,7 @@ export default function AccountsPage() {
 
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={accounts} empty="Bu filtrelerle hesap yok.">
+      <AsyncSection state={accounts} empty="Bu filtrelerle hesap yok." isEmpty={(data) => data.items.length === 0}>
         {(data) => (
           <div className="stack-sm">
             <div className="table-wrap table-responsive-wrap">

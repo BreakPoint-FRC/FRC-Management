@@ -370,7 +370,7 @@ test("pending and failed saves preserve the draft and the browser protection", a
 test("filtering and new-tab gestures preserve the current draft without a dialog", async ({ page }) => {
   await setup(page);
   await report(page).fill("Unsaved report");
-  await page.locator("main > .row select").selectOption("group");
+  await page.locator("main > .page-header select").selectOption("group");
   await expect(report(page)).toHaveValue("Unsaved report");
   const openedPage = page.context().waitForEvent("page");
   await page.getByRole("link", { name: "Beta", exact: true }).click({ modifiers: ["ControlOrMeta"] });

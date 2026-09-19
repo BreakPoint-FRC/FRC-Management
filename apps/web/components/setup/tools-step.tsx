@@ -53,7 +53,7 @@ export function ToolsStep() {
     <div className="stack-sm">
       {mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={groups} empty="Önce grup oluşturun.">
+      <AsyncSection state={groups} empty="Önce grup oluşturun." isEmpty={(data) => data.items.length === 0}>
         {(data) => {
           const selected = data.items.find((group) => group.id === selectedId) ?? null;
 

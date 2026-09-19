@@ -93,7 +93,15 @@ export default function AccountPage() {
               </Card>
 
               <Card title="Aktif sezon">
-                <AsyncSection state={season} empty="Aktif sezon yok.">
+                {/* GET /seasons/current answers "none active" with a 404 --
+                    an expected, documented outcome, not a failure -- so it is
+                    kept out of AsyncSection's error branch (which would show
+                    a red box and a "Tekrar dene" that only 404s again) and
+                    treated as the plain empty state instead. */}
+                <AsyncSection
+                  state={{ ...season, error: season.error?.status === 404 ? null : season.error }}
+                  empty="Aktif sezon yok."
+                >
                   {(data) => (
                     <div>
                       <div className="stat">{data.name}</div>

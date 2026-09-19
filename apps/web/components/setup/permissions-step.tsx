@@ -63,7 +63,7 @@ export function PermissionsStep() {
     <div className="stack-sm">
       {mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={roles} empty="Önce rol oluşturun.">
+      <AsyncSection state={roles} empty="Önce rol oluşturun." isEmpty={(data) => data.items.length === 0}>
         {(data) => {
           // The team admin role is created with the team and already holds
           // everything; editing it here would only be a way to lock the team

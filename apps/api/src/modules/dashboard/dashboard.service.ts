@@ -142,18 +142,34 @@ export function createDashboardService(prisma: PrismaClient) {
     const taskWhere = scopeWhere(readableScope(matrix, "TASKS"));
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
 
-    const [openTasks, upcomingMeetings, groups, roles] = await Promise.all([
-      taskWhere
+    // Overdue and open-but-not-yet-due are fetched as two separately bounded
+    // queries rather than one `take` fetch split client-side afterward.
+    // Ascending due-date sort means every overdue task -- unbounded, however
+    // many exist -- sorts before every not-yet-due one, so a single
+    // `take: LIST_LIMIT * 2` could be entirely consumed by overdue rows and
+    // silently return zero upcoming tasks even when real ones exist.
+    const assignedTaskWhere = taskWhere && {
+      ...taskWhere,
+      teamId,
+      status: { in: [...OPEN_TASK_STATUSES] },
+      assignees: { some: { accountId } },
+    };
+
+    const [overdueTasks, openTasks, upcomingMeetings, groups, roles] = await Promise.all([
+      assignedTaskWhere
         ? prisma.task.findMany({
-            where: {
-              ...taskWhere,
-              teamId,
-              status: { in: [...OPEN_TASK_STATUSES] },
-              assignees: { some: { accountId } },
-            },
+            where: { ...assignedTaskWhere, dueDate: { lt: now } },
+            select: taskSummarySelect,
+            orderBy: { dueDate: "asc" },
+            take: LIST_LIMIT,
+          })
+        : Promise.resolve([]),
+      assignedTaskWhere
+        ? prisma.task.findMany({
+            where: { ...assignedTaskWhere, OR: [{ dueDate: null }, { dueDate: { gte: now } }] },
             select: taskSummarySelect,
             orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
-            take: LIST_LIMIT * 2,
+            take: LIST_LIMIT,
           })
         : Promise.resolve([]),
       meetingWhere
@@ -178,13 +194,9 @@ export function createDashboardService(prisma: PrismaClient) {
       }),
     ]);
 
-    const serialized = openTasks.map(serializeTask);
-    const overdue = serialized.filter((task) => task.dueDate !== null && task.dueDate < now);
-    const open = serialized.filter((task) => task.dueDate === null || task.dueDate >= now);
-
     return {
-      openTasks: open.slice(0, LIST_LIMIT),
-      overdueTasks: overdue.slice(0, LIST_LIMIT),
+      openTasks: openTasks.map(serializeTask),
+      overdueTasks: overdueTasks.map(serializeTask),
       upcomingMeetings: upcomingMeetings.map(serializeMeeting),
       groups: groups.map((entry) => entry.group),
       roles: roles.map((entry) => ({
