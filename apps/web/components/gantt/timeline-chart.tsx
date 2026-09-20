@@ -79,7 +79,7 @@ export default function GanttTimelineChart({ tasks }: { tasks: GanttBoardTask[] 
   const undated = tasks.filter((task) => !task.startDate || !task.dueDate);
 
   if (dated.length === 0) {
-    return <p className="empty">Panodaki gorevlerin hicbirinde baslangic ve bitis tarihi yok.</p>;
+    return <p className="empty">Panodaki görevlerin hiçbirinde başlangıç ve bitiş tarihi yok.</p>;
   }
 
   const starts = dated.map((task) => new Date(task.startDate as string).getTime());
@@ -108,7 +108,7 @@ export default function GanttTimelineChart({ tasks }: { tasks: GanttBoardTask[] 
       */}
       <div className="chart-key">
         <span>
-          <i style={{ background: toneChartColor.ok }} /> Tamamlandi
+          <i style={{ background: toneChartColor.ok }} /> Tamamlandı
         </span>
         <span>
           <i style={{ background: toneChartColor.warn }} /> Devam eden
@@ -164,7 +164,7 @@ export default function GanttTimelineChart({ tasks }: { tasks: GanttBoardTask[] 
                 x={today}
                 stroke="var(--accent)"
                 strokeDasharray="3 3"
-                label={{ value: "Bugun", position: "top", fill: "var(--accent)", fontSize: 11 }}
+                label={{ value: "Bugün", position: "top", fill: "var(--accent)", fontSize: 11 }}
               />
             ) : null}
             <Tooltip
@@ -177,7 +177,7 @@ export default function GanttTimelineChart({ tasks }: { tasks: GanttBoardTask[] 
 
       {undated.length > 0 ? (
         <p className="small muted">
-          Tarih girilmemis: {undated.map((task) => task.name).join(", ")}
+          Tarih girilmemiş: {undated.map((task) => task.name).join(", ")}
         </p>
       ) : null}
     </div>
@@ -240,7 +240,7 @@ function TimelineTooltip({ active, payload }: Partial<TooltipContentProps<number
         {formatDate(new Date(row.start))} — {formatDate(new Date(row.end))}
       </div>
       <div>
-        {row.days} gun · {taskStatusLabels[row.status]}
+        {row.days} gün · {taskStatusLabels[row.status]}
       </div>
     </div>
   );

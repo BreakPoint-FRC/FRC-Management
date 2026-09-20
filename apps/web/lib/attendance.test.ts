@@ -12,10 +12,10 @@ describe("buildRollCall", () => {
     // was not seeded.
     const rows = buildRollCall([], [
       { id: "a2", fullName: "Deniz Kaya" },
-      { id: "a1", fullName: "Ada Yilmaz" },
+      { id: "a1", fullName: "Ada Yılmaz" },
     ]);
 
-    expect(names(rows)).toEqual(["Ada Yilmaz", "Deniz Kaya"]);
+    expect(names(rows)).toEqual(["Ada Yılmaz", "Deniz Kaya"]);
     expect(rows.every((row) => row.status === "ABSENT")).toBe(true);
     expect(rows.every((row) => row.isFormerMember === false)).toBe(true);
   });
@@ -25,9 +25,9 @@ describe("buildRollCall", () => {
     // roster: a2 is on the roster here and is not in the stored list, and must
     // not appear just because they exist.
     const rows = buildRollCall(
-      [{ accountId: "a1", fullName: "Ada Yilmaz", status: "LATE", note: "Servis gecikti." }],
+      [{ accountId: "a1", fullName: "Ada Yılmaz", status: "LATE", note: "Servis gecikti." }],
       [
-        { id: "a1", fullName: "Ada Yilmaz" },
+        { id: "a1", fullName: "Ada Yılmaz" },
         { id: "a2", fullName: "Deniz Kaya" },
       ]
     );
@@ -35,7 +35,7 @@ describe("buildRollCall", () => {
     expect(rows).toEqual([
       {
         accountId: "a1",
-        fullName: "Ada Yilmaz",
+        fullName: "Ada Yılmaz",
         status: "LATE",
         note: "Servis gecikti.",
         isFormerMember: false,
@@ -49,14 +49,14 @@ describe("buildRollCall", () => {
     // A February meeting, saved again in March for an unrelated reason, must
     // not end up with an ABSENT entry for someone who joined in March.
     const rows = buildRollCall(
-      [{ accountId: "a1", fullName: "Ada Yilmaz", status: "PRESENT", note: null }],
+      [{ accountId: "a1", fullName: "Ada Yılmaz", status: "PRESENT", note: null }],
       [
-        { id: "a1", fullName: "Ada Yilmaz" },
-        { id: "a3", fullName: "Emre Sahin" },
+        { id: "a1", fullName: "Ada Yılmaz" },
+        { id: "a3", fullName: "Emre Şahin" },
       ]
     );
 
-    expect(names(rows)).toEqual(["Ada Yilmaz"]);
+    expect(names(rows)).toEqual(["Ada Yılmaz"]);
   });
 
   it("still adds every roster member the very first time a roll call is taken", () => {
@@ -65,12 +65,12 @@ describe("buildRollCall", () => {
     const rows = buildRollCall(
       [],
       [
-        { id: "a1", fullName: "Ada Yilmaz" },
-        { id: "a3", fullName: "Emre Sahin" },
+        { id: "a1", fullName: "Ada Yılmaz" },
+        { id: "a3", fullName: "Emre Şahin" },
       ]
     );
 
-    expect(names(rows)).toEqual(["Ada Yilmaz", "Emre Sahin"]);
+    expect(names(rows)).toEqual(["Ada Yılmaz", "Emre Şahin"]);
     expect(rows.every((row) => row.status === "ABSENT" && row.isFormerMember === false)).toBe(
       true
     );
@@ -83,13 +83,13 @@ describe("buildRollCall", () => {
     // the record that this person was in the room.
     const rows = buildRollCall(
       [
-        { accountId: "a1", fullName: "Ada Yilmaz", status: "PRESENT", note: null },
-        { accountId: "a9", fullName: "Kerem Ates", status: "PRESENT", note: "Ayrildi." },
+        { accountId: "a1", fullName: "Ada Yılmaz", status: "PRESENT", note: null },
+        { accountId: "a9", fullName: "Kerem Ateş", status: "PRESENT", note: "Ayrildi." },
       ],
-      [{ id: "a1", fullName: "Ada Yilmaz" }]
+      [{ id: "a1", fullName: "Ada Yılmaz" }]
     );
 
-    expect(names(rows)).toEqual(["Ada Yilmaz", "Kerem Ates"]);
+    expect(names(rows)).toEqual(["Ada Yılmaz", "Kerem Ateş"]);
     expect(rows[1]).toMatchObject({
       accountId: "a9",
       status: "PRESENT",
@@ -103,14 +103,14 @@ describe("buildRollCall", () => {
     // would flag the whole stored list as former members for one render, and a
     // save in that moment would be judged against a roster nobody has read.
     const rows = buildRollCall(
-      [{ accountId: "a1", fullName: "Ada Yilmaz", status: "PRESENT", note: null }],
+      [{ accountId: "a1", fullName: "Ada Yılmaz", status: "PRESENT", note: null }],
       null
     );
 
     expect(rows).toEqual([
       {
         accountId: "a1",
-        fullName: "Ada Yilmaz",
+        fullName: "Ada Yılmaz",
         status: "PRESENT",
         note: null,
         isFormerMember: false,
@@ -123,11 +123,11 @@ describe("buildRollCall", () => {
     // in practice -- but if an account is renamed the roster is the fresher of
     // the two, and a roll call is easier to read against the current names.
     const rows = buildRollCall(
-      [{ accountId: "a1", fullName: "Ada Yilmaz", status: "PRESENT", note: null }],
-      [{ id: "a1", fullName: "Ada Yilmaz-Demir" }]
+      [{ accountId: "a1", fullName: "Ada Yılmaz", status: "PRESENT", note: null }],
+      [{ id: "a1", fullName: "Ada Yılmaz-Demir" }]
     );
 
-    expect(names(rows)).toEqual(["Ada Yilmaz-Demir"]);
+    expect(names(rows)).toEqual(["Ada Yılmaz-Demir"]);
     expect(rows[0]?.status).toBe("PRESENT");
   });
 

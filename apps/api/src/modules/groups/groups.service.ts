@@ -112,7 +112,7 @@ export function createGroupsService(prisma: PrismaClient) {
   /** 404 unless the group exists and belongs to this team. */
   const assertInTeam = async (teamId: string, groupId: string) => {
     const found = await prisma.group.count({ where: { id: groupId, teamId } });
-    if (found === 0) throw new NotFoundError("Grup bulunamadi");
+    if (found === 0) throw new NotFoundError("Grup bulunamadı");
   };
 
   /**
@@ -131,7 +131,7 @@ export function createGroupsService(prisma: PrismaClient) {
     if (!groupId) return;
 
     if (wouldCreateGroupCycle(groupId, parentId, await treeOf(teamId))) {
-      throw new ConflictError("Bu ust grup secimi grup agacinda dongu olusturur");
+      throw new ConflictError("Bu üst grup seçimi grup ağacında döngü oluşturur");
     }
   };
 
@@ -508,7 +508,7 @@ export function createGroupsService(prisma: PrismaClient) {
         const found = await prisma.account.count({
           where: { id: { in: [...keep] }, teamId },
         });
-        if (found !== keep.size) throw new NotFoundError("Hesap bulunamadi");
+        if (found !== keep.size) throw new NotFoundError("Hesap bulunamadı");
       }
 
       const roleHolders = await prisma.accountRole.findMany({
@@ -520,7 +520,7 @@ export function createGroupsService(prisma: PrismaClient) {
       if (roleHolders.length > 0) {
         const names = roleHolders.map((entry) => entry.account.fullName).join(", ");
         throw new ConflictError(
-          `Bu grupta rolu olan uyeler cikarilamaz, once rollerini kaldirin: ${names}`
+          `Bu grupta rolü olan üyeler çıkarılamaz, önce rollerini kaldırın: ${names}`
         );
       }
 

@@ -101,7 +101,7 @@ async function loadContext(prisma: PrismaClient, accountId: string): Promise<Acc
     account.archivedAt !== null ||
     (account.team !== null && !account.team.isActive)
   ) {
-    throw new UnauthorizedError("Hesap aktif degil");
+    throw new UnauthorizedError("Hesap aktif değil");
   }
 
   const [groups, edges, groupTools] = await Promise.all([
@@ -239,14 +239,14 @@ export async function authorize(
   // admin. That is safe rather than a lockout: turning it back on is the TOOLS
   // tool, not this one.
   if (!tool || !tool.isActive) {
-    throw new ForbiddenError("Bu modul kullanimda degil");
+    throw new ForbiddenError("Bu modül kullanımda değil");
   }
 
   // A group from another team is not a permission problem, it is a record the
   // caller has no business knowing exists. 403 would confirm the id; 404 says
   // the same thing to a member of the right team asking about a deleted group.
   if (groupId && !context.groups.some((group) => group.id === groupId)) {
-    throw new NotFoundError("Grup bulunamadi");
+    throw new NotFoundError("Grup bulunamadı");
   }
 
   const teamWidePermissions = await permissionsFor(
@@ -262,14 +262,14 @@ export async function authorize(
   if (teamWidePermissions[flag]) return teamWidePermissions;
 
   if (!groupId) {
-    throw new ForbiddenError("Bu islem icin takim genelinde yetkiniz yok");
+    throw new ForbiddenError("Bu işlem için takım genelinde yetkiniz yok");
   }
 
   // Every role that reaches this group: the ones scoped over it or a group
   // above it, plus the in-group roles held by an active member of it.
   const roleIds = context.roleIdsByGroup.get(groupId);
   if (!roleIds || roleIds.size === 0) {
-    throw new ForbiddenError("Bu grup icin yetkiniz yok");
+    throw new ForbiddenError("Bu grup için yetkiniz yok");
   }
 
   // Why a Yazilim lead cannot open Finance even though they run a department:
@@ -277,7 +277,7 @@ export async function authorize(
   // is read. A team-wide role has already returned above; this gate is for
   // everyone whose authority comes from a group.
   if (!groupToolEnabled(context, groupId, tool.id)) {
-    throw new ForbiddenError("Bu modul bu grup icin kapali");
+    throw new ForbiddenError("Bu modül bu grup için kapalı");
   }
 
   const groupPermissions = await permissionsFor(
@@ -292,7 +292,7 @@ export async function authorize(
   const effective = mergePermissions([teamWidePermissions, groupPermissions]);
 
   if (!effective[flag]) {
-    throw new ForbiddenError("Bu islem icin yetkiniz yok");
+    throw new ForbiddenError("Bu işlem için yetkiniz yok");
   }
 
   return effective;

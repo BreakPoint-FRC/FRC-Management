@@ -89,7 +89,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
       id,
       await mayReadFinance(req.account.id)
     );
-    if (!organization) throw new NotFoundError("Firma bulunamadi");
+    if (!organization) throw new NotFoundError("Firma bulunamadı");
     return organization;
   });
 
@@ -150,7 +150,7 @@ export async function sponsorsRoutes(app: FastifyInstance) {
       id,
       await mayReadFinance(req.account.id)
     );
-    if (!sponsorship) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+    if (!sponsorship) throw new NotFoundError("Sponsorluk kaydı bulunamadı");
     return sponsorship;
   });
 

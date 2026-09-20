@@ -59,32 +59,32 @@ export const taskActivitySchema = z.object({
 // adding a status fails typecheck until it has a label.
 export const taskStatusLabels: Record<TaskStatus, string> = {
   BACKLOG: "Beklemede",
-  TODO: "Yapilacak",
+  TODO: "Yapılacak",
   IN_PROGRESS: "Devam ediyor",
   BLOCKED: "Engellendi",
-  IN_REVIEW: "Incelemede",
-  COMPLETED: "Tamamlandi",
-  CANCELLED: "Iptal edildi",
+  IN_REVIEW: "İncelemede",
+  COMPLETED: "Tamamlandı",
+  CANCELLED: "İptal edildi",
 };
 
 export const taskPriorityLabels: Record<TaskPriority, string> = {
-  LOW: "Dusuk",
+  LOW: "Düşük",
   MEDIUM: "Orta",
-  HIGH: "Yuksek",
+  HIGH: "Yüksek",
   CRITICAL: "Kritik",
 };
 
 export const taskActivityLabels: Record<TaskActivityAction, string> = {
-  CREATED: "Gorev olusturuldu",
-  UPDATED: "Gorev guncellendi",
-  STATUS_CHANGED: "Durum degisti",
-  PRIORITY_CHANGED: "Oncelik degisti",
+  CREATED: "Görev oluşturuldu",
+  UPDATED: "Görev güncellendi",
+  STATUS_CHANGED: "Durum değişti",
+  PRIORITY_CHANGED: "Öncelik değişti",
   ASSIGNEE_ADDED: "Sorumlu eklendi",
-  ASSIGNEE_REMOVED: "Sorumlu cikarildi",
-  START_DATE_CHANGED: "Baslangic tarihi degisti",
-  DUE_DATE_CHANGED: "Bitis tarihi degisti",
-  COMPLETED: "Gorev tamamlandi",
-  CANCELLED: "Gorev iptal edildi",
+  ASSIGNEE_REMOVED: "Sorumlu çıkarıldı",
+  START_DATE_CHANGED: "Başlangıç tarihi değişti",
+  DUE_DATE_CHANGED: "Bitiş tarihi değişti",
+  COMPLETED: "Görev tamamlandı",
+  CANCELLED: "Görev iptal edildi",
 };
 
 // A todo list is this table filtered, not a table of its own -- see the TODO

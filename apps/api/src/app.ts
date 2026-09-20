@@ -29,6 +29,7 @@ import { financeRoutes } from "./modules/finance/finance.routes";
 import { sponsorsRoutes } from "./modules/sponsors/sponsors.routes";
 import { ganttRoutes } from "./modules/gantt/gantt.routes";
 import { calendarRoutes } from "./modules/calendar/calendar.routes";
+import { dashboardRoutes } from "./modules/dashboard/dashboard.routes";
 
 // Prisma error codes we can turn into a meaningful status instead of a 500.
 const PRISMA_ERROR_STATUS: Record<string, { status: number; message: string }> = {
@@ -123,7 +124,17 @@ export interface BuildAppOptions {
 }
 
 export function buildApp(opts: BuildAppOptions = {}) {
-  const app = Fastify({ logger: true, trustProxy: trustProxyHops() });
+  const trustedProxyHops = trustProxyHops();
+  const app = Fastify({
+    logger: true,
+    // Fastify 5 no longer accepts a numeric hop count directly. Preserve the
+    // existing semantics explicitly: hop 0 is the socket peer, hop 1 is the
+    // proxy immediately in front of it, and so on.
+    trustProxy:
+      trustedProxyHops === 0
+        ? false
+        : (_address: string, hop: number) => hop < trustedProxyHops,
+  });
 
   if (opts.readinessDatabaseUrl && opts.readinessProbe) {
     throw new Error("Pass readinessDatabaseUrl or readinessProbe, not both");
@@ -176,11 +187,24 @@ export function buildApp(opts: BuildAppOptions = {}) {
 
     // Fastify's own client errors (bad JSON, unknown route, rate limit, ...)
     // are safe to surface.
-    if (error.statusCode && error.statusCode < 500) {
-      return reply.code(error.statusCode).send({
-        statusCode: error.statusCode,
-        error: STATUS_TEXT[error.statusCode] ?? "Error",
-        message: error.message,
+    const fastifyError =
+      typeof error === "object" &&
+      error !== null &&
+      "statusCode" in error &&
+      typeof (error as { statusCode?: unknown }).statusCode === "number"
+        ? (error as { statusCode: number; message?: unknown })
+        : null;
+    if (
+      fastifyError &&
+      Number.isInteger(fastifyError.statusCode) &&
+      fastifyError.statusCode >= 400 &&
+      fastifyError.statusCode < 500
+    ) {
+      return reply.code(fastifyError.statusCode).send({
+        statusCode: fastifyError.statusCode,
+        error: STATUS_TEXT[fastifyError.statusCode] ?? "Error",
+        message:
+          typeof fastifyError.message === "string" ? fastifyError.message : "Request failed",
       });
     }
 
@@ -251,6 +275,10 @@ export function buildApp(opts: BuildAppOptions = {}) {
   app.register(sponsorsRoutes, { prefix: "/sponsors" });
   app.register(ganttRoutes, { prefix: "/gantt" });
   app.register(calendarRoutes, { prefix: "/calendar" });
+
+  // One account's operational summary, shaped by the same permission rows
+  // every module above already reads -- see dashboard.service.ts.
+  app.register(dashboardRoutes, { prefix: "/dashboard" });
 
   return app;
 }

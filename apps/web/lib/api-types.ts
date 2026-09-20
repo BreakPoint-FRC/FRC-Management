@@ -42,6 +42,32 @@ export interface AccountRoleRow {
   groupName: string | null;
 }
 
+/** One row of a bulk-import CSV, as /accounts/bulk-import/preview and
+ *  /commit both report it -- commit sends the identical shape when it
+ *  refuses to write, so one type covers both. */
+export interface BulkImportRowResult {
+  line: number;
+  fullName: string;
+  email: string;
+  status: "ok" | "invalid" | "duplicate_in_file" | "duplicate_in_db";
+  issues: string[];
+}
+
+export interface BulkImportPreviewResult {
+  fileError: string | null;
+  rows: BulkImportRowResult[];
+  valid: boolean;
+}
+
+/** POST /accounts/bulk-import/commit. Discriminated on `committed`: the
+ *  false case is the same shape a preview sends, because refusing to write
+ *  a batch that no longer validates is an ordinary answer, not an error. */
+export type BulkImportCommitResult =
+  | ({ committed: true; batchId: string } & {
+      created: Array<{ id: string; email: string; fullName: string; temporaryPassword: string }>;
+    })
+  | ({ committed: false } & BulkImportPreviewResult);
+
 export interface AccountRow {
   id: string;
   teamId: string | null;
@@ -248,7 +274,7 @@ export interface TransactionRow {
   groupName: string | null;
   createdBy: { id: string; fullName: string };
   sponsorshipId: string | null;
-  /** Set only when this row came from "Finansa isle" on a sponsorship. */
+  /** Set only when this row came from "Finansa işle" on a sponsorship. */
   source: { sponsorshipId: string; organizationId: string; organizationName: string } | null;
 }
 
@@ -259,7 +285,7 @@ export interface FinanceSummaryRow {
 }
 
 /**
- * Set once a sponsorship has been booked as income via "Finansa isle".
+ * Set once a sponsorship has been booked as income via "Finansa işle".
  *
  * amount and transactionDate are null when the viewer has SPONSORS/read but
  * not team-wide FINANCE/read -- the conversion is visible, the money is not.
@@ -340,4 +366,87 @@ export interface CalendarRangeRow {
    * A season is a range rather than a day, which is why it is not an entry.
    */
   season: { id: string; name: string; startDate: string; endDate: string } | null;
+}
+
+interface DashboardTaskRow {
+  id: string;
+  name: string;
+  status: TaskStatus;
+  priority: TaskPriority;
+  dueDate: string | null;
+  groupName: string | null;
+}
+
+interface DashboardMeetingRow {
+  id: string;
+  title: string;
+  meetingDate: string;
+  groupName: string | null;
+}
+
+/**
+ * GET /dashboard. Scope tabs, not a role mode: `mine`/`group`/`team`/
+ * `management` are independent and can all be present at once for one
+ * account, exactly like the OR-merged permission model they are computed
+ * from -- a software captain who is also the team captain and a finance
+ * reader gets all three non-`mine` blocks together. Each is non-null only
+ * when the account's resolved grants actually qualify for it (see
+ * dashboard.service.ts's computeScopes); a plain member gets `mine` alone.
+ * `platform` is the one exclusive case: a platform account gets it and
+ * nothing else, because it belongs to no team.
+ */
+export interface DashboardRow {
+  scope: "platform" | "team";
+  platform: {
+    activeTeamCount: number;
+    archivedTeamCount: number;
+    recentTeams: Array<{ id: string; name: string; createdAt: string; setupStage: TeamSetupStage }>;
+  } | null;
+  mine: {
+    openTasks: DashboardTaskRow[];
+    overdueTasks: DashboardTaskRow[];
+    upcomingMeetings: DashboardMeetingRow[];
+    groups: Array<{ id: string; name: string }>;
+    roles: Array<{ roleName: string; groupName: string | null }>;
+  } | null;
+  group: Array<{
+    groupId: string;
+    groupName: string;
+    canReadTasks: boolean;
+    canReadMeetings: boolean;
+    openCount: number;
+    overdueCount: number;
+    unassignedCount: number;
+    completedThisWeekCount: number;
+    topTasks: DashboardTaskRow[];
+    upcomingMeeting: DashboardMeetingRow | null;
+  }> | null;
+  team: {
+    canReadTasks: boolean;
+    canReadCrossGroupTasks: boolean;
+    canReadSeasons: boolean;
+    canReadMeetings: boolean;
+    departments: Array<{
+      groupId: string;
+      groupName: string;
+      openCount: number;
+      overdueCount: number;
+      unassignedCount: number;
+    }>;
+    activeSeason: { id: string; name: string; endDate: string } | null;
+    seasonDaysRemaining: number | null;
+    upcomingMeeting: DashboardMeetingRow | null;
+    crossGroupOpenTaskCount: number;
+    crossGroupUnassignedTaskCount: number;
+  } | null;
+  management: {
+    canReadAccounts: boolean;
+    canReadSeasons: boolean;
+    activeAccountCount: number | null;
+    mustChangePasswordCount: number | null;
+    withoutRoleCount: number | null;
+    withoutGroupCount: number | null;
+    activeSeason: { id: string; name: string; startDate: string; endDate: string } | null;
+    setupIncomplete: boolean;
+  } | null;
 }

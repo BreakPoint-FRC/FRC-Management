@@ -26,24 +26,24 @@ export interface RoleTemplate {
 export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
   {
     key: "PRESIDENT",
-    name: "Baskan",
-    description: "Takimin tamamindan sorumlu.",
+    name: "Başkan",
+    description: "Takımın tamamından sorumlu.",
     placement: "TEAM_WIDE",
     above: ["TEAM_LEAD"],
     grants: { FINANCE: "rcud", SPONSORS: "rcud", ACCOUNTS: "rcu", GROUPS: "rcu", SEASONS: "rcu" },
   },
   {
     key: "VICE_PRESIDENT",
-    name: "Baskan Yardimcisi",
-    description: "Baskana vekalet eder.",
+    name: "Başkan Yardımcısı",
+    description: "Başkana vekalet eder.",
     placement: "TEAM_WIDE",
     above: ["TEAM_LEAD"],
     grants: { SPONSORS: "rcu", FINANCE: "r" },
   },
   {
     key: "TEAM_LEAD",
-    name: "Takim Lideri",
-    description: "Gunluk isleyisi yurutur.",
+    name: "Takım Lideri",
+    description: "Günlük işleyişi yürütür.",
     placement: "TEAM_WIDE",
     above: ["LEAD"],
     // SPONSORS: "r" + FINANCE: "c" so the captain can turn a closed
@@ -59,7 +59,7 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
     key: "MENTOR",
     name: "Mentor",
     description:
-      "Takimin tamamina rehberlik eder; calismalari ve sponsorlari gorur, finansa sponsorluk geliri isleyebilir.",
+      "Takımın tamamına rehberlik eder; çalışmaları ve sponsorları görür, finansa sponsorluk geliri işleyebilir.",
     // EXTERNAL rather than TEAM_WIDE: a mentor is attached to the team, not to
     // its structure, and holds no authority over any department.
     placement: "EXTERNAL",
@@ -85,7 +85,7 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
   {
     key: "LEAD",
     name: "Grup Lideri",
-    description: "Sorumlu oldugu gruplari ve altlarindaki alt gruplari yonetir.",
+    description: "Sorumlu olduğu grupları ve altlarındaki alt grupları yönetir.",
     // MANAGES_GROUP, so the wizard asks which groups when this one is created.
     placement: "MANAGES_GROUP",
     above: ["MEMBER"],
@@ -102,16 +102,16 @@ export const FRC_ROLE_TEMPLATE: RoleTemplate[] = [
   },
   {
     key: "MEMBER",
-    name: "Grup Uyesi",
-    description: "Kendi grubunda calisir.",
+    name: "Grup Üyesi",
+    description: "Kendi grubunda çalışır.",
     placement: "IN_GROUP",
     above: ["TEAM_MEMBER"],
     grants: { TASKS: "rcu", TODO: "rcu", MEETINGS: "r", GANTT: "r" },
   },
   {
     key: "TEAM_MEMBER",
-    name: "Takim Uyesi",
-    description: "Herkesin sahip oldugu taban rol.",
+    name: "Takım Üyesi",
+    description: "Herkesin sahip olduğu taban rol.",
     // The floor of the tree. A permission added here reaches every role above
     // it through RoleHierarchy, without a row per role.
     placement: "TEAM_WIDE",

@@ -80,7 +80,7 @@ export function createAuthService(prisma: PrismaClient) {
         account.archivedAt ||
         (account.team !== null && !account.team.isActive)
       ) {
-        throw new UnauthorizedError("E-posta veya sifre hatali");
+        throw new UnauthorizedError("E-posta veya şifre hatalı");
       }
 
       return { id: account.id, email: account.email, fullName: account.fullName };
@@ -100,18 +100,18 @@ export function createAuthService(prisma: PrismaClient) {
         select: { id: true, accountId: true, expiresAt: true, revokedAt: true },
       });
 
-      if (!stored) throw new UnauthorizedError("Oturum suresi doldu");
+      if (!stored) throw new UnauthorizedError("Oturum süresi doldu");
 
       if (stored.revokedAt) {
         await prisma.refreshToken.updateMany({
           where: { accountId: stored.accountId, revokedAt: null },
           data: { revokedAt: new Date() },
         });
-        throw new UnauthorizedError("Oturum guvenlik nedeniyle sonlandirildi");
+        throw new UnauthorizedError("Oturum güvenlik nedeniyle sonlandırıldı");
       }
 
       if (stored.expiresAt <= new Date()) {
-        throw new UnauthorizedError("Oturum suresi doldu");
+        throw new UnauthorizedError("Oturum süresi doldu");
       }
 
       const account = await prisma.account.findUnique({
@@ -132,7 +132,7 @@ export function createAuthService(prisma: PrismaClient) {
         account.archivedAt ||
         (account.team !== null && !account.team.isActive)
       ) {
-        throw new UnauthorizedError("Hesap aktif degil");
+        throw new UnauthorizedError("Hesap aktif değil");
       }
 
       // Revoking the old row and writing the new one in one transaction: a
@@ -175,7 +175,7 @@ export function createAuthService(prisma: PrismaClient) {
       });
 
       if (!account || !(await verifyPassword(account.passwordHash, input.currentPassword))) {
-        throw new UnauthorizedError("Mevcut sifre hatali");
+        throw new UnauthorizedError("Mevcut şifre hatalı");
       }
 
       // Every other session is revoked: changing a password is what someone
@@ -247,7 +247,7 @@ export function createAuthService(prisma: PrismaClient) {
         account.archivedAt !== null ||
         (account.team !== null && !account.team.isActive)
       ) {
-        throw new UnauthorizedError("Hesap aktif degil");
+        throw new UnauthorizedError("Hesap aktif değil");
       }
 
       // Depth comes from the RoleHierarchy edges, computed here rather than

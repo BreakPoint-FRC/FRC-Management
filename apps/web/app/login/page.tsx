@@ -37,7 +37,7 @@ export default function LoginPage() {
       // the same one for an unknown address and a wrong password. Showing it
       // verbatim is both more useful and no more revealing.
       setError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
       );
     } finally {
       setSubmitting(false);
@@ -47,12 +47,16 @@ export default function LoginPage() {
   return (
     <main className="login-shell">
       <form className="card login-card stack-sm" onSubmit={onSubmit}>
-        <div className="brand" style={{ marginBottom: 8 }}>
-          <span className="brand-dot" />
-          <span>BreakPoint</span>
+        <div className="login-brand">
+          <span className="brand-dot login-brand-dot" aria-hidden="true" />
+          <span className="brand-copy">
+            <strong>BreakPoint</strong>
+            <small>FRC Management</small>
+          </span>
         </div>
 
-        <h1 style={{ fontSize: 16 }}>Giris yap</h1>
+        <h1 className="login-heading">Giriş yap</h1>
+        <p className="login-intro">Takımının görevlerini, toplantılarını ve sezon planını tek yerden yönet.</p>
 
         {error ? <ErrorBox error={error} /> : null}
 
@@ -69,7 +73,7 @@ export default function LoginPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="password">Sifre</label>
+          <label htmlFor="password">Şifre</label>
           <input
             id="password"
             type="password"
@@ -81,15 +85,20 @@ export default function LoginPage() {
         </div>
 
         <button className="btn btn-primary" type="submit" disabled={submitting}>
-          {submitting ? "Giriliyor..." : "Giris yap"}
+          {submitting ? "Giriliyor..." : "Giriş yap"}
         </button>
 
-        <p className="small muted" style={{ margin: 0 }}>
-          Ornek veri sifresi: <code>Breakpoint2026!</code> — sistem yoneticisi icin{" "}
-          <code>ada@breakpoint.test</code>, alt takim lideri icin{" "}
-          <code>kerem@breakpoint.test</code>, uye icin <code>emre@breakpoint.test</code>.
-          Ucu de farkli seyler gorur.
-        </p>
+        {/* Dead code in a production build -- Next replaces process.env.NODE_ENV
+            statically and strips the branch, so the seed password never ships.
+            Only useful to someone running the seeded dev database locally. */}
+        {process.env.NODE_ENV !== "production" ? (
+          <p className="small muted" style={{ margin: 0 }}>
+            Örnek veri şifresi: <code>Breakpoint2026!</code> — sistem yöneticisi için{" "}
+            <code>ada@breakpoint.test</code>, alt takım lideri için{" "}
+            <code>kerem@breakpoint.test</code>, üye için <code>emre@breakpoint.test</code>.
+            Üçü de farklı şeyler görür.
+          </p>
+        ) : null}
       </form>
     </main>
   );

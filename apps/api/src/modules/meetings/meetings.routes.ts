@@ -51,7 +51,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
     action: "read" | "update" | "delete"
   ) => {
     const meeting = await service.groupOf(requireTeam(account), meetingId);
-    if (!meeting) throw new NotFoundError("Toplanti bulunamadi");
+    if (!meeting) throw new NotFoundError("Toplantı bulunamadı");
 
     await authorize(app.prisma, {
       accountId: account.id,
@@ -80,7 +80,7 @@ export async function meetingsRoutes(app: FastifyInstance) {
     await authorizeExisting(req.account, id, "read");
 
     const meeting = await service.getById(requireTeam(req.account), id);
-    if (!meeting) throw new NotFoundError("Toplanti bulunamadi");
+    if (!meeting) throw new NotFoundError("Toplantı bulunamadı");
     return meeting;
   });
 

@@ -6,9 +6,9 @@ import {
 } from "@breakpoint/types";
 
 const organizationFields = z.object({
-  name: z.string().min(1, "Firma adi gerekli").max(160),
-  website: z.string().url("Gecerli bir adres girin").max(300).nullish(),
-  email: z.string().email("Gecerli bir e-posta adresi girin").max(160).nullish(),
+  name: z.string().min(1, "Firma adı gerekli").max(160),
+  website: z.string().url("Geçerli bir adres girin").max(300).nullish(),
+  email: z.string().email("Geçerli bir e-posta adresi girin").max(160).nullish(),
   phone: z.string().max(40).nullish(),
   notes: z.string().max(2000).nullish(),
 });

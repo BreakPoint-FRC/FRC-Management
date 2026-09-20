@@ -47,7 +47,7 @@ export function NamingStep({ team }: { team: { name: string } }) {
 
   return (
     <FormPanel
-      title="Takim ve sezon"
+      title="Takım ve sezon"
       error={mutation.error}
       saving={mutation.saving}
       submitLabel={saved ? "Kaydedildi — tekrar kaydet" : "Kaydet"}
@@ -55,22 +55,22 @@ export function NamingStep({ team }: { team: { name: string } }) {
       onCancel={() => setSaved(false)}
     >
       <TextField
-        label="Takim adi"
+        label="Takım adı"
         value={name}
         required
         onChange={setName}
         error={issueFor(mutation.error, "name")}
       />
       <TextField
-        label="Sezon adi"
+        label="Sezon adı"
         value={seasonName}
         required
-        hint="Gorevler, toplantilar ve finans kayitlari bu sezona baglanir."
+        hint="Görevler, toplantılar ve finans kayıtları bu sezona bağlanır."
         onChange={setSeasonName}
         error={issueFor(mutation.error, "seasonName")}
       />
       <TextField
-        label="Sezon baslangici"
+        label="Sezon başlangıcı"
         type="date"
         value={seasonStartDate}
         required
@@ -78,7 +78,7 @@ export function NamingStep({ team }: { team: { name: string } }) {
         error={issueFor(mutation.error, "seasonStartDate")}
       />
       <TextField
-        label="Sezon bitisi"
+        label="Sezon bitişi"
         type="date"
         value={seasonEndDate}
         required

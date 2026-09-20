@@ -125,7 +125,7 @@ export async function bootstrapSystemAdmin(
       },
       create: {
         email: input.email,
-        fullName: "Sistem Yoneticisi",
+        fullName: "Sistem Yöneticisi",
         passwordHash,
         teamId: null,
         mustChangePassword: false,

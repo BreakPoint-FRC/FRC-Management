@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Archive, Pencil, Plus, Upload } from "lucide-react";
 import { formatAccountRoles, type Paginated } from "@breakpoint/types";
 
 import { useAuth } from "@/components/auth/auth-provider";
@@ -12,31 +13,59 @@ import {
   PageHeader,
   RowActions,
 } from "@/components/ui";
-import { CheckboxField, FormPanel, TextField } from "@/components/ui/form";
+import { CheckboxField, FormPanel, SelectField, TextField } from "@/components/ui/form";
+import { BulkImportPanel } from "@/components/accounts/bulk-import-panel";
 import {
   RoleAssignmentRows,
   roleAssignmentPayload,
   type RoleAssignmentDraft,
 } from "@/components/accounts/role-assignment-rows";
 import { useApi } from "@/hooks/use-api";
+import { useDebouncedValue } from "@/hooks/use-debounced-value";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { AccountRow, GroupTreeRow, RoleRow } from "@/lib/api-types";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 
+const PAGE_SIZE = 25;
+
 type Panel =
   | { kind: "closed" }
   | { kind: "form"; account: AccountRow | null }
   | { kind: "roles"; account: AccountRow }
-  | { kind: "password"; account: AccountRow };
+  | { kind: "password"; account: AccountRow }
+  | { kind: "bulk" };
 
 export default function AccountsPage() {
   const { groups: myGroups = [], permissions, account: me } = useAuth();
-  const [groupId, setGroupId] = useState("");
+  // "Tüm takım" (no groupId) is an unscoped request, and authorize() only lets
+  // a TEAM_WIDE/EXTERNAL role make one -- a department lead with no team-wide
+  // ACCOUNTS grant would 403 on load with that as the default. Their own group
+  // memberships are exactly the departments they run, so the first one is a
+  // default that actually resolves; team-wide readers keep "Tüm takım" since
+  // it works for them.
+  const mayReadAccountsGlobally = can(permissions, "ACCOUNTS", "read");
+  const [groupId, setGroupId] = useState(() =>
+    mayReadAccountsGlobally ? "" : (myGroups[0]?.id ?? "")
+  );
+  const [searchDraft, setSearchDraft] = useState("");
+  const search = useDebouncedValue(searchDraft);
+  const [includeArchived, setIncludeArchived] = useState(false);
+  const [page, setPage] = useState(1);
+  const [filtersOpen, setFiltersOpen] = useState(false);
 
-  const query = groupId ? `?groupId=${encodeURIComponent(groupId)}&pageSize=100` : "?pageSize=100";
-  const accounts = useApi<Paginated<AccountRow>>(`/accounts${query}`);
+  // Any filter changing invalidates the current page -- staying on page 3 of
+  // a search that now has one page of results would just show "no results"
+  // instead of the results that exist.
+  useEffect(() => setPage(1), [groupId, search, includeArchived]);
+
+  const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE) });
+  if (groupId) params.set("groupId", groupId);
+  if (search) params.set("search", search);
+  if (includeArchived) params.set("includeArchived", "true");
+
+  const accounts = useApi<Paginated<AccountRow>>(`/accounts?${params.toString()}`);
   const mutation = useMutation();
 
   const [panel, setPanel] = useState<Panel>({ kind: "closed" });
@@ -44,16 +73,17 @@ export default function AccountsPage() {
   const [roleDrafts, setRoleDrafts] = useState<RoleAssignmentDraft[]>([]);
   const [password, setPassword] = useState("");
 
-  // Assigning a role needs every role and every group, not just the ones the
-  // signed-in account belongs to.
-  const needsCatalog = panel.kind === "roles";
-  const roles = useApi<Paginated<RoleRow>>(needsCatalog ? "/roles?pageSize=100" : null);
-  const allGroups = useApi<GroupTreeRow[]>(needsCatalog ? "/groups/tree" : null);
-
   const mayCreate = can(permissions, "ACCOUNTS", "create");
   const mayUpdate = can(permissions, "ACCOUNTS", "update");
   const mayDelete = can(permissions, "ACCOUNTS", "delete");
   const mayAssignRoles = can(permissions, "ROLES", "update");
+
+  // Assigning a role needs every role and group, not just the caller's own.
+  // An ACCOUNTS/create-only operator may still bulk-create blank accounts;
+  // do not make that valid path fetch catalog endpoints they cannot read.
+  const needsCatalog = panel.kind === "roles" || (panel.kind === "bulk" && mayAssignRoles);
+  const roles = useApi<Paginated<RoleRow>>(needsCatalog ? "/roles?pageSize=100" : null);
+  const allGroups = useApi<GroupTreeRow[]>(needsCatalog ? "/groups/tree" : null);
 
   useEffect(() => {
     if (panel.kind !== "roles") return;
@@ -88,22 +118,24 @@ export default function AccountsPage() {
   async function submitForm() {
     if (panel.kind !== "form") return;
 
-    const ok = await mutation.run(() =>
-      panel.account
-        ? // Password is not here: changing it is its own endpoint, never a field
-          // that rides along with a name change.
-          apiClient.patch(`/accounts/${panel.account.id}`, {
-            email: draft.email,
-            fullName: draft.fullName,
-            isActive: draft.isActive,
-          })
-        : apiClient.post("/accounts", {
-            email: draft.email,
-            fullName: draft.fullName,
-            password: draft.password,
-            isActive: draft.isActive,
-            roles: [],
-          })
+    const ok = await mutation.run(
+      () =>
+        panel.account
+          ? // Password is not here: changing it is its own endpoint, never a field
+            // that rides along with a name change.
+            apiClient.patch(`/accounts/${panel.account.id}`, {
+              email: draft.email,
+              fullName: draft.fullName,
+              isActive: draft.isActive,
+            })
+          : apiClient.post("/accounts", {
+              email: draft.email,
+              fullName: draft.fullName,
+              password: draft.password,
+              isActive: draft.isActive,
+              roles: [],
+            }),
+      panel.account ? "Hesap güncellendi." : "Hesap oluşturuldu."
     );
     if (ok) {
       close();
@@ -114,10 +146,12 @@ export default function AccountsPage() {
   async function submitRoles() {
     if (panel.kind !== "roles") return;
 
-    const ok = await mutation.run(() =>
-      apiClient.put(`/accounts/${panel.account.id}/roles`, {
-        roles: roleAssignmentPayload(roleDrafts),
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.put(`/accounts/${panel.account.id}/roles`, {
+          roles: roleAssignmentPayload(roleDrafts),
+        }),
+      "Roller güncellendi."
     );
     if (ok) {
       close();
@@ -128,36 +162,83 @@ export default function AccountsPage() {
   async function submitPassword() {
     if (panel.kind !== "password") return;
 
-    if (await mutation.run(() => apiClient.post(`/accounts/${panel.account.id}/password`, { password }))) {
+    if (
+      await mutation.run(
+        () => apiClient.post(`/accounts/${panel.account.id}/password`, { password }),
+        "Şifre değiştirildi."
+      )
+    ) {
       close();
     }
   }
 
   async function archive(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/accounts/${id}`))) accounts.reload();
+    if (await mutation.run(() => apiClient.delete(`/accounts/${id}`), "Hesap arşivlendi.")) {
+      accounts.reload();
+    }
   }
+
+  const activeFilterCount = [groupId, search, includeArchived ? "1" : ""].filter(Boolean).length;
 
   return (
     <>
       <PageHeader title="Hesaplar">
-        <select value={groupId} onChange={(event) => setGroupId(event.target.value)}>
-          <option value="">Tum takim</option>
-          {myGroups.map((group) => (
-            <option key={group.id} value={group.id}>
-              {group.name}
-            </option>
-          ))}
-        </select>
         {mayCreate ? (
-          <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
-            + Yeni hesap
-          </button>
+          <>
+            <button className="btn btn-primary btn-sm" type="button" onClick={openCreate}>
+              <Plus size={14} aria-hidden="true" />
+              Yeni hesap
+            </button>
+            <button
+              className="btn btn-sm"
+              type="button"
+              onClick={() => {
+                setPanel({ kind: "bulk" });
+                mutation.reset();
+              }}
+            >
+              <Upload size={14} aria-hidden="true" />
+              CSV ile toplu ekle
+            </button>
+          </>
         ) : null}
       </PageHeader>
 
+      <div className="filter-bar">
+        <button
+          type="button"
+          className="btn btn-sm filters-toggle"
+          aria-expanded={filtersOpen}
+          onClick={() => setFiltersOpen((value) => !value)}
+        >
+          Filtreler{activeFilterCount > 0 ? ` (${activeFilterCount})` : ""}
+        </button>
+
+        <div className={`filter-panel${filtersOpen ? " is-open" : ""}`}>
+          <TextField
+            label="Ara"
+            value={searchDraft}
+            placeholder="Ad veya e-posta"
+            onChange={setSearchDraft}
+          />
+          <SelectField
+            label="Grup"
+            value={groupId}
+            placeholder="Tüm takım"
+            options={myGroups.map((group) => ({ value: group.id, label: group.name }))}
+            onChange={setGroupId}
+          />
+          <CheckboxField
+            label="Arşivlenenleri göster"
+            checked={includeArchived}
+            onChange={setIncludeArchived}
+          />
+        </div>
+      </div>
+
       {panel.kind === "form" ? (
         <FormPanel
-          title={panel.account ? "Hesabi duzenle" : "Yeni hesap"}
+          title={panel.account ? "Hesabı düzenle" : "Yeni hesap"}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submitForm}
@@ -180,7 +261,7 @@ export default function AccountsPage() {
           />
           {!panel.account ? (
             <TextField
-              label="Sifre"
+              label="Şifre"
               type="password"
               value={draft.password}
               required
@@ -190,7 +271,7 @@ export default function AccountsPage() {
             />
           ) : null}
           <CheckboxField
-            label="Aktif (giris yapabilir)"
+            label="Aktif (giriş yapabilir)"
             checked={draft.isActive}
             onChange={(isActive) => setDraft({ ...draft, isActive })}
           />
@@ -199,19 +280,19 @@ export default function AccountsPage() {
 
       {panel.kind === "password" ? (
         <FormPanel
-          title={`${panel.account.fullName} — sifre sifirla`}
+          title={`${panel.account.fullName} — şifre sıfırla`}
           error={mutation.error}
           saving={mutation.saving}
-          submitLabel="Sifreyi degistir"
+          submitLabel="Şifreyi değiştir"
           onSubmit={submitPassword}
           onCancel={close}
         >
           <TextField
-            label="Yeni sifre"
+            label="Yeni şifre"
             type="password"
             value={password}
             required
-            hint="Bu hesabin acik tum oturumlari kapatilir."
+            hint="Bu hesabın açık tüm oturumları kapatılır."
             onChange={setPassword}
             error={issueFor(mutation.error, "password")}
           />
@@ -227,8 +308,8 @@ export default function AccountsPage() {
           onCancel={close}
         >
           <p className="small muted" style={{ margin: 0 }}>
-            Liste butunuyle degistirilir. Grup ici bir rol atandiginda kisi o gruba da uye
-            yapilir — aksi halde kendi departmaninda reddedilirdi.
+            Liste bütünüyle değiştirilir. Grup içi bir rol atandığında kişi o gruba da üye
+            yapılır — aksi halde kendi departmanında reddedilirdi.
           </p>
 
           <AsyncSection state={roles}>
@@ -249,89 +330,144 @@ export default function AccountsPage() {
         </FormPanel>
       ) : null}
 
+      {panel.kind === "bulk" ? (
+        mayAssignRoles ? (
+          <AsyncSection state={roles}>
+            {(roleList) => (
+              <AsyncSection state={allGroups}>
+                {(groupTree) => (
+                  <BulkImportPanel
+                    roles={roleList.items}
+                    groups={groupTree}
+                    onImported={() => accounts.reload()}
+                  />
+                )}
+              </AsyncSection>
+            )}
+          </AsyncSection>
+        ) : (
+          <BulkImportPanel
+            roles={[]}
+            groups={[]}
+            allowRoleAssignment={false}
+            onImported={() => accounts.reload()}
+          />
+        )
+      ) : null}
+
       {panel.kind === "closed" && mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={accounts}>
+      <AsyncSection state={accounts} empty="Bu filtrelerle hesap yok." isEmpty={(data) => data.items.length === 0}>
         {(data) => (
-          <div className="table-wrap">
-            <table className="table">
-              <thead>
-                <tr>
-                  <th>Ad</th>
-                  <th>E-posta</th>
-                  <th>Roller</th>
-                  <th>Gruplar</th>
-                  <th>Durum</th>
-                  <th />
-                </tr>
-              </thead>
-              <tbody>
-                {data.items.map((account) => (
-                  <tr key={account.id}>
-                    <td>{account.fullName}</td>
-                    <td className="muted">{account.email}</td>
-                    <td>{account.roles.length ? formatAccountRoles(account.roles) : "—"}</td>
-                    <td>
-                      <div className="row">
-                        {account.groups.map((group) => (
-                          <Badge key={group.id}>{group.name}</Badge>
-                        ))}
-                      </div>
-                    </td>
-                    <td>
-                      {account.archivedAt ? (
-                        <Badge tone="off">Arsivlendi</Badge>
-                      ) : account.isActive ? (
-                        <Badge tone="ok">Aktif</Badge>
-                      ) : (
-                        <Badge tone="warn">Pasif</Badge>
-                      )}
-                    </td>
-                    <td>
-                      <RowActions>
-                        {mayAssignRoles ? (
-                          <button
-                            className="btn btn-sm"
-                            type="button"
-                            onClick={() => setPanel({ kind: "roles", account })}
-                          >
-                            Roller
-                          </button>
-                        ) : null}
-                        {mayUpdate ? (
-                          <button
-                            className="btn btn-sm"
-                            type="button"
-                            onClick={() => {
-                              setPassword("");
-                              setPanel({ kind: "password", account });
-                              mutation.reset();
-                            }}
-                          >
-                            Sifre
-                          </button>
-                        ) : null}
-                        {mayUpdate ? (
-                          <button className="btn btn-sm" type="button" onClick={() => openEdit(account)}>
-                            Duzenle
-                          </button>
-                        ) : null}
-                        {/* Archiving yourself would revoke your own session
-                            mid-request; the server refuses it too. */}
-                        {mayDelete && account.id !== me?.id && !account.archivedAt ? (
-                          <ConfirmButton
-                            question={`${account.fullName} arsivlensin mi?`}
-                            onConfirm={() => void archive(account.id)}
-                          >
-                            Arsivle
-                          </ConfirmButton>
-                        ) : null}
-                      </RowActions>
-                    </td>
+          <div className="stack-sm">
+            <div className="table-wrap table-responsive-wrap">
+              <table className="table table-responsive">
+                <thead>
+                  <tr>
+                    <th>Ad</th>
+                    <th>E-posta</th>
+                    <th>Roller</th>
+                    <th>Gruplar</th>
+                    <th>Durum</th>
+                    <th />
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {data.items.map((account) => (
+                    <tr key={account.id}>
+                      <td data-label="Ad">{account.fullName}</td>
+                      <td className="muted" data-label="E-posta">
+                        {account.email}
+                      </td>
+                      <td data-label="Roller">
+                        {account.roles.length ? formatAccountRoles(account.roles) : "—"}
+                      </td>
+                      <td data-label="Gruplar">
+                        <div className="row">
+                          {account.groups.map((group) => (
+                            <Badge key={group.id}>{group.name}</Badge>
+                          ))}
+                        </div>
+                      </td>
+                      <td data-label="Durum">
+                        {account.archivedAt ? (
+                          <Badge tone="off">Arşivlendi</Badge>
+                        ) : account.isActive ? (
+                          <Badge tone="ok">Aktif</Badge>
+                        ) : (
+                          <Badge tone="warn">Pasif</Badge>
+                        )}
+                      </td>
+                      <td>
+                        <RowActions>
+                          {mayAssignRoles ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              onClick={() => setPanel({ kind: "roles", account })}
+                            >
+                              Roller
+                            </button>
+                          ) : null}
+                          {mayUpdate ? (
+                            <button
+                              className="btn btn-sm"
+                              type="button"
+                              onClick={() => {
+                                setPassword("");
+                                setPanel({ kind: "password", account });
+                                mutation.reset();
+                              }}
+                            >
+                              Şifre
+                            </button>
+                          ) : null}
+                          {mayUpdate ? (
+                            <button className="btn btn-sm" type="button" onClick={() => openEdit(account)}>
+                              <Pencil size={14} aria-hidden="true" />
+                              Düzenle
+                            </button>
+                          ) : null}
+                          {/* Archiving yourself would revoke your own session
+                              mid-request; the server refuses it too. */}
+                          {mayDelete && account.id !== me?.id && !account.archivedAt ? (
+                            <ConfirmButton
+                              question={`${account.fullName} arşivlensin mi?`}
+                              onConfirm={() => archive(account.id)}
+                            >
+                              <Archive size={14} aria-hidden="true" />
+                              Arşivle
+                            </ConfirmButton>
+                          ) : null}
+                        </RowActions>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+
+            <div className="row pagination" aria-label="Sayfalama">
+              <button
+                className="btn btn-sm"
+                type="button"
+                disabled={data.page <= 1 || accounts.loading}
+                onClick={() => setPage((value) => value - 1)}
+              >
+                Önceki
+              </button>
+              <span className="small muted">
+                Sayfa {data.page} / {Math.max(data.totalPages, 1)} · {data.total} hesap
+              </span>
+              <button
+                className="btn btn-sm"
+                type="button"
+                disabled={data.page >= data.totalPages || accounts.loading}
+                onClick={() => setPage((value) => value + 1)}
+              >
+                Sonraki
+              </button>
+            </div>
           </div>
         )}
       </AsyncSection>

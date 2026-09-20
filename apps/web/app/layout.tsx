@@ -2,7 +2,9 @@ import type { ReactNode } from "react";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 import { AuthProvider } from "@/components/auth/auth-provider";
+import { ToastProvider } from "@/components/toast";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 
 export const metadata: Metadata = {
   title: "BreakPoint",
@@ -39,11 +41,22 @@ export default function RootLayout({
   return (
     // lang="tr": every string a user reads here is Turkish, including the
     // messages the API sends back.
-    <html lang="tr">
+    // The inline script below may add data-theme before React hydrates. That
+    // deliberate pre-paint mutation prevents a light/dark flash, but the
+    // server cannot know localStorage and therefore cannot render the same
+    // attribute. Limit hydration suppression to this root element only.
+    <html lang="tr" suppressHydrationWarning>
+      <head>
+        {/* Runs before first paint so a stored light/dark preference never
+            flashes the OS default first. See lib/theme.ts. */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body>
-        <UnsavedChangesProvider>
-          <AuthProvider>{children}</AuthProvider>
-        </UnsavedChangesProvider>
+        <ToastProvider>
+          <UnsavedChangesProvider>
+            <AuthProvider>{children}</AuthProvider>
+          </UnsavedChangesProvider>
+        </ToastProvider>
       </body>
     </html>
   );

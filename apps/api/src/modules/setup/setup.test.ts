@@ -88,7 +88,7 @@ describe("advancing the wizard", () => {
   it("refuses to advance past the end", async () => {
     const { prisma } = stubPrisma({ stage: "DONE", groups: 1, seasons: 1 });
 
-    await expect(createSetupService(prisma).advance(TEAM)).rejects.toThrow(/zaten tamamlandi/);
+    await expect(createSetupService(prisma).advance(TEAM)).rejects.toThrow(/zaten tamamlandı/);
   });
 });
 

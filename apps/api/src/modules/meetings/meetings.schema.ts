@@ -5,7 +5,7 @@ const meetingFields = z.object({
   seasonId: z.string().min(1).optional(),
   // Null is a team-wide meeting; the roadmap has both those and per-group ones.
   groupId: z.string().min(1).nullish(),
-  title: z.string().min(1, "Toplanti basligi gerekli").max(200),
+  title: z.string().min(1, "Toplantı başlığı gerekli").max(200),
   // The report body. Markdown, stored as written -- rendering is the web app's
   // problem, not the database's.
   body: z.string().max(50000).nullish(),
@@ -34,7 +34,7 @@ export const recordAttendanceSchema = z.object({
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [index, "accountId"],
-            message: "Bu kisi yoklamada zaten var",
+            message: "Bu kişi yoklamada zaten var",
           });
         }
         seen.add(entry.accountId);

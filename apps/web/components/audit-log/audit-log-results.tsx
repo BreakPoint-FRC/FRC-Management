@@ -33,7 +33,7 @@ export function AuditLogResults({
   if (resultKind === "forbidden") {
     return (
       <div className="error-box" role="alert">
-        <strong>Denetim kaydini goruntuleme yetkiniz yok.</strong>
+        <strong>Denetim kaydını görüntüleme yetkiniz yok.</strong>
       </div>
     );
   }
@@ -44,7 +44,7 @@ export function AuditLogResults({
     </div>
   );
   if (resultKind === "empty") {
-    return <Empty>Filtrelere uygun denetim kaydi yok.</Empty>;
+    return <Empty>Filtrelere uygun denetim kaydı yok.</Empty>;
   }
 
   const data = state.data as Paginated<AuditLogRow>;
@@ -102,10 +102,10 @@ export function AuditLogResults({
           disabled={data.page <= 1 || state.loading}
           onClick={() => onPageChange(data.page - 1)}
         >
-          Onceki
+          Önceki
         </button>
         <span className="small muted">
-          Sayfa {data.page} / {data.totalPages} · {data.total} kayit
+          Sayfa {data.page} / {data.totalPages} · {data.total} kayıt
         </span>
         <button
           className="btn btn-sm"

@@ -53,7 +53,7 @@ export async function seasonsRoutes(app: FastifyInstance) {
     await authorize(app.prisma, { accountId: req.account.id, tool: "SEASONS", action: "read" });
 
     const season = await service.getById(requireTeam(req.account), id);
-    if (!season) throw new NotFoundError("Sezon bulunamadi");
+    if (!season) throw new NotFoundError("Sezon bulunamadı");
     return season;
   });
 

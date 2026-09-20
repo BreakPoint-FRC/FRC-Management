@@ -84,7 +84,7 @@ describe("the group tree", () => {
     const service = createGroupsService(stubPrisma());
 
     await expect(service.update(TEAM, "teknik", { parentId: "tasarim" })).rejects.toThrow(
-      /dongu/
+      /döngü/
     );
   });
 

@@ -17,7 +17,7 @@ import { issueFor } from "@/lib/issues";
  * does not exist, and a module cannot be assigned to one either -- which is why
  * this is the one step with a hard prerequisite of its own (at least one group).
  *
- * Depth is not limited. Teknik > Mekanik > Tasarim is three levels and there is
+ * Depth is not limited. Teknik > Mekanik > Tasarım is three levels and there is
  * no reason a team could not want a fourth.
  */
 export function GroupsStep() {
@@ -66,7 +66,7 @@ export function GroupsStep() {
       <AsyncSection state={groups}>
         {(tree) =>
           tree.length === 0 ? (
-            <p className="small muted">Henuz grup yok. Asagidan ilk grubu ekleyin.</p>
+            <p className="small muted">Henüz grup yok. Aşağıdan ilk grubu ekleyin.</p>
           ) : (
             <ul className="tree" style={{ borderLeft: "none", paddingLeft: 0 }}>
               {flattenGroupTree(tree).map(({ group, depth }) => (
@@ -87,7 +87,7 @@ export function GroupsStep() {
                             .join(", ");
                           return `Silinecek: ${going}. Devam edilsin mi?`;
                         })()}
-                        onConfirm={() => void remove(group.id)}
+                        onConfirm={() => remove(group.id)}
                       >
                         Sil
                       </ConfirmButton>
@@ -103,7 +103,7 @@ export function GroupsStep() {
       <div className="row">
         <input
           value={name}
-          placeholder="Grup adi (orn. Teknik)"
+          placeholder="Grup adı (örn. Teknik)"
           onChange={(event) => setName(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter") {
@@ -138,8 +138,8 @@ export function GroupsStep() {
         {parentId
           ? `Yeni grup, ${
               (groups.data ?? []).find((group) => group.id === parentId)?.name ?? "?"
-            } altina eklenecek.`
-          : "Yeni grup ana grup olarak eklenecek. Alt grup icin once ust grubu secin."}
+            } altına eklenecek.`
+          : "Yeni grup ana grup olarak eklenecek. Alt grup için önce üst grubu seçin."}
       </p>
       {issueFor(mutation.error, "name") ? (
         <span className="field-error">{issueFor(mutation.error, "name")}</span>

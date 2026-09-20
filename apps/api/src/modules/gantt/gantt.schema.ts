@@ -4,7 +4,7 @@ import { paginationSchema } from "@breakpoint/types";
 const boardFields = z.object({
   seasonId: z.string().min(1).optional(),
   groupId: z.string().min(1).nullish(),
-  name: z.string().min(1, "Pano adi gerekli").max(120),
+  name: z.string().min(1, "Pano adı gerekli").max(120),
 });
 
 export const createBoardSchema = boardFields;
@@ -21,7 +21,7 @@ export const replaceBoardTasksSchema = z.object({
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [index],
-          message: "Bu gorev panoda zaten var",
+          message: "Bu görev panoda zaten var",
         });
       }
       seen.add(id);

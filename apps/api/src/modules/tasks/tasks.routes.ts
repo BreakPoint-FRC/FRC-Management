@@ -48,7 +48,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     action: "read" | "update" | "delete"
   ) => {
     const task = await service.groupOf(requireTeam(account), taskId);
-    if (!task) throw new NotFoundError("Gorev bulunamadi");
+    if (!task) throw new NotFoundError("Görev bulunamadı");
 
     await authorize(app.prisma, {
       accountId: account.id,
@@ -80,7 +80,7 @@ export async function tasksRoutes(app: FastifyInstance) {
     await authorizeExisting(req.account, id, "read");
 
     const task = await service.getById(requireTeam(req.account), id);
-    if (!task) throw new NotFoundError("Gorev bulunamadi");
+    if (!task) throw new NotFoundError("Görev bulunamadı");
     return task;
   });
 
@@ -88,7 +88,7 @@ export async function tasksRoutes(app: FastifyInstance) {
   app.get("/:id/activity", async (req) => {
     const { id } = req.params as { id: string };
     const task = await service.groupOf(requireTeam(req.account), id);
-    if (!task) throw new NotFoundError("Gorev bulunamadi");
+    if (!task) throw new NotFoundError("Görev bulunamadı");
 
     // The history is its own tool: seeing a task is not the same permission as
     // seeing who changed what about it.

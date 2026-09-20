@@ -55,9 +55,9 @@ export function ToolStateGrid({
   return (
     <div className="stack-sm">
       <p className="small muted" style={{ margin: 0 }}>
-        Her modul ucte bir durumda olur. <strong>Devral</strong> cevabi ust gruptan alir;
-        <strong> Acik</strong> ve <strong>Kapali</strong> burada karara baglar ve alt gruplara
-        aynen iner. Hicbir ust grupta karar yoksa modul kapalidir ve istek, rol hic okunmadan
+        Her modül üçte bir durumda olur. <strong>Devral</strong> cevabı üst gruptan alır;
+        <strong> Açık</strong> ve <strong>Kapalı</strong> burada karara bağlar ve alt gruplara
+        aynen iner. Hiçbir üst grupta karar yoksa modül kapalıdır ve istek, rol hiç okunmadan
         reddedilir.
       </p>
       <div className="grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))" }}>
@@ -66,8 +66,8 @@ export function ToolStateGrid({
           const stated = value.get(tool);
           const inherited =
             resolved && resolved.inheritedFrom
-              ? `Devralinan: ${resolved.isEnabled ? "acik" : "kapali"}`
-              : "Ust grupta karar yok: kapali";
+              ? `Devralınan: ${resolved.isEnabled ? "açık" : "kapalı"}`
+              : "Üst grupta karar yok: kapalı";
 
           return (
             <SelectField
@@ -77,8 +77,8 @@ export function ToolStateGrid({
               hint={stated === undefined ? inherited : undefined}
               options={[
                 { value: "", label: "Devral" },
-                { value: "on", label: "Acik" },
-                { value: "off", label: "Kapali" },
+                { value: "on", label: "Açık" },
+                { value: "off", label: "Kapalı" },
               ]}
               onChange={(next) => {
                 const updated = new Map(value);

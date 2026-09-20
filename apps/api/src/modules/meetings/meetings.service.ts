@@ -107,7 +107,7 @@ export function createMeetingsService(prisma: PrismaClient) {
 
     update: async (teamId: string, id: string, input: UpdateMeetingInput) => {
       const existing = await prisma.meeting.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Toplanti bulunamadi");
+      if (existing === 0) throw new NotFoundError("Toplantı bulunamadı");
 
       const meeting = await prisma.meeting.update({
         where: { id },
@@ -158,13 +158,13 @@ export function createMeetingsService(prisma: PrismaClient) {
       const keep = input.attendance.map((entry) => entry.accountId);
 
       const meetingExists = await prisma.meeting.count({ where: { id: meetingId, teamId } });
-      if (meetingExists === 0) throw new NotFoundError("Toplanti bulunamadi");
+      if (meetingExists === 0) throw new NotFoundError("Toplantı bulunamadı");
 
       // Attendees have to be this team's own people. Without this an id from
       // another team would land on the roll call and read as a member.
       if (keep.length > 0) {
         const found = await prisma.account.count({ where: { id: { in: keep }, teamId } });
-        if (found !== new Set(keep).size) throw new NotFoundError("Hesap bulunamadi");
+        if (found !== new Set(keep).size) throw new NotFoundError("Hesap bulunamadı");
       }
 
       const meeting = await prisma.$transaction(async (tx) => {
@@ -201,7 +201,7 @@ export function createMeetingsService(prisma: PrismaClient) {
      */
     remove: async (teamId: string, id: string) => {
       const existing = await prisma.meeting.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Toplanti bulunamadi");
+      if (existing === 0) throw new NotFoundError("Toplantı bulunamadı");
       await prisma.meeting.delete({ where: { id } });
     },
   };

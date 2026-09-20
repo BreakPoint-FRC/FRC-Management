@@ -185,7 +185,7 @@ export function createTasksService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { status: true, priority: true, startDate: true, dueDate: true, name: true },
       });
-      if (!before) throw new NotFoundError("Gorev bulunamadi");
+      if (!before) throw new NotFoundError("Görev bulunamadı");
 
       const task = await prisma.$transaction(async (tx) => {
         const updated = await tx.task.update({
@@ -258,7 +258,7 @@ export function createTasksService(prisma: PrismaClient) {
       actorId: string
     ) => {
       const owned = await prisma.task.count({ where: { id, teamId } });
-      if (owned === 0) throw new NotFoundError("Gorev bulunamadi");
+      if (owned === 0) throw new NotFoundError("Görev bulunamadı");
 
       // Assignees have to be this team's own people. Without this an id from
       // another team would be assigned work and appear on the task.
@@ -315,7 +315,7 @@ export function createTasksService(prisma: PrismaClient) {
      */
     remove: async (teamId: string, id: string) => {
       const existing = await prisma.task.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Gorev bulunamadi");
+      if (existing === 0) throw new NotFoundError("Görev bulunamadı");
       await prisma.task.delete({ where: { id } });
     },
   };

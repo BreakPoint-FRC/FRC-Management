@@ -19,7 +19,7 @@ import type { GroupRow } from "@/lib/api-types";
  * The third step: which modules each department uses.
  *
  * One group at a time, because the answer is per group and pretending otherwise
- * would hide the inheritance. Picking Tasarim shows what it actually gets --
+ * would hide the inheritance. Picking Tasarım shows what it actually gets --
  * including what it is borrowing from Teknik two levels up -- which is the only
  * way the tree is legible while it is being built.
  *
@@ -53,7 +53,7 @@ export function ToolsStep() {
     <div className="stack-sm">
       {mutation.error ? <ErrorBox error={mutation.error} /> : null}
 
-      <AsyncSection state={groups} empty="Once grup olusturun.">
+      <AsyncSection state={groups} empty="Önce grup oluşturun." isEmpty={(data) => data.items.length === 0}>
         {(data) => {
           const selected = data.items.find((group) => group.id === selectedId) ?? null;
 
@@ -61,7 +61,7 @@ export function ToolsStep() {
             <div className="stack-sm">
               <div>
                 <p className="card-title" style={{ marginBottom: 4 }}>
-                  Grup sec
+                  Grup seç
                 </p>
                 <div className="stack-sm">
                   {flattenGroupTree(data.items).map(({ group, depth }) => (
@@ -74,7 +74,7 @@ export function ToolsStep() {
                     >
                       {group.name}
                       <span className="small muted" style={{ marginLeft: 8 }}>
-                        {group.effectiveTools.filter((tool) => tool.isEnabled).length} modul
+                        {group.effectiveTools.filter((tool) => tool.isEnabled).length} modül
                       </span>
                     </button>
                   ))}
@@ -104,8 +104,8 @@ export function ToolsStep() {
                 </div>
               ) : (
                 <p className="small muted">
-                  Modullerini belirlemek icin yukaridan bir grup secin. Bir gruba verilen modul
-                  altindaki tum alt gruplara iner.
+                  Modüllerini belirlemek için yukarıdan bir grup seçin. Bir gruba verilen modül
+                  altındaki tüm alt gruplara iner.
                 </p>
               )}
             </div>

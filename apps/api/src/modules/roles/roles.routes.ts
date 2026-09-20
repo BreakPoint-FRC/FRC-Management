@@ -62,7 +62,7 @@ export async function rolesRoutes(app: FastifyInstance) {
     await authorize(app.prisma, { accountId: req.account.id, tool: "ROLES", action: "read" });
 
     const role = await service.getById(requireTeam(req.account), id);
-    if (!role) throw new NotFoundError("Rol bulunamadi");
+    if (!role) throw new NotFoundError("Rol bulunamadı");
     return role;
   });
 

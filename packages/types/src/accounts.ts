@@ -5,9 +5,9 @@ import { accountRoleSchema } from "./roles";
 // Minimum that is worth enforcing rather than theatre. Length does more for a
 // password than a character-class rule, which mostly teaches people to end
 // everything with "1!".
-export const passwordSchema = z.string().min(10, "Sifre en az 10 karakter olmali").max(200);
+export const passwordSchema = z.string().min(10, "Şifre en az 10 karakter olmalı").max(200);
 
-export const emailSchema = z.string().email("Gecerli bir e-posta adresi girin");
+export const emailSchema = z.string().email("Geçerli bir e-posta adresi girin");
 
 export const accountSchema = z.object({
   id: z.string(),

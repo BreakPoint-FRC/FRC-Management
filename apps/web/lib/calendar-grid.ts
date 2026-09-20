@@ -13,7 +13,7 @@ const WEEKS = 6;
 const DAYS_IN_WEEK = 7;
 
 /** Monday first, the way a Turkish calendar is read. */
-export const WEEKDAY_LABELS = ["Pzt", "Sal", "Car", "Per", "Cum", "Cmt", "Paz"] as const;
+export const WEEKDAY_LABELS = ["Pzt", "Sal", "Çar", "Per", "Cum", "Cmt", "Paz"] as const;
 
 /** Midnight local time on the first of the month `date` falls in. */
 export function startOfMonth(date: Date): Date {

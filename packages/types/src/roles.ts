@@ -17,19 +17,19 @@ export const rolePlacementSchema = z.enum([
 export type RolePlacement = z.infer<typeof rolePlacementSchema>;
 
 export const ROLE_PLACEMENT_LABELS: Record<RolePlacement, string> = {
-  IN_GROUP: "Grup icinde",
-  MANAGES_GROUP: "Grubu yonetir",
-  ABOVE_GROUPS: "Gruplarin ustunde",
-  TEAM_WIDE: "Takim geneli",
-  EXTERNAL: "Takim disi",
+  IN_GROUP: "Grup içinde",
+  MANAGES_GROUP: "Grubu yönetir",
+  ABOVE_GROUPS: "Grupların üstünde",
+  TEAM_WIDE: "Takım geneli",
+  EXTERNAL: "Takım dışı",
 };
 
 export const ROLE_PLACEMENT_DESCRIPTIONS: Record<RolePlacement, string> = {
-  IN_GROUP: "Grubun uyesi olarak calisir. Yetkisi atandigi gruptadir.",
-  MANAGES_GROUP: "Secili gruplari ve altlarindaki tum alt gruplari yonetir.",
-  ABOVE_GROUPS: "Secili gruplarin ustundedir; gunluk isini yurutmeden yetkilidir.",
-  TEAM_WIDE: "Takimin tamami. Her grup ve gruba bagli olmayan kayitlar dahil.",
-  EXTERNAL: "Takima bagli ama grup yapisinin disinda: mentor, sponsor, mezun.",
+  IN_GROUP: "Grubun üyesi olarak çalışır. Yetkisi atandığı gruptadır.",
+  MANAGES_GROUP: "Seçili grupları ve altlarındaki tüm alt grupları yönetir.",
+  ABOVE_GROUPS: "Seçili grupların üstündedir; günlük işini yürütmeden yetkilidir.",
+  TEAM_WIDE: "Takımın tamamı. Her grup ve gruba bağlı olmayan kayıtlar dahil.",
+  EXTERNAL: "Takıma bağlı ama grup yapısının dışında: mentor, sponsor, mezun.",
 };
 
 /**
@@ -121,13 +121,13 @@ export const roleHierarchyEdgeSchema = z
     childRoleId: z.string().min(1),
   })
   .refine((edge) => edge.parentRoleId !== edge.childRoleId, {
-    message: "Bir rol kendisine bagli olamaz",
+    message: "Bir rol kendisine bağlı olamaz",
     path: ["childRoleId"],
   });
 
 /**
  * The one place a role and its group are collapsed into a label:
- * "Yazilim Lead", "Baskan", "Business Uye".
+ * "Yazılım Lead", "Başkan", "Business Üye".
  *
  * The names come from the database rather than a map in this file, because a
  * team can add a department or rename a role without a deploy.
@@ -159,7 +159,7 @@ export function primaryAccountRole<T extends { depth: number; groupName?: string
   return sortAccountRoles(roles)[0];
 }
 
-/** "Baskan Yardimcisi, Mechanical Lead" */
+/** "Başkan Yardımcısı, Mechanical Lead" */
 export function formatAccountRoles(
   roles: readonly { roleName: string; groupName?: string | null; depth: number }[]
 ): string {

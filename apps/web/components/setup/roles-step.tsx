@@ -115,8 +115,8 @@ export function RolesStep() {
               {own.length === 0 ? (
                 <div className="card stack-sm">
                   <p className="small muted" style={{ margin: 0 }}>
-                    Henuz rol tanimlanmamis. FRC takimlarinin cogunda ise yarayan bir baslangic
-                    seti uygulayabilir, sonra istediginiz gibi degistirebilirsiniz.
+                    Henüz rol tanımlanmamış. FRC takımlarının çoğunda işe yarayan bir başlangıç
+                    seti uygulayabilir, sonra istediğiniz gibi değiştirebilirsiniz.
                   </p>
                   <div className="row">
                     <button
@@ -125,10 +125,10 @@ export function RolesStep() {
                       disabled={mutation.saving}
                       onClick={() => void applyTemplate()}
                     >
-                      Varsayilan rol setini uygula
+                      Varsayılan rol setini uygula
                     </button>
                     <button className="btn btn-sm" type="button" onClick={openCreate}>
-                      Sifirdan basla
+                      Sıfırdan başla
                     </button>
                   </div>
                 </div>
@@ -142,7 +142,7 @@ export function RolesStep() {
                         <th>Rol</th>
                         <th>Konum</th>
                         <th>Kapsam</th>
-                        <th>Ustunde oldugu roller</th>
+                        <th>Üstünde olduğu roller</th>
                         <th />
                       </tr>
                     </thead>
@@ -173,7 +173,7 @@ export function RolesStep() {
                                       type="button"
                                       onClick={() => void unlink(role.id, child.id)}
                                     >
-                                      Kaldir
+                                      Kaldır
                                     </button>
                                   </span>
                                 ))
@@ -207,7 +207,7 @@ export function RolesStep() {
                                   disabled={!childPick[role.id]}
                                   onClick={() => void link(role.id)}
                                 >
-                                  Bagla
+                                  Bağla
                                 </button>
                               </span>
                             </div>
@@ -219,13 +219,13 @@ export function RolesStep() {
                                 type="button"
                                 onClick={() => openEdit(role)}
                               >
-                                Duzenle
+                                Düzenle
                               </button>
                               {/* Same weight as deleting a group, and the
                                   hierarchy edges below it go with it. */}
                               <ConfirmButton
-                                question={`${role.name} rolu silinsin mi?`}
-                                onConfirm={() => void remove(role.id)}
+                                question={`${role.name} rolü silinsin mi?`}
+                                onConfirm={() => remove(role.id)}
                               >
                                 Sil
                               </ConfirmButton>
@@ -255,12 +255,12 @@ export function RolesStep() {
                   return (
                     <div className="card">
                       <p className="card-title" style={{ marginTop: 0 }}>
-                        Bagliliklar
+                        Bağlılıklar
                       </p>
                       <p className="small muted" style={{ marginTop: 0 }}>
-                        Bir rol, altindaki her rolun yetkilerini devralir. Baglilik zincir
-                        halinde okunur: 1 rolu 2ye, 2 rolu 3e bagliysa 1 rolu 3e de baglidir.
-                        Asagidaki liste dolayli baglari da gosterir.
+                        Bir rol, altındaki her rolün yetkilerini devralır. Bağlılık zincir
+                        halinde okunur: 1 rolü 2&apos;ye, 2 rolü 3&apos;e bağlıysa 1 rolü 3&apos;e de bağlıdır.
+                        Aşağıdaki liste dolaylı bağları da gösterir.
                       </p>
                       <ul style={{ margin: 0, paddingLeft: 18 }}>
                         {rows.map((entry) => (
@@ -277,7 +277,7 @@ export function RolesStep() {
 
               {formOpen ? (
                 <FormPanel
-                  title={editing ? `${editing.key} — duzenle` : "Yeni rol"}
+                  title={editing ? `${editing.key} — düzenle` : "Yeni rol"}
                   error={mutation.error}
                   saving={mutation.saving}
                   onSubmit={submit}

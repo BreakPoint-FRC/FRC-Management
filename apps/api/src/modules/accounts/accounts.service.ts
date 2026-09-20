@@ -1,5 +1,8 @@
-import type { Prisma, PrismaClient } from "@breakpoint/db";
+import { randomBytes } from "node:crypto";
+
+import { Prisma, type PrismaClient } from "@breakpoint/db";
 import {
+  generateTemporaryPassword,
   placementUsesAssignmentGroup,
   roleDepths,
   type AccountRoleInput,
@@ -8,13 +11,15 @@ import {
 
 import { ConflictError, NotFoundError } from "../../lib/http-errors";
 import { auditValuesEqual, writeAuditLog } from "../../lib/audit-log";
+import { parseAccountsCsv } from "../../lib/csv";
 import { hashPassword } from "../../lib/password";
 import { paginated, toPrismaPage } from "../../lib/pagination";
-import type {
-  CreateAccountInput,
-  ListAccountsQuery,
-  ReplaceRolesInput,
-  UpdateAccountInput,
+import {
+  bulkImportRowSchema,
+  type CreateAccountInput,
+  type ListAccountsQuery,
+  type ReplaceRolesInput,
+  type UpdateAccountInput,
 } from "./accounts.schema";
 
 // Roles are always read with the names needed to render them, so no caller has
@@ -47,6 +52,32 @@ const accountSelect = {
 } satisfies Prisma.AccountSelect;
 
 type AccountRow = Prisma.AccountGetPayload<{ select: typeof accountSelect }>;
+
+// Argon2 is intentionally memory-hard. Starting 250 hashes at once would turn
+// that protection into a multi-gigabyte burst inside the API process. Four
+// workers keep the CPU busy without letting one authorized import starve the
+// rest of the server.
+const PASSWORD_HASH_CONCURRENCY = 4;
+
+async function mapWithConcurrency<T, R>(
+  values: readonly T[],
+  concurrency: number,
+  mapper: (value: T, index: number) => Promise<R>
+): Promise<R[]> {
+  const results = new Array<R>(values.length);
+  let cursor = 0;
+
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, values.length) }, async () => {
+      while (cursor < values.length) {
+        const index = cursor++;
+        results[index] = await mapper(values[index]!, index);
+      }
+    })
+  );
+
+  return results;
+}
 
 function auditRoles(roles: readonly AccountRoleInput[]): Prisma.InputJsonValue {
   return roles
@@ -126,20 +157,20 @@ export function createAccountsService(prisma: PrismaClient) {
     ];
     if (groupIds.length > 0) {
       const found = await prisma.group.count({ where: { id: { in: groupIds }, teamId } });
-      if (found !== groupIds.length) throw new NotFoundError("Grup bulunamadi");
+      if (found !== groupIds.length) throw new NotFoundError("Grup bulunamadı");
     }
 
     for (const entry of roles) {
       const role = byId.get(entry.roleId);
-      if (!role) throw new NotFoundError("Rol bulunamadi");
+      if (!role) throw new NotFoundError("Rol bulunamadı");
 
       const placement = role.placement as RolePlacement;
       if (placementUsesAssignmentGroup(placement) && !entry.groupId) {
-        throw new ConflictError(`${role.name} rolu bir grup icinde atanmali`);
+        throw new ConflictError(`${role.name} rolü bir grup içinde atanmalı`);
       }
       if (!placementUsesAssignmentGroup(placement) && entry.groupId) {
         throw new ConflictError(
-          `${role.name} rolu kapsamini kendisi tasir, ayrica bir gruba atanamaz`
+          `${role.name} rolü kapsamını kendisi taşır, ayrıca bir gruba atanamaz`
         );
       }
     }
@@ -163,7 +194,7 @@ export function createAccountsService(prisma: PrismaClient) {
     });
     if (remaining === 0) {
       throw new ConflictError(
-        "Takimin son yoneticisi kaldirilamaz, once baska bir takim yoneticisi atayin"
+        "Takımın son yöneticisi kaldırılamaz, önce başka bir takım yöneticisi atayın"
       );
     }
   };
@@ -216,6 +247,83 @@ export function createAccountsService(prisma: PrismaClient) {
         })
       )
     );
+  };
+
+  /**
+   * Checks a CSV against every rule bulk import enforces, without writing
+   * anything.
+   *
+   * Shared by preview and commit -- commit calls this again itself right
+   * before it writes, rather than trusting whatever a client says an earlier
+   * preview found, so a stale or forged "this was already validated" can
+   * never skip a check.
+   */
+  const validateBulkImport = async (csv: string) => {
+    const parsed = parseAccountsCsv(csv);
+    if (parsed.error) {
+      return { fileError: parsed.error, rows: [], valid: false };
+    }
+
+    const rows = parsed.rows.map((row) => {
+      const checked = bulkImportRowSchema.safeParse({ fullName: row.fullName, email: row.email });
+      if (!checked.success) {
+        return {
+          line: row.line,
+          fullName: row.fullName,
+          email: row.email,
+          status: "invalid" as const,
+          issues: checked.error.issues.map((issue) => issue.message),
+        };
+      }
+      return {
+        line: row.line,
+        fullName: checked.data.fullName,
+        email: checked.data.email,
+        status: "ok" as const,
+        issues: [] as string[],
+      };
+    });
+
+    // A format-valid email repeated in the file is unusable for every row
+    // that shares it -- there is no principled way to say which one the
+    // address "really" belongs to, so all of them come back for a fix.
+    const emailCounts = new Map<string, number>();
+    for (const row of rows) {
+      if (row.status === "ok") emailCounts.set(row.email, (emailCounts.get(row.email) ?? 0) + 1);
+    }
+    for (const row of rows) {
+      if (row.status === "ok" && (emailCounts.get(row.email) ?? 0) > 1) {
+        Object.assign(row, {
+          status: "duplicate_in_file" as const,
+          issues: ["Bu e-posta dosyada birden fazla kez geçiyor"],
+        });
+      }
+    }
+
+    // Email is unique across the whole platform, not just this team -- see
+    // Account.email in schema.prisma and createAdmin in teams.service.ts.
+    const candidates = [...new Set(rows.filter((row) => row.status === "ok").map((row) => row.email))];
+    if (candidates.length > 0) {
+      const existing = await prisma.account.findMany({
+        where: { email: { in: candidates } },
+        select: { email: true },
+      });
+      const taken = new Set(existing.map((account) => account.email));
+      for (const row of rows) {
+        if (row.status === "ok" && taken.has(row.email)) {
+          Object.assign(row, {
+            status: "duplicate_in_db" as const,
+            issues: ["Bu e-posta zaten kullanılıyor"],
+          });
+        }
+      }
+    }
+
+    return {
+      fileError: null as string | null,
+      rows,
+      valid: rows.length > 0 && rows.every((row) => row.status === "ok"),
+    };
   };
 
   return {
@@ -308,12 +416,155 @@ export function createAccountsService(prisma: PrismaClient) {
       return (await serializeMany([created]))[0];
     },
 
+    previewBulkImport: (csv: string) => validateBulkImport(csv),
+
+    /**
+     * The atomic half of bulk import: every row or none.
+     *
+     * Re-validates from the raw CSV rather than accepting a client's word that
+     * a prior preview passed -- a stale preview, a forged one, or simply
+     * someone else taking one of these emails in the meantime all show up the
+     * same way here, as a fresh `validateBulkImport` that no longer says ok.
+     * When that happens nothing is written; the caller gets the same shape
+     * preview already sends, so the form can show exactly what changed.
+     *
+     * Password hashing happens before the transaction opens: argon2id is
+     * deliberately slow, and holding a transaction open for the length of two
+     * hundred hashes would starve the connection pool for work the write
+     * itself does not need.
+     */
+    commitBulkImport: async (
+      teamId: string,
+      csv: string,
+      roles: readonly AccountRoleInput[],
+      assignedById: string
+    ) => {
+      const validation = await validateBulkImport(csv);
+      if (!validation.valid) {
+        return { committed: false as const, ...validation };
+      }
+
+      // Same gate POST /accounts and PUT /:id/roles apply -- see
+      // assertAssignable's own comment for why this cannot be skipped.
+      await assertAssignable(teamId, roles);
+
+      const batchId = randomBytes(9).toString("base64url");
+      const passwords = validation.rows.map(() => generateTemporaryPassword(randomBytes));
+      const passwordHashes = await mapWithConcurrency(
+        passwords,
+        PASSWORD_HASH_CONCURRENCY,
+        (password) => hashPassword(password)
+      );
+
+      try {
+        const created = await prisma.$transaction(
+          async (tx) => {
+            // One more look, as close to the write as it gets: a concurrent
+            // import could have taken one of these emails since
+            // validateBulkImport ran a moment ago. Finding one here throws
+            // and rolls the whole batch back -- see the catch below.
+            const emails = validation.rows.map((row) => row.email);
+            const collided = await tx.account.findMany({
+              where: { email: { in: emails } },
+              select: { email: true },
+            });
+            if (collided.length > 0) {
+              throw new ConflictError(
+                `${collided.map((account) => account.email).join(", ")} artık kullanılıyor`
+              );
+            }
+
+            // Prisma/Postgres can return the generated ids for a bulk insert.
+            // Doing one INSERT per account (and then one per role, membership
+            // and audit row) made a 250-person import hundreds of round trips
+            // inside one transaction. The four writes below keep the same
+            // all-or-nothing boundary with a constant number of queries.
+            const accounts = await tx.account.createManyAndReturn({
+              data: validation.rows.map((row, index) => ({
+                teamId,
+                email: row.email,
+                fullName: row.fullName,
+                passwordHash: passwordHashes[index]!,
+                mustChangePassword: true,
+              })),
+              select: { id: true, email: true, fullName: true },
+            });
+            const accountByEmail = new Map(accounts.map((account) => [account.email, account]));
+
+            if (roles.length > 0) {
+              await tx.accountRole.createMany({
+                data: accounts.flatMap((account) =>
+                  roles.map((role) => ({
+                    accountId: account.id,
+                    roleId: role.roleId,
+                    groupId: role.groupId ?? null,
+                    assignedById,
+                  }))
+                ),
+              });
+            }
+
+            const membershipGroupIds = [
+              ...new Set(roles.map((role) => role.groupId).filter((id): id is string => !!id)),
+            ];
+            if (membershipGroupIds.length > 0) {
+              await tx.groupMembership.createMany({
+                data: accounts.flatMap((account) =>
+                  membershipGroupIds.map((groupId) => ({ accountId: account.id, groupId }))
+                ),
+              });
+            }
+
+            const roleSnapshot = auditRoles(roles);
+            await tx.auditLog.createMany({
+              data: accounts.map((account) => ({
+                teamId,
+                actorId: assignedById,
+                entityType: "ACCOUNT",
+                entityId: account.id,
+                action: "ACCOUNT_CREATED",
+                // batchId ties every row together while every account keeps a
+                // separate, searchable audit entry. Passwords never enter it.
+                newValue: {
+                  email: account.email,
+                  fullName: account.fullName,
+                  roles: roleSnapshot,
+                  batchId,
+                },
+              })),
+            });
+
+            return validation.rows.map((row, index) => {
+              const account = accountByEmail.get(row.email);
+              if (!account) throw new Error("Bulk insert did not return a created account");
+              return {
+                id: account.id,
+                email: account.email,
+                fullName: account.fullName,
+                temporaryPassword: passwords[index]!,
+              };
+            });
+          },
+          { timeout: 15_000, maxWait: 10_000 }
+        );
+
+        return { committed: true as const, batchId, created };
+      } catch (cause) {
+        const raceLostHere =
+          cause instanceof ConflictError ||
+          (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002");
+        if (!raceLostHere) throw cause;
+
+        return { committed: false as const, ...(await validateBulkImport(csv)) };
+      }
+    },
+
     update: async (teamId: string, id: string, input: UpdateAccountInput) => {
       const existing = await prisma.account.findFirst({
         where: { id, teamId },
         select: { id: true },
       });
-      if (!existing) throw new NotFoundError("Hesap bulunamadi");
+      if (!existing) throw new NotFoundError("Hesap bulunamadı");
 
       // Suspending the last team admin locks the team out exactly as archiving
       // it would, so it is refused the same way.
@@ -341,7 +592,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
 
       // Losing the role is what matters, not gaining it: demoting the last team
       // admin is the same lockout as archiving them.
@@ -397,7 +648,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
       if (await isTeamAdmin(teamId, id)) await assertNotLastAdmin(teamId, id);
 
       await prisma.$transaction([
@@ -424,7 +675,7 @@ export function createAccountsService(prisma: PrismaClient) {
         where: { id, teamId },
         select: { id: true },
       });
-      if (!account) throw new NotFoundError("Hesap bulunamadi");
+      if (!account) throw new NotFoundError("Hesap bulunamadı");
 
       await prisma.$transaction([
         prisma.account.update({

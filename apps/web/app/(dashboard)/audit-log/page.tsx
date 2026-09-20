@@ -36,11 +36,11 @@ export default function AuditLogPage() {
 
   return (
     <>
-      <PageHeader title="Denetim kaydi" />
+      <PageHeader title="Denetim kaydı" />
 
       <form className="card audit-log-filters" onSubmit={applyFilters}>
         <div className="field">
-          <label htmlFor="audit-entity-type">Kayit turu</label>
+          <label htmlFor="audit-entity-type">Kayıt türü</label>
           <select
             id="audit-entity-type"
             value={draft.entityType}
@@ -51,7 +51,7 @@ export default function AuditLogPage() {
               }))
             }
           >
-            <option value="">Tum turler</option>
+            <option value="">Tüm türler</option>
             {AUDIT_ENTITY_TYPES.map((entityType) => (
               <option key={entityType} value={entityType}>
                 {AUDIT_ENTITY_TYPE_LABELS[entityType]}
@@ -61,7 +61,7 @@ export default function AuditLogPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="audit-from">Baslangic</label>
+          <label htmlFor="audit-from">Başlangıç</label>
           <input
             id="audit-from"
             type="date"
@@ -74,7 +74,7 @@ export default function AuditLogPage() {
         </div>
 
         <div className="field">
-          <label htmlFor="audit-to">Bitis</label>
+          <label htmlFor="audit-to">Bitiş</label>
           <input
             id="audit-to"
             type="date"

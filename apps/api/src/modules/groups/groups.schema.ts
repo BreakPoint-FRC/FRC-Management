@@ -2,10 +2,10 @@ import { z } from "zod";
 import { paginationSchema, toolKeySchema } from "@breakpoint/types";
 
 const groupFields = z.object({
-  name: z.string().min(1, "Grup adi gerekli").max(80),
+  name: z.string().min(1, "Grup adı gerekli").max(80),
   description: z.string().max(500).nullish(),
   // null makes it a root department. Anything else nests it, to any depth --
-  // Teknik > Mekanik > Tasarim. The service checks that the parent is in the
+  // Teknik > Mekanik > Tasarım. The service checks that the parent is in the
   // same team and that the move does not close a loop.
   parentId: z.string().min(1).nullish(),
   isActive: z.boolean().default(true),
@@ -34,7 +34,7 @@ export const replaceGroupToolsSchema = z.object({
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             path: [index, "tool"],
-            message: "Bu modul zaten listede var",
+            message: "Bu modül zaten listede var",
           });
         }
         seen.add(entry.tool);
@@ -50,7 +50,7 @@ export const replaceMembersSchema = z.object({
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           path: [index],
-          message: "Bu uye zaten listede var",
+          message: "Bu üye zaten listede var",
         });
       }
       seen.add(id);

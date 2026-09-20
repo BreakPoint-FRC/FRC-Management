@@ -70,7 +70,7 @@ export default function SetupPage() {
 
   return (
     <main className="content" style={{ maxWidth: 1100, margin: "0 auto" }}>
-      <PageHeader title="Takim kurulumu" />
+      <PageHeader title="Takım kurulumu" />
 
       <AsyncSection state={state}>
         {(setup) => (

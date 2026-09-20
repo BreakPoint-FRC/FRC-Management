@@ -45,7 +45,7 @@ export async function financeRoutes(app: FastifyInstance) {
     action: "read" | "update" | "delete"
   ) => {
     const transaction = await service.groupOf(requireTeam(account), transactionId);
-    if (!transaction) throw new NotFoundError("Kayit bulunamadi");
+    if (!transaction) throw new NotFoundError("Kayıt bulunamadı");
 
     await authorize(app.prisma, {
       accountId: account.id,
@@ -100,7 +100,7 @@ export async function financeRoutes(app: FastifyInstance) {
     await authorizeExisting(req.account, id, "read");
 
     const transaction = await service.getById(requireTeam(req.account), id);
-    if (!transaction) throw new NotFoundError("Kayit bulunamadi");
+    if (!transaction) throw new NotFoundError("Kayıt bulunamadı");
     return transaction;
   });
 

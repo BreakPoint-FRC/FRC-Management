@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import { attendanceStatusLabels, type AttendanceStatus } from "@breakpoint/types";
 
@@ -14,7 +15,8 @@ import { can } from "@/lib/permissions";
 import type { MeetingRow } from "@/lib/api-types";
 import { attendanceTone } from "@/lib/status";
 
-export default function MeetingDetailPage({ params }: { params: { meetingId: string } }) {
+export default function MeetingDetailPage() {
+  const params = useParams<{ meetingId: string }>();
   const { permissions } = useAuth();
   const meeting = useApi<MeetingRow>(`/meetings/${params.meetingId}`);
 
@@ -79,7 +81,7 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
       meeting.reload();
     } catch (cause) {
       setSaveError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
       );
     } finally {
       setSaving(false);
@@ -93,7 +95,7 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
           <>
             <PageHeader title={data.title}>
               <Link className="btn btn-sm" href="/meetings">
-                Listeye don
+                Listeye dön
               </Link>
             </PageHeader>
 
@@ -106,29 +108,29 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
 
               <div className="row">
                 <span className="muted">{formatDate(data.meetingDate)}</span>
-                <Badge>{data.groupName ?? "Takim geneli"}</Badge>
-                <span className="small muted">Olusturan: {data.createdBy.fullName}</span>
+                <Badge>{data.groupName ?? "Takım geneli"}</Badge>
+                <span className="small muted">Oluşturan: {data.createdBy.fullName}</span>
               </div>
 
               <Card title="Rapor">
                 <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                  {data.body ?? <span className="muted">Rapor yazilmamis.</span>}
+                  {data.body ?? <span className="muted">Rapor yazılmamış.</span>}
                 </p>
               </Card>
 
               <div>
                 <h2>Yoklama</h2>
                 <p className="small muted" style={{ marginTop: 0 }}>
-                  Dort durum var, cunku yoklamanin kaydettigi sey bir evet/hayir degil: gec
-                  gelmek ve izinli olmak ayri seylerdir. Katilim oraninda gec gelen katilmis
-                  sayilir.
+                  Dört durum var, çünkü yoklamanın kaydettiği şey bir evet/hayır değil: geç
+                  gelmek ve izinli olmak ayrı şeylerdir. Katılım oranında geç gelen katılmış
+                  sayılır.
                 </p>
 
                 <div className="table-wrap">
                   <table className="table">
                     <thead>
                       <tr>
-                        <th>Kisi</th>
+                        <th>Kişi</th>
                         <th>Durum</th>
                         <th>Not</th>
                       </tr>
@@ -138,12 +140,12 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                         <tr>
                           <td className="muted" colSpan={3}>
                             {candidates.loading
-                              ? "Uyeler yukleniyor..."
+                              ? "Üyeler yükleniyor..."
                               : candidates.error
-                                ? "Katilimci listesi yuklenemedi."
+                                ? "Katılımcı listesi yüklenemedi."
                                 : mayUpdate
-                                  ? "Bu toplantiya katilabilecek kimse yok."
-                                  : "Yoklama alinmamis."}
+                                  ? "Bu toplantıya katılabilecek kimse yok."
+                                  : "Yoklama alınmamış."}
                           </td>
                         </tr>
                       ) : null}
@@ -155,7 +157,7 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                                 keeps them -- the roll call is what happened,
                                 not who is a member today. */}
                             {row.isFormerMember ? (
-                              <span className="muted small"> (gruptan ayrildi)</span>
+                              <span className="muted small"> (gruptan ayrıldı)</span>
                             ) : null}
                           </td>
                           <td>
@@ -201,7 +203,7 @@ export default function MeetingDetailPage({ params }: { params: { meetingId: str
                     disabled={!canSave}
                     onClick={() => void save()}
                   >
-                    {saving ? "Kaydediliyor..." : "Yoklamayi kaydet"}
+                    {saving ? "Kaydediliyor..." : "Yoklamayı kaydet"}
                   </button>
                 ) : null}
               </div>

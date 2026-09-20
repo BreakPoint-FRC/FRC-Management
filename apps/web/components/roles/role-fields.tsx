@@ -64,7 +64,7 @@ export function RoleFields({
         disabled={editing}
         placeholder="ARSIV_SORUMLUSU"
         hint={
-          editing ? "Degistirilemez: kodun eslestirdigi sey budur." : "BUYUK_HARF ve alt cizgi."
+          editing ? "Değiştirilemez: kodun eşleştirdiği şey budur." : "BUYUK_HARF ve alt çizgi."
         }
         onChange={(key) => onChange({ ...draft, key })}
         error={issueFor(error, "key")}
@@ -77,7 +77,7 @@ export function RoleFields({
         error={issueFor(error, "name")}
       />
       <TextAreaField
-        label="Aciklama"
+        label="Açıklama"
         rows={2}
         value={draft.description}
         onChange={(description) => onChange({ ...draft, description })}
@@ -103,8 +103,8 @@ export function RoleFields({
             Kapsanan gruplar{placementNeedsGroupScope(draft.placement) ? " *" : ""}
           </label>
           <p className="small muted" style={{ margin: "0 0 6px" }}>
-            Secilen grubun altindaki tum alt gruplar da kapsanir. Teknik secmek Mekanik ve
-            Tasarim icin de yetki verir.
+            Seçilen grubun altındaki tüm alt gruplar da kapsanır. Teknik seçmek Mekanik ve
+            Tasarım için de yetki verir.
           </p>
           <AsyncSection state={groups}>
             {(tree) => (

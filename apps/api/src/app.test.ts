@@ -29,7 +29,7 @@ const ADMIN = {
   id: "account-1",
   teamId: TEAM,
   email: "ada@breakpoint.test",
-  fullName: "Ada Yilmaz",
+  fullName: "Ada Yılmaz",
   isActive: true,
   mustChangePassword: false,
   archivedAt: null,
@@ -77,6 +77,38 @@ describe("health", () => {
     expect(response.json()).toEqual({ status: "ok" });
     await app.close();
   });
+});
+
+describe("browser CORS preflights", () => {
+  it.each(["PUT", "PATCH", "DELETE"])(
+    "allows the %s mutations used by the cross-origin web app",
+    async (method) => {
+      const app = buildWithPrisma(stubClient({}));
+      const response = await app.inject({
+        method: "OPTIONS",
+        url: "/gantt/board-1/tasks",
+        headers: {
+          origin: process.env.WEB_ORIGIN ?? "http://localhost:3000",
+          "access-control-request-method": method,
+          "access-control-request-headers": "authorization,content-type",
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(response.headers["access-control-allow-origin"]).toBe(
+        process.env.WEB_ORIGIN ?? "http://localhost:3000"
+      );
+      expect(
+        response.headers["access-control-allow-methods"]
+          ?.split(",")
+          .map((allowedMethod) => allowedMethod.trim())
+      ).toContain(method);
+      expect(response.headers["access-control-allow-headers"]).toBe(
+        "authorization,content-type"
+      );
+      await app.close();
+    }
+  );
 });
 
 describe("readiness", () => {
@@ -337,7 +369,7 @@ describe("account creation cannot grant a role without ROLES/update", () => {
           id: "account-new",
           teamId: TEAM,
           email: "yeni@breakpoint.test",
-          fullName: "Yeni Uye",
+          fullName: "Yeni Üye",
           isActive: true,
           mustChangePassword: true,
           createdAt: new Date("2026-01-01"),
@@ -368,9 +400,21 @@ describe("account creation cannot grant a role without ROLES/update", () => {
       headers: { authorization: `Bearer ${app.jwt.sign({ sub: CREATOR.id })}` },
       payload: {
         email: "yeni@breakpoint.test",
-        fullName: "Yeni Uye",
+        fullName: "Yeni Üye",
         password: "cok-guclu-bir-sifre-123",
         ...(roles ? { roles } : {}),
+      },
+    });
+  }
+
+  function bulkRequest(app: ReturnType<typeof buildWithPrisma>, roles: unknown[]) {
+    return app.inject({
+      method: "POST",
+      url: "/accounts/bulk-import/commit",
+      headers: { authorization: `Bearer ${app.jwt.sign({ sub: CREATOR.id })}` },
+      payload: {
+        csv: "fullName,email\nYeni Üye,yeni@breakpoint.test\n",
+        roles,
       },
     });
   }
@@ -382,6 +426,18 @@ describe("account creation cannot grant a role without ROLES/update", () => {
     await app.ready();
 
     const response = await createRequest(app, [{ roleId: "role-team-admin" }]);
+
+    expect(response.statusCode).toBe(403);
+    await app.close();
+  });
+
+  it("also refuses role grants through bulk import without ROLES/update", async () => {
+    const app = buildWithPrisma(
+      stubClient({ ...transactionalStub(), ...toolScopedStubs(new Set(["ACCOUNTS"])) })
+    );
+    await app.ready();
+
+    const response = await bulkRequest(app, [{ roleId: "role-team-admin" }]);
 
     expect(response.statusCode).toBe(403);
     await app.close();

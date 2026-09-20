@@ -39,8 +39,8 @@ describe("summarizeAuditChange", () => {
     [roles("a"), roles("a", "b"), "Yok", "b"],
     [roles("a", "b"), roles("a"), "b", "Yok"],
     [roles("a", "b"), [], "a, b", "Yok"],
-    [roles("a", "b"), roles("b", "a"), "Degisiklik yok", "Degisiklik yok"],
-    [[{ roleId: "a" }], roles("a"), "Degisiklik yok", "Degisiklik yok"],
+    [roles("a", "b"), roles("b", "a"), "Değişiklik yok", "Değişiklik yok"],
+    [[{ roleId: "a" }], roles("a"), "Değişiklik yok", "Değişiklik yok"],
     [roles("a", "b", "c", "d", "stable"), roles("e", "f", "g", "h", "stable"), "a, b, c (+1)", "e, f, g (+1)"],
   ])("summarizes changed role assignments: %j -> %j", (oldValue, newValue, oldSummary, newSummary) => {
     expect(summarizeAuditChange({ action: "ACCOUNT_ROLES_REPLACED", oldValue, newValue }))
@@ -51,20 +51,20 @@ describe("summarizeAuditChange", () => {
     const noFlags = { canRead: false, canCreate: false, canUpdate: false, canDelete: false };
     expect(summarizeAuditChange({ action: "ROLE_PERMISSIONS_REPLACED", oldValue: [],
       newValue: ["ACCOUNTS", "AUDIT_LOG", "CALENDAR", "TASKS"].map((tool) => ({ ...noFlags, tool, canUpdate: tool === "TASKS" })),
-    })).toEqual({ oldValue: "TASKS (Yok)", newValue: "TASKS (Guncelleme)" });
+    })).toEqual({ oldValue: "TASKS (Yok)", newValue: "TASKS (Güncelleme)" });
   });
   it("shows changes beyond the unchanged first three tools", () => {
     const oldValue = ["ACCOUNTS", "AUDIT_LOG", "FINANCE", "TASKS"].map((tool) => ({ tool, canRead: true }));
     const newValue = oldValue.map((entry) => entry.tool === "TASKS" ? { ...entry, canUpdate: true } : entry);
     expect(summarizeAuditChange({ action: "ROLE_PERMISSIONS_REPLACED", oldValue, newValue }))
-      .toEqual({ oldValue: "TASKS (Okuma)", newValue: "TASKS (Okuma/Guncelleme)" });
+      .toEqual({ oldValue: "TASKS (Okuma)", newValue: "TASKS (Okuma/Güncelleme)" });
   });
 
   it("aligns added and removed tools on both sides", () => {
     expect(summarizeAuditChange({ action: "GROUP_TOOLS_REPLACED",
       oldValue: [{ tool: "TASKS", isEnabled: true }],
       newValue: [{ tool: "FINANCE", isEnabled: false }],
-    })).toEqual({ oldValue: "FINANCE (Yok), TASKS (acik)", newValue: "FINANCE (kapali), TASKS (Yok)" });
+    })).toEqual({ oldValue: "FINANCE (Yok), TASKS (açık)", newValue: "FINANCE (kapalı), TASKS (Yok)" });
   });
 
   it("does not reveal stale rows after errors or revoked access", () => {
@@ -78,7 +78,7 @@ describe("summarizeAuditChange", () => {
         oldValue: [{ tool: "TASKS", canRead: true }],
         newValue: [{ tool: "TASKS", canRead: true, canUpdate: true }],
       })
-    ).toEqual({ oldValue: "TASKS (Okuma)", newValue: "TASKS (Okuma/Guncelleme)" });
+    ).toEqual({ oldValue: "TASKS (Okuma)", newValue: "TASKS (Okuma/Güncelleme)" });
   });
 
   it("shows only changed fields for object updates", () => {
@@ -99,8 +99,8 @@ describe("summarizeAuditChange", () => {
         newValue: { groupScopeIds: ["software"] },
       })
     ).toEqual({
-      oldValue: "Grup kapsami: mechanical",
-      newValue: "Grup kapsami: software",
+      oldValue: "Grup kapsamı: mechanical",
+      newValue: "Grup kapsamı: software",
     });
   });
 

@@ -23,8 +23,8 @@ import { FRC_ROLE_TEMPLATE, parseGrant } from "./setup.template";
  * team invent roles it does not want.
  */
 const STAGE_REQUIREMENT: Partial<Record<TeamSetupStage, string>> = {
-  GROUPS: "En az bir grup olusturun",
-  NAMING: "Takim adi ve bir sezon gerekli",
+  GROUPS: "En az bir grup oluşturun",
+  NAMING: "Takım adı ve bir sezon gerekli",
 };
 
 export function createSetupService(prisma: PrismaClient) {
@@ -40,7 +40,7 @@ export function createSetupService(prisma: PrismaClient) {
         setupCompletedAt: true,
       },
     });
-    if (!team) throw new NotFoundError("Takim bulunamadi");
+    if (!team) throw new NotFoundError("Takım bulunamadı");
     return team;
   };
 
@@ -113,7 +113,7 @@ export function createSetupService(prisma: PrismaClient) {
       if (blocker) throw new ConflictError(blocker);
 
       const next = nextSetupStage(stage);
-      if (!next) throw new ConflictError("Kurulum zaten tamamlandi");
+      if (!next) throw new ConflictError("Kurulum zaten tamamlandı");
 
       return prisma.team.update({
         where: { id: teamId },
@@ -140,7 +140,7 @@ export function createSetupService(prisma: PrismaClient) {
       const target = TEAM_SETUP_STAGES.indexOf(stage);
 
       if (target >= current) {
-        throw new ConflictError("Sadece tamamlanmis bir adima geri donulebilir");
+        throw new ConflictError("Sadece tamamlanmış bir adıma geri dönülebilir");
       }
 
       return prisma.team.update({
@@ -228,7 +228,7 @@ export function createSetupService(prisma: PrismaClient) {
       const existing = await prisma.role.count({ where: { teamId, isSystemRole: false } });
       if (existing > 0) {
         throw new ConflictError(
-          "Bu takimda zaten roller var, sablon uygulanamaz -- rolleri elle duzenleyin"
+          "Bu takımda zaten roller var, şablon uygulanamaz -- rolleri elle düzenleyin"
         );
       }
 
@@ -237,7 +237,7 @@ export function createSetupService(prisma: PrismaClient) {
         prisma.tool.findMany({ select: { id: true, key: true } }),
       ]);
       if (groups.length === 0) {
-        throw new ConflictError("Once gruplari olusturun");
+        throw new ConflictError("Önce grupları oluşturun");
       }
 
       const toolIdByKey = new Map(tools.map((tool) => [tool.key, tool.id]));

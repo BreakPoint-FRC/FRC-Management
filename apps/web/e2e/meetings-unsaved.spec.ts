@@ -39,10 +39,13 @@ async function setup(page: Page) {
   });
   await page.goto("/login");
   await page.getByLabel("E-posta").fill("editor@example.test");
-  await page.getByLabel("Sifre", { exact: true }).fill("test-password");
-  await page.getByRole("button", { name: "Giris yap", exact: true }).click();
-  await page.getByRole("link", { name: "Toplantilar", exact: true }).click();
-  await page.getByRole("button", { name: "Duzenle", exact: true }).first().click();
+  await page.getByLabel("Şifre", { exact: true }).fill("test-password");
+  await page.getByRole("button", { name: "Giriş yap", exact: true }).click();
+  // Below 720px the sidebar is a collapsed drawer behind a hamburger toggle.
+  const viewport = page.viewportSize();
+  if (viewport && viewport.width <= 720) await page.locator(".sidebar-toggle").click();
+  await page.getByRole("link", { name: "Toplantılar", exact: true }).click();
+  await page.getByRole("button", { name: "Düzenle", exact: true }).first().click();
   await expect(report(page)).toHaveValue("Alpha report");
   return { writes: () => writes, logouts: () => logouts };
 }
@@ -50,7 +53,7 @@ async function setup(page: Page) {
 async function openDirtyEditor(page: Page, mode: "edit" | "create") {
   const calls = await setup(page);
   if (mode === "create") {
-    await page.getByRole("button", { name: "+ Yeni toplanti", exact: true }).click();
+    await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
     await expect(dialog(page)).toHaveCount(0);
     await expect(report(page)).toHaveValue("");
   }
@@ -101,11 +104,14 @@ for (const action of ["cancel", "edit", "create", "detail", "menu", "logout"] as
     page.on("dialog", async (event) => { nativeDialogs.push(event.type()); await event.dismiss(); });
     await report(page).fill("Unsaved report");
     const trigger = action === "cancel" ? cancel(page)
-      : action === "edit" ? page.getByRole("button", { name: "Duzenle", exact: true }).nth(1)
-      : action === "create" ? page.getByRole("button", { name: "+ Yeni toplanti", exact: true })
+      : action === "edit" ? page.getByRole("button", { name: "Düzenle", exact: true }).nth(1)
+      : action === "create" ? page.getByRole("button", { name: "Yeni toplantı", exact: true })
       : action === "detail" ? page.getByRole("link", { name: "Beta", exact: true })
-      : action === "menu" ? page.getByRole("link", { name: "Genel bakis", exact: true })
-      : page.getByRole("button", { name: "Cikis yap", exact: true });
+      : action === "menu" ? page.getByRole("link", { name: "Ana Sayfa", exact: true })
+      : page.getByRole("button", { name: "Çıkış yap", exact: true });
+    // Sign-out lives behind the account menu's collapsed panel; everything
+    // else is a plain sidebar link.
+    if (action === "logout") await page.locator(".account-menu summary").click();
     await trigger.click();
     await expect(dialog(page)).toBeVisible();
     await expect(page.getByRole("button", { name: stay })).toBeFocused();
@@ -135,7 +141,7 @@ for (const action of ["cancel", "navigation"] as const) {
     const calls = await openDirtyEditor(page, "create");
     const trigger = action === "cancel"
       ? cancel(page)
-      : page.getByRole("link", { name: "Genel bakis", exact: true });
+      : page.getByRole("link", { name: "Ana Sayfa", exact: true });
 
     await trigger.click();
     await expect(dialog(page)).toBeVisible();
@@ -193,11 +199,11 @@ test("a repeated browser Back while the decision is open keeps history consisten
 test("browser Forward supports staying and discarding a dirty draft", async ({ page }) => {
   await setup(page);
   await cancel(page).click();
-  await page.getByRole("link", { name: "Genel bakis", exact: true }).click();
+  await page.getByRole("link", { name: "Ana Sayfa", exact: true }).click();
   await expect(page).toHaveURL(/\/$/);
   await page.goBack();
   await expect(page).toHaveURL(/\/meetings$/);
-  await page.getByRole("button", { name: "Duzenle", exact: true }).first().click();
+  await page.getByRole("button", { name: "Düzenle", exact: true }).first().click();
   await report(page).fill("Unsaved forward report");
 
   const firstForward = page.goForward().catch(() => null);
@@ -275,7 +281,7 @@ for (const mode of ["edit", "create"] as const) {
   test(`successful ${mode} immediately clears both guards`, async ({ page }) => {
     const calls = await setup(page);
     if (mode === "create") {
-      await page.getByRole("button", { name: "+ Yeni toplanti", exact: true }).click();
+      await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
       await expect(dialog(page)).toHaveCount(0);
       await page.locator('form input[type="text"]').fill("Created meeting");
     }
@@ -283,7 +289,7 @@ for (const mode of ["edit", "create"] as const) {
     await page.getByRole("button", { name: "Kaydet", exact: true }).click();
     await expect(report(page)).toHaveCount(0);
     expect(calls.writes()).toBe(1);
-    await page.getByRole("row").filter({ has: page.getByRole("link", { name: mode === "edit" ? "Alpha" : "Created meeting", exact: true }) }).getByRole("button", { name: "Duzenle" }).click();
+    await page.locator(".meeting-card").filter({ has: page.getByRole("link", { name: mode === "edit" ? "Alpha" : "Created meeting", exact: true }) }).getByRole("button", { name: "Düzenle" }).click();
     await expect(report(page)).toHaveValue("Saved update");
     await cancel(page).click();
     await expect(report(page)).toHaveCount(0);
@@ -299,7 +305,7 @@ for (const mode of ["edit", "create"] as const) for (const exit of ["reload", "c
   test(`${mode} then immediate ${exit} has no native warning`, async ({ page }) => {
     await setup(page);
     if (mode === "create") {
-      await page.getByRole("button", { name: "+ Yeni toplanti", exact: true }).click();
+      await page.getByRole("button", { name: "Yeni toplantı", exact: true }).click();
       await page.locator('form input[type="text"]').fill("Created meeting");
     }
     await report(page).fill("Saved update");
@@ -330,10 +336,11 @@ test("pending and failed saves preserve the draft and the browser protection", a
   await expect(report(page)).toBeDisabled();
   await expect(page.locator("form")).toHaveAttribute("aria-busy", "true");
   await expect(cancel(page)).toBeDisabled();
-  await expect(page.getByRole("button", { name: "Duzenle" }).first()).toBeDisabled();
+  await expect(page.getByRole("button", { name: "Düzenle" }).first()).toBeDisabled();
   await page.getByRole("link", { name: "Beta", exact: true }).click();
-  await page.getByRole("link", { name: "Genel bakis", exact: true }).click();
-  await page.getByRole("button", { name: "Cikis yap", exact: true }).click();
+  await page.getByRole("link", { name: "Ana Sayfa", exact: true }).click();
+  await page.locator(".account-menu summary").click();
+  await page.getByRole("button", { name: "Çıkış yap", exact: true }).click();
   await expect(page.getByRole("status")).toHaveText(/Toplantı kaydediliyor/);
   await page.goBack();
   await expect(page).toHaveURL(/\/meetings$/);
@@ -363,7 +370,7 @@ test("pending and failed saves preserve the draft and the browser protection", a
 test("filtering and new-tab gestures preserve the current draft without a dialog", async ({ page }) => {
   await setup(page);
   await report(page).fill("Unsaved report");
-  await page.locator("main > .row select").selectOption("group");
+  await page.locator("main > .page-header select").selectOption("group");
   await expect(report(page)).toHaveValue("Unsaved report");
   const openedPage = page.context().waitForEvent("page");
   await page.getByRole("link", { name: "Beta", exact: true }).click({ modifiers: ["ControlOrMeta"] });

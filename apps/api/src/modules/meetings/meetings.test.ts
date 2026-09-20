@@ -65,7 +65,7 @@ describe("recording attendance", () => {
           meetingDate: new Date("2026-09-01"),
           createdAt: new Date("2026-09-01"),
           group: null,
-          createdBy: { id: "a1", fullName: "Ada Yilmaz" },
+          createdBy: { id: "a1", fullName: "Ada Yılmaz" },
           attendance: [
             { status: "PRESENT", note: null, account: { id: "a1", fullName: "Ada" } },
             { status: "LATE", note: null, account: { id: "a2", fullName: "Deniz" } },
@@ -170,7 +170,7 @@ describe("creating a meeting", () => {
       meetingDate: new Date("2026-09-01"),
       createdAt: new Date("2026-09-01"),
       group: { name: "Yazilim" },
-      createdBy: { id: "a1", fullName: "Ada Yilmaz" },
+      createdBy: { id: "a1", fullName: "Ada Yılmaz" },
       attendance: [],
     }));
 
@@ -211,7 +211,7 @@ describe("creating a meeting", () => {
 describe("who a roll call can be taken over", () => {
   it("reads a group meeting's roster from active membership, not the whole team", async () => {
     const findMany = vi.fn(async () => [
-      { id: "a1", fullName: "Ada Yilmaz" },
+      { id: "a1", fullName: "Ada Yılmaz" },
       { id: "a2", fullName: "Deniz Kaya" },
     ]);
     const prisma = { account: { findMany } } as unknown as PrismaClient;

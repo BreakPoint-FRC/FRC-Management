@@ -63,7 +63,7 @@ export function StepShell({
       {/* What the server would refuse, said before the button is pressed. The
           button is still enabled: the server is the authority, and a disabled
           control with no explanation is worse than a refused one with. */}
-      {setup.blocker ? <p className="small muted">Devam etmek icin: {setup.blocker}</p> : null}
+      {setup.blocker ? <p className="small muted">Devam etmek için: {setup.blocker}</p> : null}
 
       <div className="row">
         {previous ? (

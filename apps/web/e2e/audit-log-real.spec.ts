@@ -7,14 +7,14 @@ test("a saved role permission appears in the real audit trail", async ({ page })
   test.skip(process.env.AUDIT_E2E_REAL !== "1", "Requires isolated seeded API on localhost:4100");
   await page.goto("/login");
   await page.getByLabel("E-posta").fill("ada@breakpoint.test");
-  await page.getByLabel("Sifre", { exact: true }).fill("Breakpoint2026!");
+  await page.getByLabel("Şifre", { exact: true }).fill("Breakpoint2026!");
   const loggedIn = page.waitForResponse((response) => response.url().endsWith("/auth/login") && response.request().method() === "POST");
-  await page.getByRole("button", { name: "Giris yap", exact: true }).click();
+  await page.getByRole("button", { name: "Giriş yap", exact: true }).click();
   const loginResponse = await loggedIn;
   const apiOrigin = new URL(loginResponse.url()).origin;
   const { accessToken } = await loginResponse.json();
   const rolesLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/roles?`) && response.request().method() === "GET");
-  await page.getByRole("link", { name: "Roller", exact: true }).click();
+  await page.getByRole("link", { name: "Roller ve Yetkiler", exact: true }).click();
   const rolesResponse = await rolesLoaded;
   const roles: Paginated<RoleRow> = await rolesResponse.json();
   const memberRole = roles.items.find((role) => role.key === "MEMBER");
@@ -50,7 +50,7 @@ test("a saved role permission appears in the real audit trail", async ({ page })
     expect(response.status()).toBe(204);
     expect(new URL(response.url()).pathname).toBe(permissionsUrl.pathname);
     const auditLoaded = page.waitForResponse((response) => response.url().startsWith(`${apiOrigin}/audit-log?`) && response.request().method() === "GET");
-    await page.getByRole("link", { name: "Denetim kaydi" }).click();
+    await page.getByRole("link", { name: "Denetim Kayıtları" }).click();
     const auditResponse = await auditLoaded;
     expect(auditResponse.status()).toBe(200);
     const history: Paginated<AuditLogRow> = await auditResponse.json();
@@ -61,12 +61,12 @@ test("a saved role permission appears in the real audit trail", async ({ page })
       expect.objectContaining({ tool: "TASKS", canUpdate: !previous }),
     ]));
     const audit = page.locator(`tbody tr[data-audit-id="${fresh[0].id}"]`);
-    await expect(audit).toContainText("Ada Yilmaz");
-    await expect(audit).toContainText("Rol izinleri degistirildi");
+    await expect(audit).toContainText("Ada Yılmaz");
+    await expect(audit).toContainText("Rol izinleri değiştirildi");
     await expect(audit).toContainText("TASKS");
     const sides = audit.locator(".audit-log-change > span");
-    await expect(sides.nth(previous ? 0 : 2)).toContainText("Guncelleme");
-    await expect(sides.nth(previous ? 2 : 0)).not.toContainText("Guncelleme");
+    await expect(sides.nth(previous ? 0 : 2)).toContainText("Güncelleme");
+    await expect(sides.nth(previous ? 2 : 0)).not.toContainText("Güncelleme");
   } finally {
     // Restore even when the save response is lost after the server commits.
     if (mutationAttempted) {

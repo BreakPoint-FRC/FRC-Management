@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useParams } from "next/navigation";
 import { useEffect, useState } from "react";
 import {
   taskActivityLabels,
@@ -28,7 +29,8 @@ function describe(entry: TaskActivityRow): string {
   return to ?? from ?? "";
 }
 
-export default function TaskDetailPage({ params }: { params: { taskId: string } }) {
+export default function TaskDetailPage() {
+  const params = useParams<{ taskId: string }>();
   const { permissions } = useAuth();
   const task = useApi<TaskRow>(`/tasks/${params.taskId}`);
   const activity = useApi<Paginated<TaskActivityRow>>(`/tasks/${params.taskId}/activity?pageSize=50`);
@@ -66,7 +68,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
       activity.reload();
     } catch (cause) {
       setSaveError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
       );
     } finally {
       setSaving(false);
@@ -85,7 +87,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
       activity.reload();
     } catch (cause) {
       setSaveError(
-        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata olustu")
+        cause instanceof ApiError ? cause : new ApiError(0, "Beklenmeyen bir hata oluştu")
       );
     } finally {
       setSaving(false);
@@ -103,7 +105,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
           <>
             <PageHeader title={data.name}>
               <Link className="btn btn-sm" href="/tasks">
-                Listeye don
+                Listeye dön
               </Link>
             </PageHeader>
 
@@ -131,7 +133,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
                   )}
                 </Card>
 
-                <Card title="Oncelik">
+                <Card title="Öncelik">
                   <div className="stat" style={{ fontSize: 16 }}>
                     {taskPriorityLabels[data.priority]}
                   </div>
@@ -139,21 +141,21 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
 
                 <Card title="Grup">
                   <div className="stat" style={{ fontSize: 16 }}>
-                    {data.groupName ?? "Gruplar arasi"}
+                    {data.groupName ?? "Gruplar arası"}
                   </div>
                 </Card>
 
                 <Card title="Tarihler">
                   <div className="small">
-                    <div>Baslangic: {formatDate(data.startDate)}</div>
-                    <div>Bitis: {formatDate(data.dueDate)}</div>
+                    <div>Başlangıç: {formatDate(data.startDate)}</div>
+                    <div>Bitiş: {formatDate(data.dueDate)}</div>
                   </div>
                 </Card>
               </div>
 
-              <Card title="Aciklama">
+              <Card title="Açıklama">
                 <p style={{ margin: 0, whiteSpace: "pre-wrap" }}>
-                  {data.description ?? <span className="muted">Aciklama yok.</span>}
+                  {data.description ?? <span className="muted">Açıklama yok.</span>}
                 </p>
               </Card>
 
@@ -190,7 +192,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
               ) : (
                 <Card title="Sorumlular">
                   {data.assignees.length === 0 ? (
-                    <span className="muted">Kimse atanmamis.</span>
+                    <span className="muted">Kimse atanmamış.</span>
                   ) : (
                     <div className="row">
                       {data.assignees.map((assignee) => (
@@ -199,7 +201,7 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
                     </div>
                   )}
                   <p className="small muted" style={{ marginBottom: 0 }}>
-                    Bir goreve birden fazla kisi atanabilir. Olusturan: {data.createdBy.fullName}
+                    Bir göreve birden fazla kişi atanabilir. Oluşturan: {data.createdBy.fullName}
                   </p>
                   {mayUpdate ? (
                     <button
@@ -208,26 +210,26 @@ export default function TaskDetailPage({ params }: { params: { taskId: string } 
                       style={{ marginTop: 8 }}
                       onClick={() => setEditingAssignees(true)}
                     >
-                      Sorumlulari duzenle
+                      Sorumluları düzenle
                     </button>
                   ) : null}
                 </Card>
               )}
 
               <div>
-                <h2>Gecmis</h2>
+                <h2>Geçmiş</h2>
                 <p className="small muted" style={{ marginTop: 0 }}>
-                  Her kayit, anlattigi degisiklikle ayni islemde yazilir. Gorevin kaydi olmadan
-                  degismesi mumkun degildir.
+                  Her kayıt, anlattığı değişiklikle aynı işlemde yazılır. Görevin kaydı olmadan
+                  değişmesi mümkün değildir.
                 </p>
-                <AsyncSection state={activity} empty="Henuz kayit yok.">
+                <AsyncSection state={activity} empty="Henüz kayıt yok." isEmpty={(data) => data.items.length === 0}>
                   {(log) => (
                     <div className="table-wrap">
                       <table className="table">
                         <thead>
                           <tr>
                             <th>Ne oldu</th>
-                            <th>Degisiklik</th>
+                            <th>Değişiklik</th>
                             <th>Kim</th>
                             <th>Ne zaman</th>
                           </tr>

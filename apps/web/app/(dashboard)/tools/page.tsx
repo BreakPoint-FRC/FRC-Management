@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { Pencil, PowerOff } from "lucide-react";
 
 import { useAuth } from "@/components/auth/auth-provider";
 import {
@@ -63,12 +64,14 @@ export default function ToolsPage() {
   async function submit() {
     if (!editing) return;
 
-    const ok = await mutation.run(() =>
-      apiClient.patch(`/tools/${editing.id}`, {
-        name: draft.name,
-        description: emptyToNull(draft.description),
-        isActive: draft.isActive,
-      })
+    const ok = await mutation.run(
+      () =>
+        apiClient.patch(`/tools/${editing.id}`, {
+          name: draft.name,
+          description: emptyToNull(draft.description),
+          isActive: draft.isActive,
+        }),
+      "Modül güncellendi."
     );
     if (ok) {
       close();
@@ -77,24 +80,26 @@ export default function ToolsPage() {
   }
 
   async function deactivate(id: string) {
-    if (await mutation.run(() => apiClient.delete(`/tools/${id}`))) tools.reload();
+    if (await mutation.run(() => apiClient.delete(`/tools/${id}`), "Modül devre dışı bırakıldı.")) {
+      tools.reload();
+    }
   }
 
   return (
     <>
-      <PageHeader title="Moduller" />
+      <PageHeader title="Platform Modülleri" />
 
       <p className="small muted">
-        Yeni modul eklemek kod degisikligi ister: anahtar once{" "}
-        <code>packages/types</code> icindeki kapali listeye girmeli, cunku yetki kontrolu bu
-        anahtarlarla cagriliyor. Buradan ad, aciklama ve aktiflik duzenlenir. Bir modulu
-        pasife almak onu herkes icin kapatir — sistem yoneticisi dahil — ama verilmis
+        Yeni modül eklemek kod değişikliği ister: anahtar önce{" "}
+        <code>packages/types</code> içindeki kapalı listeye girmeli, çünkü yetki kontrolü bu
+        anahtarlarla çağrılıyor. Buradan ad, açıklama ve aktiflik düzenlenir. Bir modülü
+        pasife almak onu herkes için kapatır — sistem yöneticisi dahil — ama verilmiş
         yetkilere dokunmaz.
       </p>
 
       {editing ? (
         <FormPanel
-          title={`${editing.key} — duzenle`}
+          title={`${editing.key} — düzenle`}
           error={mutation.error}
           saving={mutation.saving}
           onSubmit={submit}
@@ -108,14 +113,14 @@ export default function ToolsPage() {
             error={issueFor(mutation.error, "name")}
           />
           <TextAreaField
-            label="Aciklama"
+            label="Açıklama"
             rows={2}
             value={draft.description}
             onChange={(description) => setDraft({ ...draft, description })}
             error={issueFor(mutation.error, "description")}
           />
           <CheckboxField
-            label={editing.key === "TOOLS" ? "Aktif (bu modul pasife alinamaz)" : "Aktif"}
+            label={editing.key === "TOOLS" ? "Aktif (bu modül pasife alınamaz)" : "Aktif"}
             checked={draft.isActive}
             disabled={editing.key === "TOOLS"}
             onChange={(isActive) => setDraft({ ...draft, isActive })}
@@ -133,7 +138,7 @@ export default function ToolsPage() {
                 <tr>
                   <th>Anahtar</th>
                   <th>Ad</th>
-                  <th>Aciklama</th>
+                  <th>Açıklama</th>
                   <th>Durum</th>
                   <th />
                 </tr>
@@ -153,14 +158,16 @@ export default function ToolsPage() {
                       <RowActions>
                         {mayUpdate ? (
                           <button className="btn btn-sm" type="button" onClick={() => openEdit(tool)}>
-                            Duzenle
+                            <Pencil size={14} aria-hidden="true" />
+                            Düzenle
                           </button>
                         ) : null}
                         {mayDelete && tool.isActive && tool.key !== "TOOLS" ? (
                           <ConfirmButton
-                            question={`${tool.name} modulu herkes icin kapatilsin mi?`}
-                            onConfirm={() => void deactivate(tool.id)}
+                            question={`${tool.name} modülü herkes için kapatılsın mı?`}
+                            onConfirm={() => deactivate(tool.id)}
                           >
+                            <PowerOff size={14} aria-hidden="true" />
                             Pasife al
                           </ConfirmButton>
                         ) : null}

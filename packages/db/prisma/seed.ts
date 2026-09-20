@@ -43,18 +43,18 @@ const ACCOUNTS = [
     // The administrator of this team, not of the platform. SYSTEM_ADMIN belongs
     // to no team and is created by db:bootstrap.
     email: "ada@breakpoint.test",
-    fullName: "Ada Yilmaz",
+    fullName: "Ada Yılmaz",
     roles: [{ role: "TEAM_ADMIN" }],
     extraGroups: ["Programming"],
   },
   {
     email: "yagmur@breakpoint.test",
-    fullName: "Yagmur Balikcayir",
+    fullName: "Yağmur Balıkçayır",
     roles: [{ role: "MENTOR" }],
     extraGroups: [],
   },
   {
-    // Mekanik lead ve baskan yardimcisi.
+    // Mekanik lead ve başkan yardımcısı.
     email: "deniz@breakpoint.test",
     fullName: "Deniz Kaya",
     roles: [{ role: "LEAD", group: "Mechanical" }, { role: "VICE_PRESIDENT" }],
@@ -67,16 +67,16 @@ const ACCOUNTS = [
     extraGroups: [],
   },
   {
-    // Baskan, ayni zamanda business ekibinde.
+    // Başkan, aynı zamanda business ekibinde.
     email: "selin@breakpoint.test",
-    fullName: "Selin Aydin",
+    fullName: "Selin Aydın",
     roles: [{ role: "PRESIDENT" }, { role: "MEMBER", group: "Business" }],
     extraGroups: [],
   },
   {
-    // Iki departmanin lead'i.
+    // İki departmanın lead'i.
     email: "kerem@breakpoint.test",
-    fullName: "Kerem Ozturk",
+    fullName: "Kerem Öztürk",
     roles: [
       { role: "LEAD", group: "Programming" },
       { role: "LEAD", group: "Electrical" },
@@ -91,14 +91,14 @@ const ACCOUNTS = [
   },
   {
     email: "baris@breakpoint.test",
-    fullName: "Baris Sahin",
+    fullName: "Barış Şahin",
     roles: [{ role: "MEMBER", group: "Media" }, { role: "SOCIAL_DIRECTOR" }],
     extraGroups: [],
   },
   {
     // Nobody has decided where this one belongs yet -- the GLOBAL floor role.
     email: "yeni@breakpoint.test",
-    fullName: "Yeni Uye",
+    fullName: "Yeni Üye",
     roles: [{ role: "TEAM_MEMBER" }],
     extraGroups: [],
   },
@@ -205,7 +205,7 @@ async function main() {
     },
     {
       id: "seed-meeting-software-sync",
-      title: "Yazilim haftalik",
+      title: "Yazılım haftalık",
       body: "Autonomous rutini ve vision pipeline durumu.",
       meetingDate: new Date("2026-09-08T17:00:00.000Z"),
       groupId: groupId("Programming"),
@@ -229,7 +229,7 @@ async function main() {
     { accountId: denizId, status: "LATE" as const, note: "Servis gecikti." },
     { accountId: emreId, status: "ABSENT" as const },
     { accountId: keremId, status: "PRESENT" as const },
-    { accountId: melisId, status: "EXCUSED" as const, note: "Sinav." },
+    { accountId: melisId, status: "EXCUSED" as const, note: "Sınav." },
   ];
 
   for (const entry of attendance) {
@@ -291,7 +291,7 @@ async function main() {
     },
     {
       id: "seed-task-wiring",
-      name: "Robot kablolama plani",
+      name: "Robot kablolama planı",
       description: "Elektronik ve mekanik birlikte.",
       status: "BLOCKED" as const,
       priority: "HIGH" as const,
@@ -350,7 +350,7 @@ async function main() {
       seasonId_groupId_name: {
         seasonId: season.id,
         groupId: groupId("Programming"),
-        name: "Yazilim yol haritasi",
+        name: "Yazılım yol haritası",
       },
     },
     update: {},
@@ -358,7 +358,7 @@ async function main() {
       teamId,
       seasonId: season.id,
       groupId: groupId("Programming"),
-      name: "Yazilim yol haritasi",
+      name: "Yazılım yol haritası",
     },
   });
 
@@ -378,7 +378,7 @@ async function main() {
       type: "INCOME" as const,
       category: "Sponsorluk",
       amount: "25000.00",
-      description: "Anadolu Robotics - sezon sponsorlugu, ilk taksit.",
+      description: "Anadolu Robotics - sezon sponsorluğu, ilk taksit.",
       transactionDate: new Date("2026-08-20T00:00:00.000Z"),
       groupId: groupId("Business"),
       createdById: adminId,
@@ -386,9 +386,9 @@ async function main() {
     {
       id: "seed-transaction-parts",
       type: "EXPENSE" as const,
-      category: "Parca",
+      category: "Parça",
       amount: "4750.50",
-      description: "Drivetrain parcalari.",
+      description: "Drivetrain parçaları.",
       transactionDate: new Date("2026-08-24T00:00:00.000Z"),
       groupId: groupId("Mechanical"),
       createdById: mentorId,
@@ -396,9 +396,9 @@ async function main() {
     {
       id: "seed-transaction-travel",
       type: "EXPENSE" as const,
-      category: "Ulasim",
+      category: "Ulaşım",
       amount: "1200.00",
-      description: "Bolgesel turnuva ulasim avansi.",
+      description: "Bölgesel turnuva ulaşım avansı.",
       transactionDate: new Date("2026-09-02T00:00:00.000Z"),
       groupId: null,
       createdById: adminId,
@@ -440,7 +440,7 @@ async function main() {
       assignedToId: melisId,
     },
     {
-      name: "Ege Yazilim",
+      name: "Ege Yazılım",
       website: null,
       email: "info@egeyazilim.example",
       phone: null,

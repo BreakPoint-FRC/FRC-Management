@@ -167,7 +167,7 @@ export function createSponsorsService(prisma: PrismaClient) {
       mayReadFinance: boolean
     ) => {
       const existing = await prisma.organization.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Firma bulunamadi");
+      if (existing === 0) throw new NotFoundError("Firma bulunamadı");
 
       const organization = await prisma.organization.update({
         where: { id },
@@ -187,12 +187,12 @@ export function createSponsorsService(prisma: PrismaClient) {
      */
     removeOrganization: async (teamId: string, id: string) => {
       const existing = await prisma.organization.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Firma bulunamadi");
+      if (existing === 0) throw new NotFoundError("Firma bulunamadı");
 
       const count = await prisma.sponsorship.count({ where: { organizationId: id } });
       if (count > 0) {
         throw new ConflictError(
-          `Bu firmanin ${count} sezonluk kaydi var, silinemez -- sponsorlugu INACTIVE yapin`
+          `Bu firmanın ${count} sezonluk kaydı var, silinemez -- sponsorluğu INACTIVE yapın`
         );
       }
       await prisma.organization.delete({ where: { id } });
@@ -258,7 +258,7 @@ export function createSponsorsService(prisma: PrismaClient) {
       const organization = await prisma.organization.count({
         where: { id: rest.organizationId, teamId },
       });
-      if (organization === 0) throw new NotFoundError("Firma bulunamadi");
+      if (organization === 0) throw new NotFoundError("Firma bulunamadı");
 
       if (rest.assignedToId) {
         await assertAccountsBelongToTeam(prisma, teamId, [rest.assignedToId]);
@@ -274,7 +274,7 @@ export function createSponsorsService(prisma: PrismaClient) {
         select: { id: true },
       });
       if (existing) {
-        throw new ConflictError("Bu firmanin bu sezon icin kaydi zaten var");
+        throw new ConflictError("Bu firmanın bu sezon için kaydı zaten var");
       }
 
       const sponsorship = await prisma.sponsorship.create({
@@ -296,7 +296,7 @@ export function createSponsorsService(prisma: PrismaClient) {
       mayReadFinance: boolean
     ) => {
       const existing = await prisma.sponsorship.count({ where: { id, teamId } });
-      if (existing === 0) throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+      if (existing === 0) throw new NotFoundError("Sponsorluk kaydı bulunamadı");
 
       if (rest.assignedToId) {
         await assertAccountsBelongToTeam(prisma, teamId, [rest.assignedToId]);
@@ -327,11 +327,11 @@ export function createSponsorsService(prisma: PrismaClient) {
         select: { financeTransaction: { select: { id: true } } },
       });
       if (!existing) {
-        throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+        throw new NotFoundError("Sponsorluk kaydı bulunamadı");
       }
       if (existing.financeTransaction) {
         throw new ConflictError(
-          "Bu sponsorluk finans kaydina baglidir. Once bagli finans kaydini silin."
+          "Bu sponsorluk finans kaydına bağlıdır. Önce bağlı finans kaydını silin."
         );
       }
       await prisma.sponsorship.delete({ where: { id } });
@@ -371,13 +371,13 @@ export function createSponsorsService(prisma: PrismaClient) {
         },
       });
       if (!sponsorship) {
-        throw new NotFoundError("Sponsorluk kaydi bulunamadi");
+        throw new NotFoundError("Sponsorluk kaydı bulunamadı");
       }
       if (sponsorship.status !== "SPONSOR") {
-        throw new ConflictError("Yalnizca SPONSOR durumundaki kayitlar finansa islenebilir");
+        throw new ConflictError("Yalnızca SPONSOR durumundaki kayıtlar finansa işlenebilir");
       }
       if (sponsorship.financeTransaction) {
-        throw new ConflictError("Bu sponsorluk zaten bir finans kaydina baglanmis");
+        throw new ConflictError("Bu sponsorluk zaten bir finans kaydına bağlanmış");
       }
 
       try {
@@ -410,7 +410,7 @@ export function createSponsorsService(prisma: PrismaClient) {
         return { ...transaction, amount: transaction.amount.toFixed(2) };
       } catch (error) {
         if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
-          throw new ConflictError("Bu sponsorluk zaten bir finans kaydina baglanmis");
+          throw new ConflictError("Bu sponsorluk zaten bir finans kaydına bağlanmış");
         }
         throw error;
       }

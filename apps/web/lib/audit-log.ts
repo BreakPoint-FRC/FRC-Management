@@ -75,7 +75,7 @@ function arraySummary(value: unknown[]): string {
       .filter(Boolean)
       .join(", ");
   }
-  return `${value.length} oge`;
+  return `${value.length} öge`;
 }
 
 function permissionSummary(value: unknown): string | null {
@@ -83,17 +83,17 @@ function permissionSummary(value: unknown): string | null {
   const entries = value.flatMap((item) => {
     if (!isRecord(item) || typeof item.tool !== "string") return [];
     if (typeof item.isEnabled === "boolean") {
-      return [`${item.tool} (${item.isEnabled ? "acik" : "kapali"})`];
+      return [`${item.tool} (${item.isEnabled ? "açık" : "kapalı"})`];
     }
     const flags = [
       item.canRead ? "Okuma" : "",
       item.canCreate ? "Ekleme" : "",
-      item.canUpdate ? "Guncelleme" : "",
+      item.canUpdate ? "Güncelleme" : "",
       item.canDelete ? "Silme" : "",
     ].filter(Boolean);
     return [`${item.tool} (${flags.join("/") || "izin yok"})`];
   });
-  return shortList(entries.length === value.length ? entries : [`${value.length} oge`]);
+  return shortList(entries.length === value.length ? entries : [`${value.length} öge`]);
 }
 
 function roleAssignmentSummary(value: unknown): string | null {
@@ -102,7 +102,7 @@ function roleAssignmentSummary(value: unknown): string | null {
     if (!isRecord(item) || typeof item.roleId !== "string") return [];
     return [`${item.roleId}${typeof item.groupId === "string" ? ` @ ${item.groupId}` : ""}`];
   });
-  return shortList(entries.length === value.length ? entries : [`${value.length} oge`]);
+  return shortList(entries.length === value.length ? entries : [`${value.length} öge`]);
 }
 
 const FIELD_LABELS: Record<string, string> = {
@@ -110,26 +110,26 @@ const FIELD_LABELS: Record<string, string> = {
   name: "Ad",
   fullName: "Ad",
   email: "E-posta",
-  description: "Aciklama",
+  description: "Açıklama",
   placement: "Konum",
-  isSystemRole: "Sistem rolu",
-  groupScopeIds: "Grup kapsami",
-  parentId: "Ust grup",
-  parentRoleId: "Ust rol",
+  isSystemRole: "Sistem rolü",
+  groupScopeIds: "Grup kapsamı",
+  parentId: "Üst grup",
+  parentRoleId: "Üst rol",
   childRoleId: "Alt rol",
   groups: "Gruplar",
   assignments: "Atamalar",
-  roleScopes: "Rol kapsamlari",
-  tools: "Moduller",
+  roleScopes: "Rol kapsamları",
+  tools: "Modüller",
   roles: "Roller",
-  permissionCount: "Izin sayisi",
-  hierarchy: "Baglantilar",
-  template: "Sablon",
+  permissionCount: "İzin sayısı",
+  hierarchy: "Bağlantılar",
+  template: "Şablon",
 };
 
 function scalar(value: unknown): string {
   if (value === null || value === undefined || value === "") return "Yok";
-  if (typeof value === "boolean") return value ? "Evet" : "Hayir";
+  if (typeof value === "boolean") return value ? "Evet" : "Hayır";
   if (["string", "number"].includes(typeof value)) return String(value);
   if (Array.isArray(value)) return arraySummary(value);
   return "Deger";
@@ -175,7 +175,7 @@ export function summarizeAuditChange(
     const removed = [...before.keys()].sort().filter((id) => !after.has(id));
     const added = [...after.keys()].sort().filter((id) => !before.has(id));
     if (removed.length === 0 && added.length === 0) {
-      return { oldValue: "Degisiklik yok", newValue: "Degisiklik yok" };
+      return { oldValue: "Değişiklik yok", newValue: "Değişiklik yok" };
     }
     return {
       oldValue: roleAssignmentSummary(removed.map((id) => before.get(id)))!,
@@ -196,7 +196,7 @@ export function summarizeAuditChange(
       (row.action === "GROUP_TOOLS_REPLACED" && (!before.has(tool) || !after.has(tool))) ||
       fields.some((field) => Boolean(before.get(tool)?.[field]) !== Boolean(after.get(tool)?.[field]))
     );
-    if (tools.length === 0) return { oldValue: "Degisiklik yok", newValue: "Degisiklik yok" };
+    if (tools.length === 0) return { oldValue: "Değişiklik yok", newValue: "Değişiklik yok" };
     const side = (entries: Map<string, JsonRecord>) => shortList(tools.map((tool) =>
       entries.has(tool) ? permissionSummary([entries.get(tool)])! : `${tool} (Yok)`
     ));

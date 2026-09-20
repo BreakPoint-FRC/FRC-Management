@@ -27,7 +27,7 @@ export const calendarQuerySchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["to"],
-        message: "Bitis tarihi baslangictan once olamaz",
+        message: "Bitiş tarihi başlangıçtan önce olamaz",
       });
       return;
     }
@@ -36,7 +36,7 @@ export const calendarQuerySchema = z
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         path: ["to"],
-        message: "Takvim araligi en fazla bir yil olabilir",
+        message: "Takvim aralığı en fazla bir yıl olabilir",
       });
     }
   });

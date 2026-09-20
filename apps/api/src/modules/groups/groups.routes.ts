@@ -40,7 +40,7 @@ import { createGroupsService } from "./groups.service";
  * that has done work is retired, so the tasks and meetings that point at it stay
  * readable; a group that has done none is deleted outright, because a tombstone
  * with no history behind it only holds its name against the next department to
- * want it. Either way a live Tasarim under a removed Mekanik would be a
+ * want it. Either way a live Tasarım under a removed Mekanik would be a
  * department nobody can reach, so it goes too.
  */
 export async function groupsRoutes(app: FastifyInstance) {
@@ -79,7 +79,7 @@ export async function groupsRoutes(app: FastifyInstance) {
     });
 
     const group = await service.getById(requireTeam(req.account), id);
-    if (!group) throw new NotFoundError("Grup bulunamadi");
+    if (!group) throw new NotFoundError("Grup bulunamadı");
     return group;
   });
 

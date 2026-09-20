@@ -372,7 +372,7 @@ describe("/teams belongs to the platform, not to a team", () => {
   const CALLER = {
     id: "account-1",
     email: "ada@breakpoint.test",
-    fullName: "Ada Yilmaz",
+    fullName: "Ada Yılmaz",
     isActive: true,
     mustChangePassword: false,
     archivedAt: null,

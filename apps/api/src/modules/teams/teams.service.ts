@@ -73,14 +73,14 @@ export function createTeamsService(prisma: PrismaClient) {
     if (taken > 0) {
       // Email is unique across the whole platform, not per team: one address is
       // one person is one team. Saying so plainly beats a bare unique-violation.
-      throw new ConflictError("Bu e-posta adresi baska bir hesapta kullaniliyor");
+      throw new ConflictError("Bu e-posta adresi başka bir hesapta kullanılıyor");
     }
 
     const role = await tx.role.findFirst({
       where: { teamId, key: "TEAM_ADMIN" },
       select: { id: true },
     });
-    if (!role) throw new NotFoundError("Takim yoneticisi rolu bulunamadi");
+    if (!role) throw new NotFoundError("Takım yöneticisi rolü bulunamadı");
 
     const password = generateTemporaryPassword(randomBytes);
     const account = await tx.account.create({
@@ -165,9 +165,9 @@ export function createTeamsService(prisma: PrismaClient) {
           data: {
             teamId: created.id,
             key: "TEAM_ADMIN",
-            name: "Takim Yoneticisi",
+            name: "Takım Yöneticisi",
             description:
-              "Takimin tamamini yonetir: gruplar, roller, moduller, izinler ve hesaplar.",
+              "Takımın tamamını yönetir: gruplar, roller, modüller, izinler ve hesaplar.",
             placement: "TEAM_WIDE",
             isSystemRole: true,
           },
@@ -214,9 +214,9 @@ export function createTeamsService(prisma: PrismaClient) {
           action: "ROLE_CREATED",
           newValue: {
             key: "TEAM_ADMIN",
-            name: "Takim Yoneticisi",
+            name: "Takım Yöneticisi",
             description:
-              "Takimin tamamini yonetir: gruplar, roller, moduller, izinler ve hesaplar.",
+              "Takımın tamamını yönetir: gruplar, roller, modüller, izinler ve hesaplar.",
             placement: "TEAM_WIDE",
             isSystemRole: true,
             groupScopeIds: [],
@@ -255,7 +255,7 @@ export function createTeamsService(prisma: PrismaClient) {
 
     update: async (id: string, input: UpdateTeamInput) => {
       const existing = await prisma.team.findUnique({ where: { id }, select: { name: true } });
-      if (!existing) throw new NotFoundError("Takim bulunamadi");
+      if (!existing) throw new NotFoundError("Takım bulunamadı");
 
       const team = await prisma.team.update({
         where: { id },
@@ -276,8 +276,8 @@ export function createTeamsService(prisma: PrismaClient) {
         where: { id: teamId },
         select: { isActive: true },
       });
-      if (!team) throw new NotFoundError("Takim bulunamadi");
-      if (!team.isActive) throw new ConflictError("Arsivlenmis takima yonetici eklenemez");
+      if (!team) throw new NotFoundError("Takım bulunamadı");
+      if (!team.isActive) throw new ConflictError("Arşivlenmiş takıma yönetici eklenemez");
 
       const created = await prisma.$transaction((tx) =>
         createAdmin(tx, teamId, input, assignedById)
@@ -295,8 +295,8 @@ export function createTeamsService(prisma: PrismaClient) {
      */
     archive: async (id: string) => {
       const team = await prisma.team.findUnique({ where: { id }, select: { isActive: true } });
-      if (!team) throw new NotFoundError("Takim bulunamadi");
-      if (!team.isActive) throw new ConflictError("Takim zaten arsivlenmis");
+      if (!team) throw new NotFoundError("Takım bulunamadı");
+      if (!team.isActive) throw new ConflictError("Takım zaten arşivlenmiş");
 
       await prisma.$transaction([
         prisma.team.update({ where: { id }, data: { isActive: false } }),

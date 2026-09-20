@@ -180,10 +180,10 @@ export function createRolesService(prisma: PrismaClient) {
     groupScopeIds: readonly string[]
   ) => {
     if (placementForbidsGroupScope(placement) && groupScopeIds.length > 0) {
-      throw new ConflictError("Bu konum tum takimi kapsar, ayrica grup secilemez");
+      throw new ConflictError("Bu konum tüm takımı kapsar, ayrıca grup seçilemez");
     }
     if (placementNeedsGroupScope(placement) && groupScopeIds.length === 0) {
-      throw new ConflictError("Bu konum icin en az bir grup secilmeli");
+      throw new ConflictError("Bu konum için en az bir grup seçilmeli");
     }
     if (groupScopeIds.length === 0) return;
 
@@ -191,7 +191,7 @@ export function createRolesService(prisma: PrismaClient) {
       where: { id: { in: [...groupScopeIds] }, teamId },
     });
     if (found !== new Set(groupScopeIds).size) {
-      throw new NotFoundError("Grup bulunamadi");
+      throw new NotFoundError("Grup bulunamadı");
     }
   };
 
@@ -277,7 +277,7 @@ export function createRolesService(prisma: PrismaClient) {
           groupScopes: { select: { groupId: true } },
         },
       });
-      if (!existing) throw new NotFoundError("Rol bulunamadi");
+      if (!existing) throw new NotFoundError("Rol bulunamadı");
 
       const { groupScopeIds, ...fields } = input;
       const placement = (fields.placement ?? existing.placement) as RolePlacement;
@@ -396,11 +396,11 @@ export function createRolesService(prisma: PrismaClient) {
         },
       });
 
-      if (!role) throw new NotFoundError("Rol bulunamadi");
+      if (!role) throw new NotFoundError("Rol bulunamadı");
       if (role.isSystemRole) throw new ConflictError("Sistem rolleri silinemez");
       if (role._count.accountRoles > 0) {
         throw new ConflictError(
-          `${role.name} rolu ${role._count.accountRoles} hesaba atanmis durumda, once atamalari kaldirin`
+          `${role.name} rolü ${role._count.accountRoles} hesaba atanmış durumda, önce atamaları kaldırın`
         );
       }
 
@@ -462,7 +462,7 @@ export function createRolesService(prisma: PrismaClient) {
       actorId: string
     ) => {
       if (parentRoleId === childRoleId) {
-        throw new ConflictError("Bir rol kendisine bagli olamaz");
+        throw new ConflictError("Bir rol kendisine bağlı olamaz");
       }
 
       // Both must be this team's own roles. Platform roles are readable but not
@@ -472,13 +472,13 @@ export function createRolesService(prisma: PrismaClient) {
         where: { id: { in: [parentRoleId, childRoleId] }, teamId },
         select: { id: true },
       });
-      if (roles.length !== 2) throw new NotFoundError("Rol bulunamadi");
+      if (roles.length !== 2) throw new NotFoundError("Rol bulunamadı");
 
       // Adding parent -> child closes a loop exactly when parent is already
       // somewhere below child.
       const belowChild = await descendantsOf(childRoleId);
       if (belowChild.has(parentRoleId)) {
-        throw new ConflictError("Bu baglanti rol hiyerarsisinde dongu olusturur");
+        throw new ConflictError("Bu bağlantı rol hiyerarşisinde döngü oluşturur");
       }
 
       await prisma.$transaction(async (tx) => {
@@ -503,7 +503,7 @@ export function createRolesService(prisma: PrismaClient) {
       const roles = await prisma.role.count({
         where: { id: { in: [parentRoleId, childRoleId] }, teamId },
       });
-      if (roles !== 2) throw new NotFoundError("Rol bulunamadi");
+      if (roles !== 2) throw new NotFoundError("Rol bulunamadı");
 
       await prisma.$transaction(async (tx) => {
         await tx.roleHierarchy.delete({
@@ -593,7 +593,7 @@ export function createRolesService(prisma: PrismaClient) {
         where: { id: roleId, teamId },
         select: { id: true },
       });
-      if (!role) throw new NotFoundError("Rol bulunamadi");
+      if (!role) throw new NotFoundError("Rol bulunamadı");
 
       // Every role this can reach is a team role -- the lookup above filters on
       // teamId, and a platform role has none -- so a platform-only tool here is
@@ -612,7 +612,7 @@ export function createRolesService(prisma: PrismaClient) {
       );
       if (escalating) {
         throw new ConflictError(
-          `${escalating.tool} yetkisi yalnizca platform rolune verilebilir`
+          `${escalating.tool} yetkisi yalnızca platform rolüne verilebilir`
         );
       }
 
@@ -623,7 +623,7 @@ export function createRolesService(prisma: PrismaClient) {
       );
       if (readOnlyMutationGrant) {
         throw new ConflictError(
-          `${readOnlyMutationGrant.tool} yalnizca okuma yetkisi kabul eder`
+          `${readOnlyMutationGrant.tool} yalnızca okuma yetkisi kabul eder`
         );
       }
 

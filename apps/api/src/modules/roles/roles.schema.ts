@@ -14,8 +14,8 @@ const roleFields = z.object({
     .string()
     .min(2)
     .max(48)
-    .regex(/^[A-Z][A-Z0-9_]*$/, "Rol anahtari BUYUK_HARF formatinda olmali"),
-  name: z.string().min(1, "Rol adi gerekli").max(80),
+    .regex(/^[A-Z][A-Z0-9_]*$/, "Rol anahtarı BUYUK_HARF formatında olmalı"),
+  name: z.string().min(1, "Rol adı gerekli").max(80),
   description: z.string().max(500).nullish(),
   placement: rolePlacementSchema,
   // The groups this role has authority over -- the roots of it. The subtree
@@ -40,14 +40,14 @@ function checkGroupScope(
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["groupScopeIds"],
-      message: "Bu konum icin en az bir grup secilmeli",
+      message: "Bu konum için en az bir grup seçilmeli",
     });
   }
   if (placementForbidsGroupScope(value.placement) && value.groupScopeIds.length > 0) {
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       path: ["groupScopeIds"],
-      message: "Bu konum tum takimi kapsar, ayrica grup secilemez",
+      message: "Bu konum tüm takımı kapsar, ayrıca grup seçilemez",
     });
   }
 }

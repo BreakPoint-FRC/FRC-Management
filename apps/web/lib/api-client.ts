@@ -67,7 +67,7 @@ export class ApiError extends Error {
  * wifi in this venue is saturated" and "something is broken", and those two
  * ask the user for completely different things.
  */
-const OFFLINE_MESSAGE = "Internet baglantisi yok";
+const OFFLINE_MESSAGE = "İnternet bağlantısı yok";
 
 async function toApiError(res: Response): Promise<ApiError> {
   try {

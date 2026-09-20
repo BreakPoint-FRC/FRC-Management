@@ -57,7 +57,7 @@ describe("role hierarchy", () => {
     // every authorized request.
     const service = createRolesService(stubPrisma());
 
-    await expect(service.linkRoles(TEAM, "member", "team-lead", "admin-1")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "member", "team-lead", "admin-1")).rejects.toThrow(/döngü/);
   });
 
   it("refuses a longer cycle, not just a direct one", async () => {
@@ -73,7 +73,7 @@ describe("role hierarchy", () => {
     });
     const service = createRolesService(prisma);
 
-    await expect(service.linkRoles(TEAM, "d", "a", "admin-1")).rejects.toThrow(/dongu/);
+    await expect(service.linkRoles(TEAM, "d", "a", "admin-1")).rejects.toThrow(/döngü/);
   });
 
   it("allows an edge that only deepens the tree", async () => {
@@ -126,7 +126,7 @@ describe("deleting a role", () => {
       stubForDelete({ isSystemRole: false, name: "Arsiv Sorumlusu", _count: { accountRoles: 3 } })
     );
 
-    await expect(service.remove(TEAM, "role-x", "admin-1")).rejects.toThrow(/3 hesaba atanmis/);
+    await expect(service.remove(TEAM, "role-x", "admin-1")).rejects.toThrow(/3 hesaba atanmış/);
   });
 
   it("deletes a role nothing depends on", async () => {
@@ -435,7 +435,7 @@ describe("PUT /roles/:id/permissions platform boundary", () => {
     id: "account-1",
     teamId: TEAM,
     email: "ada@breakpoint.test",
-    fullName: "Ada Yilmaz",
+    fullName: "Ada Yılmaz",
     isActive: true,
     mustChangePassword: false,
     archivedAt: null,

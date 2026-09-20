@@ -7,7 +7,7 @@ import { toolKeySchema } from "@breakpoint/types";
 // first.
 export const createToolSchema = z.object({
   key: toolKeySchema,
-  name: z.string().min(1, "Modul adi gerekli").max(80),
+  name: z.string().min(1, "Modül adı gerekli").max(80),
   description: z.string().max(500).nullish(),
   isActive: z.boolean().default(true),
 });
