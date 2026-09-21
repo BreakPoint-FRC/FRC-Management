@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { emailSchema } from "./accounts";
+
 // Where a team is in its first-run setup.
 //
 // The order is the order of the wizard screens and it is a dependency order,
@@ -74,7 +76,7 @@ export const teamSchema = z.object({
 export const createTeamSchema = z.object({
   name: z.string().min(1, "Takım adı gerekli").max(120),
   adminFullName: z.string().min(1, "Yönetici adı gerekli").max(120),
-  adminEmail: z.string().email("Geçerli bir e-posta adresi girin"),
+  adminEmail: emailSchema,
 });
 
 // Archiving is deliberately not a PATCH field. It has session and account

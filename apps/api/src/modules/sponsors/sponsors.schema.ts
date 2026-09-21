@@ -5,9 +5,28 @@ import {
   sponsorshipStatusSchema,
 } from "@breakpoint/types";
 
+// z.string().url() only checks that the value parses as a URL -- the WHATWG
+// URL spec accepts "javascript:..." as a perfectly well-formed one, and this
+// value is later rendered as a real <a href> on the sponsors page. Restricting
+// the scheme here is what stops a sponsor record from carrying a link that
+// runs script in another user's browser when they click it.
+const websiteSchema = z
+  .string()
+  .max(300)
+  .refine(
+    (value) => {
+      try {
+        return ["http:", "https:"].includes(new URL(value).protocol);
+      } catch {
+        return false;
+      }
+    },
+    { message: "Geçerli bir http(s) adresi girin" }
+  );
+
 const organizationFields = z.object({
   name: z.string().min(1, "Firma adı gerekli").max(160),
-  website: z.string().url("Geçerli bir adres girin").max(300).nullish(),
+  website: websiteSchema.nullish(),
   email: z.string().email("Geçerli bir e-posta adresi girin").max(160).nullish(),
   phone: z.string().max(40).nullish(),
   notes: z.string().max(2000).nullish(),

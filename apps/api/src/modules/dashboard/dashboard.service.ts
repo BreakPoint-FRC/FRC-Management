@@ -9,6 +9,22 @@ const UPCOMING_MEETING_WINDOW = 7 * DAY;
 const RECENT_WINDOW = 7 * DAY;
 const LIST_LIMIT = 5;
 
+/**
+ * UTC midnight of `now`'s calendar day.
+ *
+ * dueDate/meetingDate are date-only columns, always stored as UTC midnight of
+ * the day they name (see meetings.schema.ts's z.coerce.date()). Comparing them
+ * against the raw `now` instant treats "today" as already over/started the
+ * moment local time passes that midnight -- east of Greenwich that is nearly
+ * the whole day, so a task due today reads as overdue and today's meeting
+ * drops out of "upcoming" for most of the day it is actually happening on.
+ * Comparing against this boundary instead keeps both correct for their whole
+ * calendar day.
+ */
+function startOfToday(now: Date): Date {
+  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+}
+
 const taskSummarySelect = {
   id: true,
   name: true,
@@ -138,6 +154,7 @@ export function createDashboardService(prisma: PrismaClient) {
     matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
   ) => {
     const now = new Date();
+    const todayStart = startOfToday(now);
 
     const taskWhere = scopeWhere(readableScope(matrix, "TASKS"));
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
@@ -158,7 +175,7 @@ export function createDashboardService(prisma: PrismaClient) {
     const [overdueTasks, openTasks, upcomingMeetings, groups, roles] = await Promise.all([
       assignedTaskWhere
         ? prisma.task.findMany({
-            where: { ...assignedTaskWhere, dueDate: { lt: now } },
+            where: { ...assignedTaskWhere, dueDate: { lt: todayStart } },
             select: taskSummarySelect,
             orderBy: { dueDate: "asc" },
             take: LIST_LIMIT,
@@ -166,7 +183,7 @@ export function createDashboardService(prisma: PrismaClient) {
         : Promise.resolve([]),
       assignedTaskWhere
         ? prisma.task.findMany({
-            where: { ...assignedTaskWhere, OR: [{ dueDate: null }, { dueDate: { gte: now } }] },
+            where: { ...assignedTaskWhere, OR: [{ dueDate: null }, { dueDate: { gte: todayStart } }] },
             select: taskSummarySelect,
             orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
             take: LIST_LIMIT,
@@ -177,7 +194,7 @@ export function createDashboardService(prisma: PrismaClient) {
             where: {
               ...meetingWhere,
               teamId,
-              meetingDate: { gte: now, lte: new Date(now.getTime() + UPCOMING_MEETING_WINDOW) },
+              meetingDate: { gte: todayStart, lte: new Date(todayStart.getTime() + UPCOMING_MEETING_WINDOW) },
             },
             select: meetingSummarySelect,
             orderBy: { meetingDate: "asc" },
@@ -227,6 +244,7 @@ export function createDashboardService(prisma: PrismaClient) {
     meetingScope: { teamWide: boolean; groupIds: readonly string[] }
   ) => {
     const now = new Date();
+    const todayStart = startOfToday(now);
     const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
 
     const groups = await prisma.group.findMany({
@@ -252,7 +270,7 @@ export function createDashboardService(prisma: PrismaClient) {
                     teamId,
                     groupId: group.id,
                     status: { in: [...OPEN_TASK_STATUSES] },
-                    dueDate: { lt: now },
+                    dueDate: { lt: todayStart },
                   },
                 })
               : Promise.resolve(0),
@@ -281,7 +299,7 @@ export function createDashboardService(prisma: PrismaClient) {
               : Promise.resolve([]),
             canReadMeetings
               ? prisma.meeting.findFirst({
-                  where: { teamId, groupId: group.id, meetingDate: { gte: now } },
+                  where: { teamId, groupId: group.id, meetingDate: { gte: todayStart } },
                   select: meetingSummarySelect,
                   orderBy: { meetingDate: "asc" },
                 })
@@ -319,6 +337,7 @@ export function createDashboardService(prisma: PrismaClient) {
    */
   const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
     const now = new Date();
+    const todayStart = startOfToday(now);
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
     const taskScope = readableScope(matrix, "TASKS");
     const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
@@ -349,7 +368,7 @@ export function createDashboardService(prisma: PrismaClient) {
           : Promise.resolve(null),
         meetingWhere
           ? prisma.meeting.findFirst({
-              where: { ...meetingWhere, teamId, meetingDate: { gte: now } },
+              where: { ...meetingWhere, teamId, meetingDate: { gte: todayStart } },
               select: meetingSummarySelect,
               orderBy: { meetingDate: "asc" },
             })
@@ -385,7 +404,7 @@ export function createDashboardService(prisma: PrismaClient) {
               teamId,
               groupId: group.id,
               status: { in: [...OPEN_TASK_STATUSES] },
-              dueDate: { lt: now },
+              dueDate: { lt: todayStart },
             },
           }),
           prisma.task.count({

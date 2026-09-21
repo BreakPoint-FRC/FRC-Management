@@ -8,14 +8,18 @@ import { buildApp } from "./app";
 // plugin exists for.
 
 function stubClient(overrides: Record<string, unknown>) {
-  return {
+  const stub: Record<string, unknown> = {
     $disconnect: vi.fn().mockResolvedValue(undefined),
-    // Services use $transaction([...]) to pair a page with its count. The
-    // elements are already promises from the stubs below.
-    $transaction: (operations: unknown) =>
-      Array.isArray(operations) ? Promise.all(operations) : (operations as () => unknown)(),
     ...overrides,
   };
+  // Services use $transaction([...]) to pair a page with its count, or
+  // $transaction(async (tx) => ...) for an interactive transaction -- tx is
+  // the stub itself, same as every module-local stub client does.
+  stub.$transaction = (operations: unknown) =>
+    Array.isArray(operations)
+      ? Promise.all(operations)
+      : (operations as (tx: unknown) => unknown)(stub);
+  return stub;
 }
 
 function buildWithPrisma(stub: unknown) {
@@ -229,6 +233,32 @@ describe("rate limiting behind a trusted proxy", () => {
     const eleventh = await attempt(app, "10.0.0.99");
 
     expect(eleventh.statusCode).not.toBe(429);
+    await app.close();
+  });
+});
+
+describe("rate limiting on password change", () => {
+  // A stolen-but-valid access token is otherwise an unlimited number of
+  // currentPassword guesses for as long as the token lasts -- this endpoint
+  // needs the same guessing defense /auth/login has, just keyed on an
+  // authenticated session instead of an anonymous one.
+  it("returns 429 once an authenticated caller exceeds the limit", async () => {
+    const app = buildWithPrisma(stubClient({ account: { findUnique: async () => ADMIN } }));
+    await app.ready();
+    const token = app.jwt.sign({ sub: ADMIN.id });
+
+    const attemptChange = () =>
+      app.inject({
+        method: "POST",
+        url: "/auth/password",
+        headers: { authorization: `Bearer ${token}` },
+        payload: { currentPassword: "whatever-they-typed", newPassword: "a-brand-new-password" },
+      });
+
+    for (let i = 0; i < 5; i++) {
+      expect((await attemptChange()).statusCode).not.toBe(429);
+    }
+    expect((await attemptChange()).statusCode).toBe(429);
     await app.close();
   });
 });
@@ -520,6 +550,32 @@ describe("refresh tokens travel in the body", () => {
     await app.close();
   });
 
+  it("treats a token raced by a concurrent refresh as reuse, not a second mint", async () => {
+    // Two requests present the same still-valid token at once: both read it as
+    // not-yet-revoked, but the conditional claim (updateMany WHERE revokedAt
+    // IS NULL) only ever affects a row once. This stub plays the loser -- the
+    // winner already claimed the row, so this one's claim affects 0 rows.
+    const create = vi.fn();
+    const updateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const app = buildWithPrisma(refreshStubs({ create, updateMany }));
+    await app.ready();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/auth/refresh",
+      payload: { refreshToken: "lost-the-race" },
+    });
+
+    expect(response.statusCode).toBe(401);
+    // No new token is minted for the loser -- that would hand out a second
+    // valid refresh token from a single presented one.
+    expect(create).not.toHaveBeenCalled();
+    // The failed claim, then the revoke-everything fallback that a raced
+    // token gets treated the same as a genuinely reused/stolen one.
+    expect(updateMany).toHaveBeenCalledTimes(2);
+    await app.close();
+  });
+
   it("refuses a refresh with nothing to spend", async () => {
     // The old route read a cookie the browser attached on its own, so a missing
     // one was invisible. Now an empty body is a request the client got wrong.
@@ -559,6 +615,29 @@ describe("refresh tokens travel in the body", () => {
 
     expect(response.statusCode).toBe(204);
     expect(updateMany).not.toHaveBeenCalled();
+    await app.close();
+  });
+});
+
+describe("email is normalized before it ever reaches the database", () => {
+  // Email is unique across the whole platform, and the column itself is a
+  // plain case-sensitive Postgres text column -- normalizing has to happen at
+  // the schema, or "Admin@x.test" and "admin@x.test" collide as two different
+  // rows instead of one.
+  it("looks up a login by the trimmed, lowercased address", async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
+    const app = buildWithPrisma(stubClient({ account: { findUnique } }));
+    await app.ready();
+
+    await app.inject({
+      method: "POST",
+      url: "/auth/login",
+      payload: { email: "  Ada@Breakpoint.TEST  ", password: "whatever-they-typed" },
+    });
+
+    expect(findUnique).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { email: "ada@breakpoint.test" } })
+    );
     await app.close();
   });
 });

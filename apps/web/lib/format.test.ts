@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, formatMoney, toDateInput } from "./format";
+import { formatDate, formatMoney, isHttpUrl, toDateInput } from "./format";
 
 describe("formatMoney", () => {
   it("keeps two decimals whatever the value looks like", () => {
@@ -43,5 +43,20 @@ describe("toDateInput", () => {
 
   it("is empty rather than invalid when there is no date", () => {
     expect(toDateInput(null)).toBe("");
+  });
+});
+
+describe("isHttpUrl", () => {
+  it("accepts http and https", () => {
+    expect(isHttpUrl("https://ornek.com")).toBe(true);
+    expect(isHttpUrl("http://ornek.com")).toBe(true);
+  });
+
+  it("refuses a javascript: URI, the whole reason this check exists", () => {
+    expect(isHttpUrl("javascript:alert(1)")).toBe(false);
+  });
+
+  it("refuses anything that is not even a URL", () => {
+    expect(isHttpUrl("not a url")).toBe(false);
   });
 });

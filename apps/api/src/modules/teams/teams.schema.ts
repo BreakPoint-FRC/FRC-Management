@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { createTeamSchema, paginationSchema, updateTeamSchema } from "@breakpoint/types";
+import { createTeamSchema, emailSchema, paginationSchema, updateTeamSchema } from "@breakpoint/types";
 
 export { createTeamSchema, updateTeamSchema };
 
@@ -14,7 +14,7 @@ export const listTeamsQuerySchema = paginationSchema.extend({
 // first one, which is created with the team itself.
 export const createTeamAdminSchema = z.object({
   fullName: z.string().min(1, "Ad soyad gerekli").max(120),
-  email: z.string().email("Geçerli bir e-posta adresi girin"),
+  email: emailSchema,
 });
 
 export type ListTeamsQuery = z.infer<typeof listTeamsQuerySchema>;

@@ -8,6 +8,7 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, PageHeader } from "@/components/ui";
 import { GuardedLink } from "@/components/unsaved-changes";
 import { useApi } from "@/hooks/use-api";
+import { dayKey } from "@/lib/calendar-grid";
 import { formatDate } from "@/lib/format";
 import { canAnywhere } from "@/lib/permissions";
 import type { DashboardRow } from "@/lib/api-types";
@@ -505,7 +506,10 @@ function TaskList({
         </thead>
         <tbody>
           {tasks.map((task) => {
-            const overdue = task.dueDate !== null && new Date(task.dueDate) < new Date();
+            // dueDate is a date-only field (UTC midnight): a task due today
+            // is not overdue until its whole calendar day has passed, so this
+            // has to compare calendar days, not the raw instant against now.
+            const overdue = task.dueDate !== null && dayKey(task.dueDate) < dayKey(new Date());
             return (
               <tr key={task.id}>
                 <td>
