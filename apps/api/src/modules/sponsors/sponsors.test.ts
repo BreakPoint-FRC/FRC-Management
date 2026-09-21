@@ -2,9 +2,29 @@ import { describe, expect, it, vi } from "vitest";
 import type { PrismaClient } from "@breakpoint/db";
 
 import { NotFoundError } from "../../lib/http-errors";
+import { createOrganizationSchema } from "./sponsors.schema";
 import { createSponsorsService } from "./sponsors.service";
 
 const TEAM = "team-1";
+
+describe("organization website", () => {
+  // website ends up rendered as a real <a href> on the sponsors page. Zod's
+  // own .url() accepts "javascript:..." as a well-formed URL -- WHATWG says
+  // so -- so the scheme itself has to be checked, not just parseability.
+  it("accepts an http(s) address", () => {
+    expect(createOrganizationSchema.safeParse({ name: "Acme", website: "https://acme.test" }).success).toBe(
+      true
+    );
+  });
+
+  it("refuses a javascript: URI", () => {
+    const result = createOrganizationSchema.safeParse({
+      name: "Acme",
+      website: "javascript:alert(document.cookie)",
+    });
+    expect(result.success).toBe(false);
+  });
+});
 
 describe("sponsorship owners", () => {
   it("rejects a cross-team owner before creating a sponsorship", async () => {

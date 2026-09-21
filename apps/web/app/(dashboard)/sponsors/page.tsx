@@ -29,7 +29,7 @@ import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { OrganizationRow, SeasonRow } from "@/lib/api-types";
 import { emptyToNull } from "@/lib/form-helpers";
-import { formatDate, formatMoney, toDateInput } from "@/lib/format";
+import { formatDate, formatMoney, isHttpUrl, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 import { sponsorshipTone } from "@/lib/status";
@@ -418,7 +418,7 @@ export default function SponsorsPage() {
                   <tr key={organization.id}>
                     <td>
                       <div>{organization.name}</div>
-                      {organization.website ? (
+                      {organization.website && isHttpUrl(organization.website) ? (
                         <a
                           className="small muted"
                           href={organization.website}
@@ -427,6 +427,8 @@ export default function SponsorsPage() {
                         >
                           {organization.website}
                         </a>
+                      ) : organization.website ? (
+                        <span className="small muted">{organization.website}</span>
                       ) : null}
                     </td>
                     <td className="small muted">

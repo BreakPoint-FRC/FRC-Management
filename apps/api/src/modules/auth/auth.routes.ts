@@ -72,12 +72,25 @@ export async function authRoutes(app: FastifyInstance) {
   app.get("/me", { preHandler: app.authenticate }, async (req) => service.profile(req.account.id));
 
   // -> 204 | 400 weak or unchanged password | 401 wrong current password
-  app.post("/password", { preHandler: app.authenticate }, async (req, reply) => {
-    const input = changePasswordSchema.parse(req.body);
-    await service.changePassword(req.account.id, input);
+  app.post(
+    "/password",
+    {
+      preHandler: app.authenticate,
+      // A short-lived access token stolen in-session (XSS, a shared device, a
+      // leaked log line) is otherwise an unlimited number of currentPassword
+      // guesses for as long as that token lasts -- the same guessing surface
+      // /auth/login is rate limited against, just authenticated instead of
+      // anonymous.
+      config: { rateLimit: { max: 5, timeWindow: "5 minutes" } },
+    },
+    async (req, reply) => {
+      const input = changePasswordSchema.parse(req.body);
+      await service.changePassword(req.account.id, input);
 
-    // Every session was just revoked server-side, including this one's refresh
-    // token; the client drops its copy when the next refresh is refused.
-    reply.code(204).send();
-  });
+      // Every session was just revoked server-side, including this one's
+      // refresh token; the client drops its copy when the next refresh is
+      // refused.
+      reply.code(204).send();
+    }
+  );
 }

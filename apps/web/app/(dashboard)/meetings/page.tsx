@@ -14,6 +14,7 @@ import {
   RowActions,
 } from "@/components/ui";
 import { FormPanel, SelectField, TextAreaField, TextField } from "@/components/ui/form";
+import { dayKey } from "@/lib/calendar-grid";
 import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
@@ -60,12 +61,18 @@ export default function MeetingsPage() {
 
   const { upcoming, past, missingReportCount } = useMemo(() => {
     const items = meetings.data?.items ?? [];
-    const now = new Date();
+    // meetingDate is a date-only field (an <input type="date"> value coerced
+    // server-side to UTC midnight) -- a bucketing decision has to compare
+    // calendar days, the same way the calendar page already does with
+    // dayKey(), not raw instants against `now`. Comparing instants flips a
+    // meeting happening later today to "past" the moment local time passes
+    // its UTC-midnight timestamp, hours before the meeting itself.
+    const today = dayKey(new Date());
     const upcomingRows = items
-      .filter((meeting) => new Date(meeting.meetingDate) >= now)
+      .filter((meeting) => dayKey(meeting.meetingDate) >= today)
       .sort((a, b) => new Date(a.meetingDate).getTime() - new Date(b.meetingDate).getTime());
     const pastRows = items
-      .filter((meeting) => new Date(meeting.meetingDate) < now)
+      .filter((meeting) => dayKey(meeting.meetingDate) < today)
       .sort((a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime());
     return {
       upcoming: upcomingRows,
