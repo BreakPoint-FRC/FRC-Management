@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { formatAccountRoles, type Paginated } from "@breakpoint/types";
+import { formatAccountRoles } from "@breakpoint/types";
 
 import { BulkImportPanel } from "@/components/accounts/bulk-import-panel";
 import {
@@ -11,7 +11,7 @@ import {
 } from "@/components/accounts/role-assignment-rows";
 import { AsyncSection, Badge, ErrorBox } from "@/components/ui";
 import { FormPanel, TextField } from "@/components/ui/form";
-import { useApi } from "@/hooks/use-api";
+import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { AccountRow, GroupTreeRow, RoleRow } from "@/lib/api-types";
@@ -33,8 +33,8 @@ type Mode = "single" | "bulk";
  * off this screen and handed over.
  */
 export function AccountsStep() {
-  const accounts = useApi<Paginated<AccountRow>>("/accounts?pageSize=100");
-  const roles = useApi<Paginated<RoleRow>>("/roles?pageSize=100");
+  const accounts = useApiAllPages<AccountRow>("/accounts");
+  const roles = useApiAllPages<RoleRow>("/roles");
   const groups = useApi<GroupTreeRow[]>("/groups/tree");
   const mutation = useMutation();
 
@@ -68,7 +68,7 @@ export function AccountsStep() {
                 </tr>
               </thead>
               <tbody>
-                {data.items.map((account) => (
+                {data.map((account) => (
                   <tr key={account.id}>
                     <td>{account.fullName}</td>
                     <td className="muted small">{account.email}</td>
@@ -118,7 +118,7 @@ export function AccountsStep() {
             <AsyncSection state={groups}>
               {(groupTree) => (
                 <BulkImportPanel
-                  roles={roleList.items}
+                  roles={roleList}
                   groups={groupTree}
                   onImported={() => accounts.reload()}
                 />
@@ -176,7 +176,7 @@ export function AccountsStep() {
                     <RoleAssignmentRows
                       value={roleDrafts}
                       onChange={setRoleDrafts}
-                      roles={roleList.items}
+                      roles={roleList}
                       groups={groupTree}
                       error={mutation.error}
                     />

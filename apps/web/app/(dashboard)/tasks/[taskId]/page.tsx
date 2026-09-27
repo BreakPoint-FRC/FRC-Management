@@ -16,7 +16,7 @@ import { AsyncSection, Badge, Card, ErrorBox, PageHeader } from "@/components/ui
 import { CheckboxField, FormPanel } from "@/components/ui/form";
 import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { ApiError, apiClient } from "@/lib/api-client";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDateOnly, formatDateTime } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import type { AccountRow, TaskActivityRow, TaskRow } from "@/lib/api-types";
 import { taskStatusTone } from "@/lib/status";
@@ -149,8 +149,8 @@ export default function TaskDetailPage() {
 
                 <Card title="Tarihler">
                   <div className="small">
-                    <div>Başlangıç: {formatDate(data.startDate)}</div>
-                    <div>Bitiş: {formatDate(data.dueDate)}</div>
+                    <div>Başlangıç: {formatDateOnly(data.startDate)}</div>
+                    <div>Bitiş: {formatDateOnly(data.dueDate)}</div>
                   </div>
                 </Card>
               </div>

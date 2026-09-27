@@ -62,6 +62,18 @@ describe("fetchAllPages", () => {
     expect(secondUrl.searchParams.get("pageSize")).toBe("50");
   });
 
+  it("replaces stale paging parameters instead of sending duplicates", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(page([1], 1, 1));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await fetchAllPages("/accounts?search=ada&page=9&pageSize=1", 50);
+
+    const url = new URL(fetchMock.mock.calls[0][0] as string);
+    expect(url.searchParams.get("search")).toBe("ada");
+    expect(url.searchParams.getAll("page")).toEqual(["1"]);
+    expect(url.searchParams.getAll("pageSize")).toEqual(["50"]);
+  });
+
   it("propagates a failure from any page rather than returning a partial list", async () => {
     vi.stubGlobal(
       "fetch",

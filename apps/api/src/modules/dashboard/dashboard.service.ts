@@ -9,22 +9,6 @@ const UPCOMING_MEETING_WINDOW = 7 * DAY;
 const RECENT_WINDOW = 7 * DAY;
 const LIST_LIMIT = 5;
 
-/**
- * UTC midnight of `now`'s calendar day.
- *
- * dueDate/meetingDate are date-only columns, always stored as UTC midnight of
- * the day they name (see meetings.schema.ts's z.coerce.date()). Comparing them
- * against the raw `now` instant treats "today" as already over/started the
- * moment local time passes that midnight -- east of Greenwich that is nearly
- * the whole day, so a task due today reads as overdue and today's meeting
- * drops out of "upcoming" for most of the day it is actually happening on.
- * Comparing against this boundary instead keeps both correct for their whole
- * calendar day.
- */
-function startOfToday(now: Date): Date {
-  return new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
-}
-
 const taskSummarySelect = {
   id: true,
   name: true,
@@ -167,11 +151,9 @@ export function createDashboardService(prisma: PrismaClient) {
   const mineSummary = async (
     teamId: string,
     accountId: string,
-    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
+    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
+    todayStart: Date
   ) => {
-    const now = new Date();
-    const todayStart = startOfToday(now);
-
     const taskWhere = scopeWhere(readableScope(matrix, "TASKS"));
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
 
@@ -257,10 +239,10 @@ export function createDashboardService(prisma: PrismaClient) {
     teamId: string,
     groupIds: readonly string[],
     taskScope: { teamWide: boolean; groupIds: readonly string[] },
-    meetingScope: { teamWide: boolean; groupIds: readonly string[] }
+    meetingScope: { teamWide: boolean; groupIds: readonly string[] },
+    now: Date,
+    todayStart: Date
   ) => {
-    const now = new Date();
-    const todayStart = startOfToday(now);
     const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
 
     const groups = await prisma.group.findMany({
@@ -351,9 +333,11 @@ export function createDashboardService(prisma: PrismaClient) {
    * answer), and each department's counts need TASKS read for that specific
    * department.
    */
-  const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
-    const now = new Date();
-    const todayStart = startOfToday(now);
+  const teamSummary = async (
+    teamId: string,
+    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
+    todayStart: Date
+  ) => {
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
     const taskScope = readableScope(matrix, "TASKS");
     const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
@@ -444,7 +428,7 @@ export function createDashboardService(prisma: PrismaClient) {
       departments,
       activeSeason,
       seasonDaysRemaining: activeSeason
-        ? Math.max(0, Math.ceil((activeSeason.endDate.getTime() - now.getTime()) / DAY))
+        ? Math.max(0, Math.ceil((activeSeason.endDate.getTime() - todayStart.getTime()) / DAY))
         : null,
       upcomingMeeting: upcomingMeeting ? serializeMeeting(upcomingMeeting) : null,
       crossGroupOpenTaskCount: crossGroupOpenCount,
@@ -514,7 +498,7 @@ export function createDashboardService(prisma: PrismaClient) {
   };
 
   return {
-    summary: async (account: AuthenticatedAccount) => {
+    summary: async (account: AuthenticatedAccount, todayStart: Date) => {
       if (account.teamId === null) {
         return {
           scope: "platform" as const,
@@ -527,6 +511,7 @@ export function createDashboardService(prisma: PrismaClient) {
       }
 
       const teamId = account.teamId;
+      const now = new Date();
       const [matrix, accountRoles, groups] = await Promise.all([
         resolvePermissionMatrix(prisma, account.id),
         prisma.accountRole.findMany({
@@ -555,16 +540,18 @@ export function createDashboardService(prisma: PrismaClient) {
       );
 
       const [mine, group, team, management] = await Promise.all([
-        mineSummary(teamId, account.id, matrix),
+        mineSummary(teamId, account.id, matrix, todayStart),
         scopes.groupIds.length > 0
           ? groupSummary(
               teamId,
               scopes.groupIds,
               readableScope(matrix, "TASKS"),
-              readableScope(matrix, "MEETINGS")
+              readableScope(matrix, "MEETINGS"),
+              now,
+              todayStart
             )
           : Promise.resolve(null),
-        scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
+        scopes.team ? teamSummary(teamId, matrix, todayStart) : Promise.resolve(null),
         scopes.management ? managementSummary(teamId, matrix) : Promise.resolve(null),
       ]);
 

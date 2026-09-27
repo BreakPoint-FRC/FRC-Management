@@ -31,7 +31,7 @@ import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { AccountRow, TaskRow } from "@/lib/api-types";
 import { emptyToNull, emptyToUndefined, selectToNull } from "@/lib/form-helpers";
-import { formatDate, toDateInput } from "@/lib/format";
+import { formatDateOnly, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 import { taskStatusTone } from "@/lib/status";
@@ -365,7 +365,7 @@ export default function TasksPage() {
                           task.assignees.map((assignee) => assignee.fullName).join(", ")
                         )}
                       </td>
-                      <td data-label="Bitiş">{formatDate(task.dueDate)}</td>
+                      <td data-label="Bitiş">{formatDateOnly(task.dueDate)}</td>
                       <td>
                         <RowActions>
                           {/* Authorized against the group the task is in, read

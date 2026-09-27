@@ -1,4 +1,5 @@
 import { hash } from "@node-rs/argon2";
+import { emailSchema } from "@breakpoint/types";
 
 import type { PrismaClient } from "./generated/prisma/client";
 
@@ -63,17 +64,20 @@ export async function bootstrapSystemAdmin(
   if (!input.email || !input.password) {
     throw new Error("SYSTEM_ADMIN_EMAIL and SYSTEM_ADMIN_PASSWORD must both be set. See .env.example.");
   }
+
+  // This command bypasses the API request schemas, so use the same shared
+  // email contract explicitly. Fail before hashing or opening a transaction:
+  // a typo in production configuration must never create an administrator
+  // that cannot sign in through the normalized login flow.
+  const parsedEmail = emailSchema.safeParse(input.email);
+  if (!parsedEmail.success) {
+    throw new Error("SYSTEM_ADMIN_EMAIL must be a valid email address.");
+  }
+  const email = parsedEmail.data;
+
   if (input.password.length < 10) {
     throw new Error("SYSTEM_ADMIN_PASSWORD must be at least 10 characters.");
   }
-  // Same normalization as emailSchema (packages/types/src/accounts.ts), done
-  // by hand here rather than by depending on that package: Account.email is a
-  // plain case-sensitive column, unique across the whole platform, and every
-  // other write path lowercases before touching it. Skipping it here would
-  // let "Admin@x.test" bootstrap alongside an already-existing "admin@x.test"
-  // team account instead of colliding with it -- exactly the hijack/duplicate
-  // this function's own checks below exist to refuse.
-  const email = input.email.trim().toLowerCase();
   if (email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
     throw new Error(
       "SYSTEM_ADMIN_EMAIL/SYSTEM_ADMIN_PASSWORD are still the .env.example placeholders. Set real values before running this."

@@ -350,7 +350,9 @@ export function createAccountsService(prisma: PrismaClient) {
         prisma.account.findMany({
           where,
           select: accountSelect,
-          orderBy: { fullName: "asc" },
+          // Pickers walk every page. The id tie-breaker keeps rows with the
+          // same name from moving between pages while that walk is in flight.
+          orderBy: [{ fullName: "asc" }, { id: "asc" }],
           ...toPrismaPage(query),
         }),
         prisma.account.count({ where }),

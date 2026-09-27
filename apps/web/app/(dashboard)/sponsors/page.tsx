@@ -29,7 +29,7 @@ import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { OrganizationRow, SeasonRow } from "@/lib/api-types";
 import { emptyToNull } from "@/lib/form-helpers";
-import { formatDate, formatMoney, isHttpUrl, toDateInput } from "@/lib/format";
+import { formatDateOnly, formatMoney, isHttpUrl, localDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 import { sponsorshipTone } from "@/lib/status";
@@ -196,7 +196,7 @@ export default function SponsorsPage() {
       // Pre-filled from the pledge, but a genuinely separate value: the amount
       // actually received can differ from what was promised.
       amount: sponsorship.amount ?? "",
-      transactionDate: toDateInput(new Date()),
+      transactionDate: localDateInput(),
       description: "",
     });
     setPanel({ kind: "convert", org, sponsorship });
@@ -460,7 +460,7 @@ export default function SponsorsPage() {
                                   sponsorship.financeTransaction.transactionDate ? (
                                     <span className="small muted">
                                       {formatMoney(sponsorship.financeTransaction.amount)} —{" "}
-                                      {formatDate(sponsorship.financeTransaction.transactionDate)}
+                                      {formatDateOnly(sponsorship.financeTransaction.transactionDate)}
                                     </span>
                                   ) : null}
                                 </span>

@@ -11,7 +11,7 @@ import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { SeasonRow } from "@/lib/api-types";
-import { formatDate, toDateInput } from "@/lib/format";
+import { formatDateOnly, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 
@@ -164,8 +164,8 @@ export default function SeasonsPage() {
                 {data.items.map((season) => (
                   <tr key={season.id}>
                     <td>{season.name}</td>
-                    <td>{formatDate(season.startDate)}</td>
-                    <td>{formatDate(season.endDate)}</td>
+                    <td>{formatDateOnly(season.startDate)}</td>
+                    <td>{formatDateOnly(season.endDate)}</td>
                     <td className="numeric">{season._count.tasks}</td>
                     <td className="numeric">{season._count.meetings}</td>
                     <td className="numeric">{season._count.transactions}</td>

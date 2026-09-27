@@ -67,7 +67,11 @@ export function useApi<T>(path: string | null): ApiState<T> {
 }
 
 function pageUrl(path: string, page: number, pageSize: number): string {
-  return `${path}${path.includes("?") ? "&" : "?"}page=${page}&pageSize=${pageSize}`;
+  const [pathname, query = ""] = path.split("?", 2);
+  const params = new URLSearchParams(query);
+  params.set("page", String(page));
+  params.set("pageSize", String(pageSize));
+  return `${pathname}?${params.toString()}`;
 }
 
 /**
@@ -92,12 +96,17 @@ function pageUrl(path: string, page: number, pageSize: number): string {
  */
 export async function fetchAllPages<T>(path: string, pageSize = 100): Promise<T[]> {
   const first = await apiClient.get<Paginated<T>>(pageUrl(path, 1, pageSize));
-  const rest = await Promise.all(
-    Array.from({ length: Math.max(first.totalPages, 1) - 1 }, (_, index) =>
-      apiClient.get<Paginated<T>>(pageUrl(path, index + 2, pageSize))
-    )
-  );
-  return [...first.items, ...rest.flatMap((page) => page.items)];
+  const items = [...first.items];
+
+  // Sequential requests avoid turning a large team into an unbounded burst of
+  // simultaneous API/DB work. Pickers load in the background and preserve the
+  // server's stable page order.
+  for (let page = 2; page <= first.totalPages; page++) {
+    const next = await apiClient.get<Paginated<T>>(pageUrl(path, page, pageSize));
+    items.push(...next.items);
+  }
+
+  return items;
 }
 
 /** See fetchAllPages. This is only its React binding: fetch on mount/path change, into ApiState. */

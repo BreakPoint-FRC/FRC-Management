@@ -22,6 +22,7 @@ const mockedCanPerform = vi.mocked(canPerform);
 
 const TEAM = "team-1";
 const ACCOUNT_ID = "acc-1";
+const TODAY = new Date("2026-09-15T00:00:00.000Z");
 
 function account(teamId: string | null = TEAM): AuthenticatedAccount {
   return { id: ACCOUNT_ID, email: "x@breakpoint.test", fullName: "X", teamId, mustChangePassword: false };
@@ -125,7 +126,7 @@ describe("platform accounts", () => {
       teamFindMany: vi.fn().mockResolvedValue([{ id: "t1", name: "A", createdAt: new Date(), setupStage: "DONE" }]),
     });
 
-    const result = await createDashboardService(prisma).summary(account(null));
+    const result = await createDashboardService(prisma).summary(account(null), TODAY);
 
     expect(result.scope).toBe("platform");
     expect(result.platform).toEqual({
@@ -146,7 +147,7 @@ describe("platform accounts", () => {
     mockedCanPerform.mockResolvedValue(false);
     const { prisma, calls } = stubPrisma();
 
-    const result = await createDashboardService(prisma).summary(account(null));
+    const result = await createDashboardService(prisma).summary(account(null), TODAY);
 
     expect(result.platform).toBeNull();
     expect(calls.teamCount).not.toHaveBeenCalled();
@@ -158,7 +159,7 @@ describe("scope detection", () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canCreate: true } } }));
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management).not.toBeNull();
     expect(result.group).toBeNull();
@@ -168,7 +169,7 @@ describe("scope detection", () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true, canUpdate: true } } }));
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management).not.toBeNull();
   });
@@ -177,7 +178,7 @@ describe("scope detection", () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ACCOUNTS: { canRead: true } } }));
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team).not.toBeNull();
     expect(result.management).toBeNull();
@@ -197,7 +198,7 @@ describe("scope detection", () => {
     );
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group).toBeNull();
   });
@@ -209,7 +210,7 @@ describe("scope detection", () => {
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group).toEqual([
       expect.objectContaining({ groupId: "g1", groupName: "Yazılım" }),
@@ -250,7 +251,7 @@ describe("scope detection", () => {
       groupFindMany,
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     // Granted at "teknik" (the root), never at "tasarim" directly -- only
     // reachable at all because expandGroupSubtrees walked the tree down to it.
@@ -263,7 +264,7 @@ describe("scope detection", () => {
       accountRoleFindMany: withRoles([{ placement: "IN_GROUP", groupId: "g1" }]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group).toBeNull();
   });
@@ -283,7 +284,7 @@ describe("scope detection", () => {
       ]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group).toHaveLength(2);
   });
@@ -294,7 +295,7 @@ describe("scope detection", () => {
       accountRoleFindMany: withRoles([{ placement: "IN_GROUP", groupId: "g1" }]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.mine).not.toBeNull();
     expect(result.group).toBeNull();
@@ -314,7 +315,7 @@ describe("scope detection", () => {
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.mine).not.toBeNull();
     expect(result.group).not.toBeNull();
@@ -328,7 +329,7 @@ describe("mine data", () => {
     mockedResolve.mockResolvedValue(matrix({}));
     const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    await createDashboardService(prisma).summary(account());
+    await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(calls.taskFindMany).not.toHaveBeenCalled();
     expect(calls.meetingFindMany).not.toHaveBeenCalled();
@@ -340,7 +341,7 @@ describe("mine data", () => {
     );
     const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    await createDashboardService(prisma).summary(account());
+    await createDashboardService(prisma).summary(account(), TODAY);
 
     // One call for overdue, one for open-but-not-yet-due -- never one per
     // group, which is the thing this test actually guards.
@@ -358,14 +359,17 @@ describe("mine data", () => {
     mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
     const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    await createDashboardService(prisma).summary(account());
+    await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(calls.taskFindMany.mock.calls[0]?.[0].where).not.toHaveProperty("groupId");
   });
 
   it("splits assigned open tasks into due-in-the-future and overdue via two separate queries", async () => {
     vi.useFakeTimers();
-    vi.setSystemTime(new Date("2026-09-15T00:00:00.000Z"));
+    // The browser says it is already Sep 15 locally while the API server's
+    // UTC clock still reads Sep 14. Query boundaries must follow the explicit
+    // browser day, not derive a day from this instant.
+    vi.setSystemTime(new Date("2026-09-14T21:30:00.000Z"));
     mockedResolve.mockResolvedValue(matrix({ global: { TASKS: { canRead: true } } }));
     const taskFindMany = vi
       .fn()
@@ -378,13 +382,13 @@ describe("mine data", () => {
       ]);
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]), taskFindMany });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.mine?.openTasks.map((t) => t.id)).toEqual(["future", "undated"]);
     expect(result.mine?.overdueTasks.map((t) => t.id)).toEqual(["past"]);
-    expect(taskFindMany.mock.calls[0]![0].where).toMatchObject({ dueDate: { lt: expect.any(Date) } });
+    expect(taskFindMany.mock.calls[0]![0].where).toMatchObject({ dueDate: { lt: TODAY } });
     expect(taskFindMany.mock.calls[1]![0].where).toMatchObject({
-      OR: [{ dueDate: null }, { dueDate: { gte: expect.any(Date) } }],
+      OR: [{ dueDate: null }, { dueDate: { gte: TODAY } }],
     });
   });
 
@@ -412,7 +416,7 @@ describe("mine data", () => {
       ]);
     const { prisma } = stubPrisma({ accountRoleFindMany: withRoles([]), taskFindMany });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.mine?.overdueTasks).toHaveLength(5);
     expect(result.mine?.openTasks.map((t) => t.id)).toEqual(["soon"]);
@@ -430,7 +434,7 @@ describe("management data", () => {
       .mockResolvedValueOnce(3); // without group
     const { prisma } = stubPrisma({ accountCount, accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management).toMatchObject({
       activeAccountCount: 12,
@@ -450,7 +454,7 @@ describe("management data", () => {
       accountRoleFindMany: withRoles([]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management?.setupIncomplete).toBe(true);
   });
@@ -459,7 +463,7 @@ describe("management data", () => {
     mockedResolve.mockResolvedValue(matrix({ global: { ROLES: { canUpdate: true } } }));
     const { prisma, calls } = stubPrisma({ accountRoleFindMany: withRoles([]) });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management).toMatchObject({
       canReadAccounts: false,
@@ -489,7 +493,7 @@ describe("management data", () => {
       seasonFindFirst: vi.fn().mockResolvedValue(activeSeason),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.management).toMatchObject({
       canReadAccounts: false,
@@ -512,7 +516,7 @@ describe("team data", () => {
       taskCount: vi.fn().mockResolvedValue(2),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team?.departments).toEqual([
       { groupId: "g1", groupName: "Mechanical", openCount: 2, overdueCount: 2, unassignedCount: 2 },
@@ -535,7 +539,7 @@ describe("team data", () => {
       taskCount: vi.fn().mockResolvedValue(2),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team?.departments).toEqual([]);
     expect(calls.taskCount).not.toHaveBeenCalled();
@@ -557,7 +561,7 @@ describe("team data", () => {
       taskCount: vi.fn().mockResolvedValue(2),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team?.departments).toEqual([
       { groupId: "g1", groupName: "Mechanical", openCount: 2, overdueCount: 2, unassignedCount: 2 },
@@ -572,7 +576,7 @@ describe("team data", () => {
       groupFindMany: vi.fn().mockResolvedValue([]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team).toMatchObject({ crossGroupOpenTaskCount: 0, crossGroupUnassignedTaskCount: 0 });
     expect(calls.taskCount).not.toHaveBeenCalled();
@@ -588,7 +592,7 @@ describe("team data", () => {
       taskCount: vi.fn().mockResolvedValue(5),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.team).toMatchObject({ crossGroupOpenTaskCount: 5, crossGroupUnassignedTaskCount: 5 });
     expect(calls.taskCount.mock.calls.some((call) => call[0]?.where?.groupId === null)).toBe(true);
@@ -607,7 +611,7 @@ describe("group data", () => {
       ]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group?.[0]).toMatchObject({ groupId: "g1", openCount: 3, overdueCount: 3, unassignedCount: 3 });
     expect(result.group?.[0]?.topTasks).toHaveLength(1);
@@ -631,7 +635,7 @@ describe("group data", () => {
       ]),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group?.[0]).toMatchObject({
       groupId: "g1",
@@ -660,7 +664,7 @@ describe("group data", () => {
       }),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group?.[0]?.upcomingMeeting).toMatchObject({ id: "m1", title: "Standup" });
   });
@@ -678,7 +682,7 @@ describe("group data", () => {
       }),
     });
 
-    const result = await createDashboardService(prisma).summary(account());
+    const result = await createDashboardService(prisma).summary(account(), TODAY);
 
     expect(result.group?.[0]?.upcomingMeeting).toBeNull();
     expect(calls.meetingFindFirst).not.toHaveBeenCalled();
@@ -697,7 +701,7 @@ describe("authentication", () => {
       groupFindMany: vi.fn().mockResolvedValue([]),
     });
 
-    await createDashboardService(prisma).summary(account("team-a"));
+    await createDashboardService(prisma).summary(account("team-a"), TODAY);
 
     expect(calls.taskFindMany.mock.calls[0]?.[0].where).toMatchObject({ teamId: "team-a" });
     expect(calls.meetingFindMany.mock.calls[0]?.[0].where).toMatchObject({ teamId: "team-a" });

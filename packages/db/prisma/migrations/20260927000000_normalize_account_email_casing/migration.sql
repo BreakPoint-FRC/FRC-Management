@@ -1,37 +1,41 @@
--- Existing rows created before Account.email was normalized at the
--- application boundary (packages/types/src/accounts.ts's emailSchema,
--- packages/db/src/bootstrap.ts) may still hold mixed case or untrimmed
--- values. The column stays a plain case-sensitive unique text column --
--- normalizing here, once, is what makes "Admin@x.test" and "admin@x.test"
--- collide as the same account from now on instead of two rows nothing else
--- in the schema treats as related.
+-- Account.email is the platform-wide login identity, and every application
+-- write path stores it trimmed and lowercase. Existing databases may predate
+-- that contract, so normalize their rows before new code relies on canonical
+-- lookups.
 --
--- Two real, distinct accounts that already differ only by email casing
--- cannot both be silently renamed onto the same value -- that would corrupt
--- one of them by merging its identity into the other's without moving any
--- of its roles, tasks, or history along with it. Rather than guess which one
--- should win, any such collision is left untouched and reported via
--- RAISE NOTICE so a human resolves it by hand; every account whose
--- normalized form does not collide with another row is updated.
+-- The current unique index is case-sensitive. Two rows such as
+-- `Admin@example.test` and `admin@example.test` are therefore legal before
+-- this migration but cannot both be normalized safely. Detect that state and
+-- abort before changing any row so an operator can reconcile the identities.
 DO $$
 DECLARE
-  colliding RECORD;
+  normalized_collision_count integer;
 BEGIN
-  FOR colliding IN
-    SELECT lower(trim(email)) AS normalized, array_agg(id ORDER BY "createdAt") AS account_ids
-    FROM "Account"
-    GROUP BY lower(trim(email))
-    HAVING count(*) > 1
-  LOOP
-    RAISE NOTICE 'Skipping email normalization for %: accounts % already collide on this address and must be reconciled by hand.',
-      colliding.normalized, colliding.account_ids;
-  END LOOP;
+  -- Serialize account writes across the collision check and backfill. The
+  -- lock is released with this migration transaction.
+  LOCK TABLE "Account" IN SHARE ROW EXCLUSIVE MODE;
 
-  UPDATE "Account" a
-  SET email = lower(trim(a.email))
-  WHERE a.email <> lower(trim(a.email))
-    AND NOT EXISTS (
-      SELECT 1 FROM "Account" b
-      WHERE b.id <> a.id AND lower(trim(b.email)) = lower(trim(a.email))
-    );
+  SELECT COUNT(*)
+    INTO normalized_collision_count
+    FROM (
+      SELECT LOWER(BTRIM("email")) AS normalized_email
+        FROM "Account"
+       GROUP BY LOWER(BTRIM("email"))
+      HAVING COUNT(*) > 1
+    ) AS collisions;
+
+  IF normalized_collision_count > 0 THEN
+    RAISE EXCEPTION USING
+      ERRCODE = '23505',
+      MESSAGE = FORMAT(
+        'Cannot normalize Account.email: %s normalized address collision(s) found.',
+        normalized_collision_count
+      ),
+      HINT = 'Resolve duplicate Account rows that differ only by surrounding spaces or letter case. If Prisma recorded this migration as failed, mark it rolled back with prisma migrate resolve before rerunning prisma migrate deploy.';
+  END IF;
+
+  UPDATE "Account"
+     SET "email" = LOWER(BTRIM("email")),
+         "updatedAt" = CURRENT_TIMESTAMP
+   WHERE "email" IS DISTINCT FROM LOWER(BTRIM("email"));
 END $$;

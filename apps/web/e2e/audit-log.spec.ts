@@ -22,7 +22,7 @@ async function login(page: Page, grant: "audit" | "roles" | "group" = "audit") {
   // generic offline/retry UI the audit-log failure tests assert on -- a race
   // between two unrelated "Tekrar dene" buttons, one of which gets unmounted
   // out from under Playwright's click the moment the real navigation lands.
-  await page.route("**/dashboard", (route) => route.fulfill({ json: {
+  await page.route("**/dashboard?*", (route) => route.fulfill({ json: {
     scope: "team", platform: null,
     mine: { openTasks: [], overdueTasks: [], upcomingMeetings: [], groups: [], roles: [] },
     group: null, team: null, management: null,

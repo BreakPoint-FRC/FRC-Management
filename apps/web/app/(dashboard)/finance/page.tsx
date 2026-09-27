@@ -28,7 +28,7 @@ import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { FinanceMonthlyRow, FinanceSummaryRow, TransactionRow } from "@/lib/api-types";
 import { emptyToNull, selectToNull } from "@/lib/form-helpers";
-import { formatDate, formatMoney, toDateInput } from "@/lib/format";
+import { formatDateOnly, formatMoney, localDateInput, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can } from "@/lib/permissions";
 
@@ -101,7 +101,7 @@ export default function FinancePage() {
   }
 
   function openCreate() {
-    setDraft({ ...BLANK, groupId, transactionDate: toDateInput(new Date()) });
+    setDraft({ ...BLANK, groupId, transactionDate: localDateInput() });
     setEditing("new");
     mutation.reset();
   }
@@ -295,7 +295,7 @@ export default function FinancePage() {
                 <tbody>
                   {data.items.map((transaction) => (
                     <tr key={transaction.id}>
-                      <td data-label="Tarih">{formatDate(transaction.transactionDate)}</td>
+                      <td data-label="Tarih">{formatDateOnly(transaction.transactionDate)}</td>
                       <td data-label="Tür">
                         <Badge tone={transaction.type === "INCOME" ? "ok" : "danger"}>
                           {transactionTypeLabels[transaction.type]}

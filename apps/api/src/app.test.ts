@@ -261,6 +261,68 @@ describe("rate limiting on password change", () => {
     expect((await attemptChange()).statusCode).toBe(429);
     await app.close();
   });
+
+  it("does not make different accounts on one school network share a bucket", async () => {
+    const accounts = Array.from({ length: 60 }, (_, index) => ({
+      ...ADMIN,
+      id: `account-${index + 1}`,
+      email: `member-${index + 1}@breakpoint.test`,
+    }));
+    const app = buildWithPrisma(
+      stubClient({
+        account: {
+          findUnique: async ({ where }: { where: { id: string } }) =>
+            accounts.find((account) => account.id === where.id) ?? null,
+        },
+      })
+    );
+    await app.ready();
+
+    for (const account of accounts) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/auth/password",
+        headers: { authorization: `Bearer ${app.jwt.sign({ sub: account.id })}` },
+        payload: { currentPassword: "whatever-they-typed", newPassword: "a-brand-new-password" },
+      });
+      expect(response.statusCode).not.toBe(429);
+    }
+
+    await app.close();
+  });
+
+  it("keeps one account in the same bucket even when its source IP changes", async () => {
+    process.env.TRUST_PROXY_HOPS = "1";
+    try {
+      const app = buildWithPrisma(stubClient({ account: { findUnique: async () => ADMIN } }));
+      await app.ready();
+      const token = app.jwt.sign({ sub: ADMIN.id });
+
+      for (let index = 0; index < 5; index++) {
+        const response = await app.inject({
+          method: "POST",
+          url: "/auth/password",
+          headers: {
+            authorization: `Bearer ${token}`,
+            "x-forwarded-for": `10.0.0.${index + 1}`,
+          },
+          payload: { currentPassword: "whatever-they-typed", newPassword: "a-brand-new-password" },
+        });
+        expect(response.statusCode).not.toBe(429);
+      }
+
+      const sixth = await app.inject({
+        method: "POST",
+        url: "/auth/password",
+        headers: { authorization: `Bearer ${token}`, "x-forwarded-for": "10.0.0.99" },
+        payload: { currentPassword: "whatever-they-typed", newPassword: "a-brand-new-password" },
+      });
+      expect(sixth.statusCode).toBe(429);
+      await app.close();
+    } finally {
+      delete process.env.TRUST_PROXY_HOPS;
+    }
+  });
 });
 
 describe("authentication", () => {

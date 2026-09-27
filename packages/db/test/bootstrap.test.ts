@@ -192,6 +192,24 @@ function fakePrisma(tx: ReturnType<typeof createFakeTx>["tx"]) {
 const hashPassword = { hashPassword: vi.fn(async () => "new-password-hash") };
 
 describe("system administrator bootstrap", () => {
+  it("rejects an invalid email before hashing or touching the database", async () => {
+    const fake = createFakeTx();
+    const transaction = vi.fn((fn: (client: typeof fake.tx) => unknown) => fn(fake.tx));
+    const prisma = { $transaction: transaction } as unknown as PrismaClient;
+    const hashInvalidPassword = vi.fn(async () => "unused-hash");
+
+    await expect(
+      bootstrapSystemAdmin(
+        prisma,
+        { email: "not-an-email", password: "replacement-password" },
+        { hashPassword: hashInvalidPassword }
+      )
+    ).rejects.toThrow(/SYSTEM_ADMIN_EMAIL must be a valid email address/i);
+
+    expect(hashInvalidPassword).not.toHaveBeenCalled();
+    expect(transaction).not.toHaveBeenCalled();
+  });
+
   it("creates the admin on first run and resets credentials + sessions on a rerun with the same email", async () => {
     const fake = createFakeTx();
     const prisma = fakePrisma(fake.tx);
@@ -302,6 +320,14 @@ describe("system administrator bootstrap", () => {
 
     await expect(
       bootstrapSystemAdmin(prisma, { email: "admin@breakpoint.test", password: "a-real-password-here" }, hashPassword)
+    ).rejects.toThrow(/placeholder/i);
+
+    await expect(
+      bootstrapSystemAdmin(
+        prisma,
+        { email: "  ADMIN@BREAKPOINT.TEST ", password: "a-real-password-here" },
+        hashPassword
+      )
     ).rejects.toThrow(/placeholder/i);
 
     await expect(

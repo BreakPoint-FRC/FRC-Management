@@ -50,8 +50,7 @@ export function monthGrid(cursor: Date): Date[] {
 }
 
 /** "2026-08-30" in local time -- the key entries are bucketed under. */
-export function dayKey(value: Date | string): string {
-  const date = typeof value === "string" ? new Date(value) : value;
+export function dayKey(date: Date): string {
   const month = String(date.getMonth() + 1).padStart(2, "0");
   const day = String(date.getDate()).padStart(2, "0");
 

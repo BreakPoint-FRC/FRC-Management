@@ -8,6 +8,15 @@ const DATE = new Intl.DateTimeFormat("tr-TR", {
   year: "numeric",
 });
 
+const DATE_ONLY = new Intl.DateTimeFormat("tr-TR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  // API date-only fields are represented as UTC midnight. Pinning the
+  // formatter to UTC preserves the named day in every viewer timezone.
+  timeZone: "UTC",
+});
+
 const DATE_TIME = new Intl.DateTimeFormat("tr-TR", {
   day: "2-digit",
   month: "short",
@@ -19,6 +28,11 @@ const DATE_TIME = new Intl.DateTimeFormat("tr-TR", {
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—";
   return DATE.format(new Date(value));
+}
+
+export function formatDateOnly(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  return DATE_ONLY.format(new Date(value));
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {
@@ -46,20 +60,15 @@ export function formatMoney(value: string | null | undefined): string {
   }).format(amount) + " TL";
 }
 
-/**
- * "yyyy-mm-dd" for a date input, which refuses anything else.
- *
- * Goes through dayKey()'s local-calendar-day getters, not
- * toISOString().slice(0, 10)'s UTC day: a live `new Date()` passed in to
- * default a new record's date is a local instant, and slicing its UTC day
- * reads as yesterday for part of the day (00:00-03:00 Turkey time is already
- * "tomorrow" UTC-side of midnight). The same getters also work for an
- * API date-only field already sitting at UTC midnight, since that midnight
- * still falls on the same calendar day in Turkey's positive offset.
- */
+/** Preserve an API date-only value's named calendar day for an HTML input. */
 export function toDateInput(value: string | Date | null | undefined): string {
   if (!value) return "";
-  return dayKey(new Date(value));
+  return new Date(value).toISOString().slice(0, 10);
+}
+
+/** The user's local calendar day for defaults on newly-created records. */
+export function localDateInput(value: Date = new Date()): string {
+  return dayKey(value);
 }
 
 const MONTH = new Intl.DateTimeFormat("tr-TR", { month: "short", year: "numeric" });

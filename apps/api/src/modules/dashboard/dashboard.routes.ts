@@ -1,11 +1,12 @@
 import type { FastifyInstance } from "fastify";
 
+import { dashboardQuerySchema } from "./dashboard.schema";
 import { createDashboardService } from "./dashboard.service";
 
 /**
  * Mounted at /dashboard.
  *
- *   GET /dashboard -> 200 | 401
+ *   GET /dashboard?today=YYYY-MM-DD -> 200 | 400 | 401
  *
  * Not gated on a tool: there is nothing to be authorized for that reading
  * your own account's summary isn't already. Every piece of data behind it is
@@ -20,6 +21,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   app.addHook("preHandler", app.authenticate);
 
-  // -> 200 | 401
-  app.get("/", async (req) => service.summary(req.account));
+  // The user's calendar day comes from the browser. The API cannot infer it
+  // reliably from an instant because teams may use the app in any timezone.
+  app.get("/", async (req) => {
+    const { today } = dashboardQuerySchema.parse(req.query);
+    return service.summary(req.account, today);
+  });
 }

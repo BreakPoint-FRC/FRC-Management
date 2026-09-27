@@ -15,7 +15,7 @@ import {
 import { taskStatusLabels } from "@breakpoint/types";
 
 import type { GanttBoardTask } from "@/lib/api-types";
-import { formatDate } from "@/lib/format";
+import { formatDateOnly } from "@/lib/format";
 import { taskStatusChartColor, toneChartColor } from "@/lib/status";
 
 const DAY = 24 * 60 * 60 * 1000;
@@ -134,7 +134,7 @@ export default function GanttTimelineChart({ tasks }: { tasks: GanttBoardTask[] 
               type="number"
               domain={[0, span]}
               ticks={ticks}
-              tickFormatter={(value: number) => formatDate(new Date(origin + value))}
+              tickFormatter={(value: number) => formatDateOnly(new Date(origin + value))}
               stroke="var(--chart-axis)"
               fontSize={11}
             />
@@ -237,7 +237,7 @@ function TimelineTooltip({ active, payload }: Partial<TooltipContentProps<number
     <div className="chart-tooltip">
       <strong>{row.name}</strong>
       <div>
-        {formatDate(new Date(row.start))} — {formatDate(new Date(row.end))}
+        {formatDateOnly(new Date(row.start))} — {formatDateOnly(new Date(row.end))}
       </div>
       <div>
         {row.days} gün · {taskStatusLabels[row.status]}

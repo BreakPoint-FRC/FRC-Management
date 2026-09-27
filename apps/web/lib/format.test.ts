@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { formatDate, formatMoney, isHttpUrl, toDateInput } from "./format";
+import {
+  formatDate,
+  formatDateOnly,
+  formatMoney,
+  isHttpUrl,
+  localDateInput,
+  toDateInput,
+} from "./format";
 
 describe("formatMoney", () => {
   it("keeps two decimals whatever the value looks like", () => {
@@ -34,6 +41,17 @@ describe("formatDate", () => {
   it("shows a dash for a missing date", () => {
     expect(formatDate(null)).toBe("—");
   });
+
+  it("keeps a date-only display on its API calendar day in a negative timezone", () => {
+    const originalTimeZone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      expect(formatDateOnly("2026-09-15T00:00:00.000Z")).toMatch(/15.*2026/);
+    } finally {
+      if (originalTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimeZone;
+    }
+  });
 });
 
 describe("toDateInput", () => {
@@ -43,6 +61,18 @@ describe("toDateInput", () => {
 
   it("is empty rather than invalid when there is no date", () => {
     expect(toDateInput(null)).toBe("");
+  });
+
+  it("does not shift an API date-only value in a negative timezone", () => {
+    const originalTimeZone = process.env.TZ;
+    try {
+      process.env.TZ = "America/Los_Angeles";
+      expect(toDateInput("2026-09-15T00:00:00.000Z")).toBe("2026-09-15");
+      expect(localDateInput(new Date("2026-09-15T00:00:00.000Z"))).toBe("2026-09-14");
+    } finally {
+      if (originalTimeZone === undefined) delete process.env.TZ;
+      else process.env.TZ = originalTimeZone;
+    }
   });
 });
 

@@ -16,7 +16,7 @@ import {
   monthGrid,
   startOfMonth,
 } from "@/lib/calendar-grid";
-import { formatDate, monthLabel } from "@/lib/format";
+import { formatDateOnly, monthLabel, toDateInput } from "@/lib/format";
 import { can } from "@/lib/permissions";
 
 /** Which link a cell entry leads to. The calendar owns no records of its own. */
@@ -136,14 +136,14 @@ export default function CalendarPage() {
 
           const byDay = new Map<string, CalendarEntryRow[]>();
           for (const entry of entries) {
-            const key = dayKey(entry.date);
+            const key = toDateInput(entry.date);
             const bucket = byDay.get(key);
             if (bucket) bucket.push(entry);
             else byDay.set(key, [entry]);
           }
 
-          const seasonStart = data.season ? dayKey(data.season.startDate) : null;
-          const seasonEnd = data.season ? dayKey(data.season.endDate) : null;
+          const seasonStart = data.season ? toDateInput(data.season.startDate) : null;
+          const seasonEnd = data.season ? toDateInput(data.season.endDate) : null;
 
           return (
             <div>
@@ -188,7 +188,7 @@ export default function CalendarPage() {
                           href={HREF[entry.kind](entry.id)}
                           title={`${calendarEntryKindLabels[entry.kind]} · ${entry.title}${
                             entry.groupName ? ` · ${entry.groupName}` : ""
-                          } · ${formatDate(entry.date)}`}
+                          } · ${formatDateOnly(entry.date)}`}
                         >
                           {PREFIX[entry.kind]}
                           {entry.title}
@@ -201,8 +201,8 @@ export default function CalendarPage() {
 
               {data.season ? (
                 <p className="small muted">
-                  {data.season.name}: {formatDate(data.season.startDate)} —{" "}
-                  {formatDate(data.season.endDate)}
+                  {data.season.name}: {formatDateOnly(data.season.startDate)} —{" "}
+                  {formatDateOnly(data.season.endDate)}
                 </p>
               ) : null}
             </div>

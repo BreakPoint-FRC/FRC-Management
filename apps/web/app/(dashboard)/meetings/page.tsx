@@ -19,7 +19,7 @@ import { useApi } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import { emptyToNull, selectToNull } from "@/lib/form-helpers";
-import { formatDate, toDateInput } from "@/lib/format";
+import { formatDateOnly, localDateInput, toDateInput } from "@/lib/format";
 import { issueFor } from "@/lib/issues";
 import { can, canAnywhere } from "@/lib/permissions";
 import type { MeetingRow } from "@/lib/api-types";
@@ -63,16 +63,16 @@ export default function MeetingsPage() {
     const items = meetings.data?.items ?? [];
     // meetingDate is a date-only field (an <input type="date"> value coerced
     // server-side to UTC midnight) -- a bucketing decision has to compare
-    // calendar days, the same way the calendar page already does with
-    // dayKey(), not raw instants against `now`. Comparing instants flips a
+    // the API's date-only key with the browser's local day, not raw instants
+    // against `now`. Comparing instants flips a
     // meeting happening later today to "past" the moment local time passes
     // its UTC-midnight timestamp, hours before the meeting itself.
     const today = dayKey(new Date());
     const upcomingRows = items
-      .filter((meeting) => dayKey(meeting.meetingDate) >= today)
+      .filter((meeting) => toDateInput(meeting.meetingDate) >= today)
       .sort((a, b) => new Date(a.meetingDate).getTime() - new Date(b.meetingDate).getTime());
     const pastRows = items
-      .filter((meeting) => dayKey(meeting.meetingDate) < today)
+      .filter((meeting) => toDateInput(meeting.meetingDate) < today)
       .sort((a, b) => new Date(b.meetingDate).getTime() - new Date(a.meetingDate).getTime());
     return {
       upcoming: upcomingRows,
@@ -88,7 +88,7 @@ export default function MeetingsPage() {
   }
 
   function openCreate() {
-    const next = { ...BLANK, groupId, meetingDate: toDateInput(new Date()) };
+    const next = { ...BLANK, groupId, meetingDate: localDateInput() };
     setDraft(next);
     setBaseline({ ...next });
     setEditing("new");
@@ -288,7 +288,7 @@ function MeetingList({
                   <GuardedLink href={`/meetings/${meeting.id}`}>{meeting.title}</GuardedLink>
                 </p>
                 <p className="small muted" style={{ margin: 0 }}>
-                  {formatDate(meeting.meetingDate)} · {meeting.groupName ?? "Takım geneli"}
+                  {formatDateOnly(meeting.meetingDate)} · {meeting.groupName ?? "Takım geneli"}
                 </p>
               </div>
               <RowActions>

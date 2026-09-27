@@ -26,6 +26,14 @@ import { createAuthService } from "./auth.service";
  */
 export async function authRoutes(app: FastifyInstance) {
   const service = createAuthService(app.prisma);
+  const limitPasswordChangesByAccount = app.rateLimit({
+    max: 5,
+    timeWindow: "5 minutes",
+    // Authentication runs first in the preHandler array below, so this is a
+    // verified database account id rather than a JWT claim. The prefix keeps
+    // this bucket independent from the login endpoint's IP keys.
+    keyGenerator: (req) => `password-change:${req.account.id}`,
+  });
 
   // -> 200 { accessToken, refreshToken, account } | 400 invalid body | 401 bad credentials
   app.post(
@@ -75,13 +83,12 @@ export async function authRoutes(app: FastifyInstance) {
   app.post(
     "/password",
     {
-      preHandler: app.authenticate,
+      preHandler: [app.authenticate, limitPasswordChangesByAccount],
       // A short-lived access token stolen in-session (XSS, a shared device, a
       // leaked log line) is otherwise an unlimited number of currentPassword
       // guesses for as long as that token lasts -- the same guessing surface
       // /auth/login is rate limited against, just authenticated instead of
       // anonymous.
-      config: { rateLimit: { max: 5, timeWindow: "5 minutes" } },
     },
     async (req, reply) => {
       const input = changePasswordSchema.parse(req.body);

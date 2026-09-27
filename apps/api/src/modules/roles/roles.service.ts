@@ -206,7 +206,7 @@ export function createRolesService(prisma: PrismaClient) {
         prisma.role.findMany({
           where,
           select: roleSelect,
-          orderBy: { name: "asc" },
+          orderBy: [{ name: "asc" }, { id: "asc" }],
           ...toPrismaPage(query),
         }),
         prisma.role.count({ where }),
