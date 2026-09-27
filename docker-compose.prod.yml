@@ -31,6 +31,17 @@
 # docs/deployment.md sketches a minimal Caddy config) in front of `api` and
 # `web`; both listen on plain HTTP.
 
+# Shared by every long-running service below via `<<: *default-logging`.
+# Docker's default json-file driver keeps every line forever -- on a small
+# single-machine deployment (this file's whole premise) that is a slow disk
+# leak with no operator ever asked to opt into it. 10m x 5 files per service
+# is enough to look back through a bad night without needing its own alert.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   # Rejects known-placeholder or structurally broken values (still the
   # .env.example password, a POSTGRES_PASSWORD with characters that corrupt
@@ -55,6 +66,7 @@ services:
   postgres:
     image: postgres:16-alpine
     restart: unless-stopped
+    logging: *default-logging
     depends_on:
       preflight:
         condition: service_completed_successfully
@@ -123,6 +135,7 @@ services:
       context: .
       dockerfile: apps/api/Dockerfile
     restart: unless-stopped
+    logging: *default-logging
     # Named one by one rather than `env_file: .env`: that file also holds
     # SYSTEM_ADMIN_EMAIL/PASSWORD (only the profile-gated `bootstrap` service
     # reads those) and NEXT_PUBLIC_API_URL (web's build-time value). This
@@ -161,7 +174,7 @@ services:
       migrate:
         condition: service_completed_successfully
     healthcheck:
-      # No curl/wget dependency: Node 20 has global fetch. Reads API_PORT
+      # No curl/wget dependency: Node has global fetch. Reads API_PORT
       # from its own environment so a custom port never falls out of sync
       # with what the server actually bound.
       test:
@@ -186,6 +199,7 @@ services:
         # localhost.
         NEXT_PUBLIC_API_URL: "${NEXT_PUBLIC_API_URL:?Set NEXT_PUBLIC_API_URL in .env before deploying -- the browser-reachable API origin, not the Docker service name}"
     restart: unless-stopped
+    logging: *default-logging
     # No JWT_SECRET, no database credentials, nothing api-only here: this
     # process serves static assets and client JS, and NEXT_PUBLIC_API_URL is
     # already baked into that JS at build time (this file's header) -- there

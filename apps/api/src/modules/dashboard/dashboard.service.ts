@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
-import { OPEN_TASK_STATUSES } from "@breakpoint/types";
+import { expandGroupSubtrees, OPEN_TASK_STATUSES } from "@breakpoint/types";
 
 import { canPerform, resolvePermissionMatrix } from "../../lib/authorize";
 import type { AuthenticatedAccount } from "../../plugins/auth";
@@ -98,6 +98,17 @@ const MANAGEMENT_TOOLS = ["ACCOUNTS", "ROLES", "GROUPS", "SEASONS"] as const;
  *   account holds a real, group-scoped assignment there -- would hand a
  *   TEAM_ADMIN or a MENTOR a "Grubum" tab for every single department in the
  *   team, which is not a department they run.
+ *
+ *   IN_GROUP's anchor is AccountRole.groupId. MANAGES_GROUP's is not --
+ *   schema.prisma's own comment on AccountRole says groupId "must be null for
+ *   every other placement [than IN_GROUP] -- the others carry their own
+ *   coverage in RoleGroupScope", and authorize.ts's buildAuthorizationContext
+ *   reads exactly that table (via `entry.role.groupScopes`) plus
+ *   expandGroupSubtrees to reach a captain's whole department tree. Filtering
+ *   MANAGES_GROUP roles on `role.groupId` here (as an earlier version of this
+ *   function did) is therefore not a narrower version of the same check --
+ *   it is always empty, and a real department captain got no "Grubum" tab at
+ *   all. Same source of truth as authorize(), not an approximation of it.
  * - "Takım" is team-wide ACCOUNTS read: what a captain, a mentor and every
  *   admin-flavoured role have in common is visibility into the whole
  *   roster, not just their own group's.
@@ -108,14 +119,19 @@ const MANAGEMENT_TOOLS = ["ACCOUNTS", "ROLES", "GROUPS", "SEASONS"] as const;
  */
 function computeScopes(
   matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
-  myGroupRoles: readonly { placement: string; groupId: string | null }[]
+  myGroupRoles: readonly { placement: string; groupId: string | null; managedGroupRoots: readonly string[] }[],
+  groups: readonly { id: string; parentId: string | null }[]
 ): { groupIds: string[]; team: boolean; management: boolean } {
+  const inGroupIds = myGroupRoles
+    .filter((role) => role.placement === "IN_GROUP" && role.groupId)
+    .map((role) => role.groupId as string);
+
+  const managesGroupRoots = myGroupRoles
+    .filter((role) => role.placement === "MANAGES_GROUP")
+    .flatMap((role) => role.managedGroupRoots);
+
   const anchoredGroupIds = [
-    ...new Set(
-      myGroupRoles
-        .filter((role) => (role.placement === "IN_GROUP" || role.placement === "MANAGES_GROUP") && role.groupId)
-        .map((role) => role.groupId as string)
-    ),
+    ...new Set([...inGroupIds, ...expandGroupSubtrees(managesGroupRoots, groups)]),
   ];
   const groupIds = anchoredGroupIds.filter(
     (groupId) => matrix.byGroup[groupId]?.MEETINGS?.canCreate || matrix.byGroup[groupId]?.MEETINGS?.canUpdate
@@ -511,17 +527,31 @@ export function createDashboardService(prisma: PrismaClient) {
       }
 
       const teamId = account.teamId;
-      const [matrix, accountRoles] = await Promise.all([
+      const [matrix, accountRoles, groups] = await Promise.all([
         resolvePermissionMatrix(prisma, account.id),
         prisma.accountRole.findMany({
           where: { accountId: account.id, isActive: true },
-          select: { groupId: true, role: { select: { placement: true } } },
+          select: {
+            groupId: true,
+            role: { select: { placement: true, groupScopes: { select: { groupId: true } } } },
+          },
         }),
+        // MANAGES_GROUP's own scope (RoleGroupScope) only names the root(s)
+        // it was granted; expandGroupSubtrees still needs the whole team's
+        // parent/child shape to reach the departments underneath -- same
+        // input authorize.ts's buildAuthorizationContext already fetches for
+        // the same expansion.
+        prisma.group.findMany({ where: { teamId }, select: { id: true, parentId: true } }),
       ]);
 
       const scopes = computeScopes(
         matrix,
-        accountRoles.map((entry) => ({ placement: entry.role.placement, groupId: entry.groupId }))
+        accountRoles.map((entry) => ({
+          placement: entry.role.placement,
+          groupId: entry.groupId,
+          managedGroupRoots: entry.role.groupScopes.map((scope) => scope.groupId),
+        })),
+        groups
       );
 
       const [mine, group, team, management] = await Promise.all([

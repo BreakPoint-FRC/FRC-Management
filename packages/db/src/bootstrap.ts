@@ -66,7 +66,15 @@ export async function bootstrapSystemAdmin(
   if (input.password.length < 10) {
     throw new Error("SYSTEM_ADMIN_PASSWORD must be at least 10 characters.");
   }
-  if (input.email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
+  // Same normalization as emailSchema (packages/types/src/accounts.ts), done
+  // by hand here rather than by depending on that package: Account.email is a
+  // plain case-sensitive column, unique across the whole platform, and every
+  // other write path lowercases before touching it. Skipping it here would
+  // let "Admin@x.test" bootstrap alongside an already-existing "admin@x.test"
+  // team account instead of colliding with it -- exactly the hijack/duplicate
+  // this function's own checks below exist to refuse.
+  const email = input.email.trim().toLowerCase();
+  if (email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
     throw new Error(
       "SYSTEM_ADMIN_EMAIL/SYSTEM_ADMIN_PASSWORD are still the .env.example placeholders. Set real values before running this."
     );
@@ -91,7 +99,7 @@ export async function bootstrapSystemAdmin(
     }
 
     const existingByEmail = await tx.account.findUnique({
-      where: { email: input.email },
+      where: { email },
       select: {
         id: true,
         teamId: true,
@@ -106,14 +114,14 @@ export async function bootstrapSystemAdmin(
 
     if (existingByEmail && !hasHeldThisPlatformAdminRole) {
       throw new Error(
-        `An account already exists with ${input.email}, and it is not the platform admin -- it belongs to ` +
+        `An account already exists with ${email}, and it is not the platform admin -- it belongs to ` +
           `${existingByEmail.teamId ? "a team" : "the platform but without the SYSTEM_ADMIN role"}. ` +
           "Refusing to convert it: use a different SYSTEM_ADMIN_EMAIL, or remove that account first if this really is intended."
       );
     }
 
     const account = await tx.account.upsert({
-      where: { email: input.email },
+      where: { email },
       // teamId stays null on purpose: a platform admin that sat inside a team
       // would be a back door into it.
       update: {
@@ -124,7 +132,7 @@ export async function bootstrapSystemAdmin(
         mustChangePassword: false,
       },
       create: {
-        email: input.email,
+        email,
         fullName: "Sistem Yöneticisi",
         passwordHash,
         teamId: null,

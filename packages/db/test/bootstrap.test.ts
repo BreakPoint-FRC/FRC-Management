@@ -259,6 +259,43 @@ describe("system administrator bootstrap", () => {
     expect(fake.activeAdminCount()).toBe(1);
   });
 
+  it("normalizes email casing and whitespace the same way emailSchema does", async () => {
+    const fake = createFakeTx();
+    const prisma = fakePrisma(fake.tx);
+
+    const first = await bootstrapSystemAdmin(
+      prisma,
+      { email: "  Admin@Example.test  ", password: "replacement-password" },
+      hashPassword
+    );
+    expect(first.email).toBe("admin@example.test");
+
+    // A later run naming the same address in different casing must be
+    // recognized as the same platform admin (credential reset), not create a
+    // second account that then collides with the first on the real unique
+    // index.
+    const token = fake.seedRefreshToken(first.id);
+    const second = await bootstrapSystemAdmin(
+      prisma,
+      { email: "ADMIN@EXAMPLE.TEST", password: "another-password" },
+      hashPassword
+    );
+    expect(second.id).toBe(first.id);
+    expect(fake.isTokenRevoked(token.id)).toBe(true);
+  });
+
+  it("refuses to convert an existing team member's account when only its casing differs", async () => {
+    const fake = createFakeTx();
+    const member = fake.seedAccount({ email: "lead@example.test", teamId: "team-1" });
+    const prisma = fakePrisma(fake.tx);
+
+    await expect(
+      bootstrapSystemAdmin(prisma, { email: "Lead@Example.Test", password: "replacement-password" }, hashPassword)
+    ).rejects.toThrow(/already exists.*lead@example\.test/is);
+
+    expect(fake.isActiveAdmin(member.id)).toBe(false);
+  });
+
   it("refuses the literal .env.example placeholder credentials", async () => {
     const fake = createFakeTx();
     const prisma = fakePrisma(fake.tx);

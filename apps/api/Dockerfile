@@ -5,7 +5,7 @@
 #
 #   docker build -f apps/api/Dockerfile -t breakpoint-api .
 #
-# Every stage after `api-base` runs on the same node:20-alpine as
+# Every stage after `api-base` runs on the same node:24-alpine as
 # `api-runtime`, on purpose, and that is not just tidiness. @node-rs/argon2
 # (password hashing) is a native addon published as separate prebuilt
 # binaries per platform+libc (linux-x64-gnu, linux-x64-musl, ...); pnpm
@@ -23,7 +23,7 @@
 # stage before this) makes bake treat `--from=deploy` as a registry image
 # reference instead of a local stage -- "pull access denied ... deploy" is
 # what that failure looks like, not a permissions problem.
-FROM node:20-alpine AS api-base
+FROM node:24-alpine AS api-base
 RUN apk add --no-cache openssl
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
@@ -87,7 +87,7 @@ RUN pnpm --filter @breakpoint/api deploy /app --prod --ignore-scripts
 # ---- runtime ----------------------------------------------------------
 # Nothing but the deployed app on a fresh base -- no pnpm, no source, no
 # devDependencies, no other workspace member's code.
-FROM node:20-alpine AS api-runtime
+FROM node:24-alpine AS api-runtime
 RUN apk add --no-cache openssl
 ENV NODE_ENV=production
 WORKDIR /app

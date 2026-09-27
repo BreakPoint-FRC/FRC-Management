@@ -70,3 +70,27 @@ for (const [name, value] of [
     assert.match(result.stderr, new RegExp(name));
   });
 }
+
+for (const [name, value] of [
+  ["WEB_ORIGIN", "http://frc1234.example"],
+  ["NEXT_PUBLIC_API_URL", "http://api.frc1234.example"],
+]) {
+  test(`rejects http:// on a real domain for ${name}`, () => {
+    const result = run({ [name]: value });
+    assert.equal(result.status, 1);
+    assert.match(result.stderr, new RegExp(name));
+    assert.match(result.stderr, /https/);
+  });
+}
+
+for (const [name, value] of [
+  ["WEB_ORIGIN", "http://localhost:3000"],
+  ["WEB_ORIGIN", "http://127.0.0.1:3000"],
+  ["NEXT_PUBLIC_API_URL", "http://localhost:4000"],
+  ["NEXT_PUBLIC_API_URL", "http://127.0.0.1:4000"],
+]) {
+  test(`still allows http:// on loopback for ${name} ${JSON.stringify(value)}`, () => {
+    const result = run({ [name]: value });
+    assert.equal(result.status, 0, result.stderr);
+  });
+}

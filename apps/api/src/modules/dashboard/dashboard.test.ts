@@ -80,13 +80,32 @@ function stubPrisma(overrides: Record<string, unknown> = {}) {
   return { prisma, calls };
 }
 
-/** accountRole.findMany is called twice: once for "mine"'s role list, once for scope detection. */
-function withRoles(roles: Array<{ placement: string; groupId: string | null }>) {
+/**
+ * accountRole.findMany is called twice: once for "mine"'s role list, once for
+ * scope detection.
+ *
+ * groupScopes stands in for RoleGroupScope: a MANAGES_GROUP/ABOVE_GROUPS
+ * fixture supplies its granted root group ids there, never via `groupId`
+ * (schema.prisma forbids that field for any placement but IN_GROUP -- see
+ * computeScopes's own comment on this in dashboard.service.ts). Every role
+ * gets a `groupScopes` array regardless of placement because
+ * dashboard.service.ts's computeScopes reads `role.groupScopes` unconditionally
+ * before filtering by placement.
+ */
+function withRoles(roles: Array<{ placement: string; groupId?: string | null; groupScopes?: string[] }>) {
   return vi.fn().mockImplementation(({ select }: { select: Record<string, unknown> }) => {
     if ("role" in select && typeof select.role === "object" && select.role && "select" in select.role) {
       const roleSelect = (select.role as { select: Record<string, unknown> }).select;
       if ("placement" in roleSelect) {
-        return Promise.resolve(roles.map((r) => ({ groupId: r.groupId, role: { placement: r.placement } })));
+        return Promise.resolve(
+          roles.map((r) => ({
+            groupId: r.groupId ?? null,
+            role: {
+              placement: r.placement,
+              groupScopes: (r.groupScopes ?? []).map((groupId) => ({ groupId })),
+            },
+          }))
+        );
       }
     }
     return Promise.resolve([]);
@@ -186,7 +205,7 @@ describe("scope detection", () => {
   it("gives group scope for a real MANAGES_GROUP role with MEETINGS write at that department", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
     const { prisma, calls } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
     });
 
@@ -198,6 +217,44 @@ describe("scope detection", () => {
     expect(calls.groupFindMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: { id: { in: ["g1"] } } })
     );
+  });
+
+  // The regression this bug fix is actually about: RoleGroupScope only ever
+  // stores the root a captain was granted (see computeScopes's own comment),
+  // so a real department tree -- a root with children underneath -- must
+  // reach the children through expandGroupSubtrees, not just the root itself.
+  // A shared root-only fixture (as the other MANAGES_GROUP tests in this file
+  // use) cannot tell "the fix expands subtrees" apart from "the fix merely
+  // stopped filtering on the always-null AccountRole.groupId" -- both would
+  // pass a root-only case. This is why group.findMany is stubbed shape-aware
+  // here instead of with the shared flat fixture: the real query the
+  // subtree-expansion call makes (`where: { teamId }`) must return the whole
+  // team's parent/child shape, while groupSummary's own display query
+  // (`where: { id: { in: groupIds } }`) must return only the resolved ids.
+  it("covers an unlisted child department through a root-only MANAGES_GROUP grant", async () => {
+    mockedResolve.mockResolvedValue(matrix({ byGroup: { tasarim: { MEETINGS: { canCreate: true } } } }));
+    const allGroups = [
+      { id: "teknik", parentId: null, name: "Teknik" },
+      { id: "tasarim", parentId: "teknik", name: "Tasarım" },
+      { id: "medya", parentId: null, name: "Medya" },
+    ];
+    const groupFindMany = vi.fn().mockImplementation(({ where }: { where: Record<string, unknown> }) => {
+      if ("id" in where) {
+        const ids = (where.id as { in: string[] }).in;
+        return Promise.resolve(allGroups.filter((g) => ids.includes(g.id)));
+      }
+      return Promise.resolve(allGroups);
+    });
+    const { prisma } = stubPrisma({
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["teknik"] }]),
+      groupFindMany,
+    });
+
+    const result = await createDashboardService(prisma).summary(account());
+
+    // Granted at "teknik" (the root), never at "tasarim" directly -- only
+    // reachable at all because expandGroupSubtrees walked the tree down to it.
+    expect(result.group).toEqual([expect.objectContaining({ groupId: "tasarim", groupName: "Tasarım" })]);
   });
 
   it("does not give group scope from an in-group TASKS write grant alone -- the seeded MEMBER role's baseline", async () => {
@@ -217,8 +274,8 @@ describe("scope detection", () => {
     );
     const { prisma } = stubPrisma({
       accountRoleFindMany: withRoles([
-        { placement: "MANAGES_GROUP", groupId: "g1" },
-        { placement: "MANAGES_GROUP", groupId: "g2" },
+        { placement: "MANAGES_GROUP", groupScopes: ["g1"] },
+        { placement: "MANAGES_GROUP", groupScopes: ["g2"] },
       ]),
       groupFindMany: vi.fn().mockResolvedValue([
         { id: "g1", name: "Programming" },
@@ -253,7 +310,7 @@ describe("scope detection", () => {
       })
     );
     const { prisma } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
     });
 
@@ -542,7 +599,7 @@ describe("group data", () => {
   it("computes real task counts and top tasks for a department the account can read TASKS in", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true }, TASKS: { canRead: true } } } }));
     const { prisma, calls } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
       taskCount: vi.fn().mockResolvedValue(3),
       taskFindMany: vi.fn().mockResolvedValue([
@@ -566,7 +623,7 @@ describe("group data", () => {
   it("does not leak a department's task names or counts when the account cannot read TASKS there", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
     const { prisma, calls } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
       taskCount: vi.fn().mockResolvedValue(3),
       taskFindMany: vi.fn().mockResolvedValue([
@@ -593,7 +650,7 @@ describe("group data", () => {
       matrix({ byGroup: { g1: { MEETINGS: { canRead: true, canCreate: true } } } })
     );
     const { prisma } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
       meetingFindFirst: vi.fn().mockResolvedValue({
         id: "m1",
@@ -611,7 +668,7 @@ describe("group data", () => {
   it("does not leak an upcoming meeting from MEETINGS/write alone", async () => {
     mockedResolve.mockResolvedValue(matrix({ byGroup: { g1: { MEETINGS: { canCreate: true } } } }));
     const { prisma, calls } = stubPrisma({
-      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupId: "g1" }]),
+      accountRoleFindMany: withRoles([{ placement: "MANAGES_GROUP", groupScopes: ["g1"] }]),
       groupFindMany: vi.fn().mockResolvedValue([{ id: "g1", name: "Yazılım" }]),
       meetingFindFirst: vi.fn().mockResolvedValue({
         id: "m1",

@@ -45,6 +45,14 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
+      # Production dependencies only -- a high/critical advisory in a
+      # devDependency (a linter, a test runner) never ships in the images
+      # docker-compose.prod.yml builds, and failing CI for one teaches
+      # everyone to ignore this step. Anything at or above `high` here does
+      # ship, so it fails the build rather than waiting to be noticed later.
+      - name: Audit production dependencies
+        run: pnpm audit --prod --audit-level high
+
       - name: Apply migrations
         run: pnpm --filter @breakpoint/db db:deploy
 

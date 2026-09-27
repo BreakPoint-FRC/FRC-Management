@@ -15,7 +15,7 @@
 # not an internal Docker service name like http://api:4000 -- see
 # docs/deployment.md.
 #
-# Same node:20-alpine on every stage as apps/api/Dockerfile. This app has no
+# Same node:24-alpine on every stage as apps/api/Dockerfile. This app has no
 # native dependency of its own, but the workspace install is shared with
 # @breakpoint/api's in spirit -- see that file's header for why the base
 # image is pinned identically throughout rather than slimmed per stage.
@@ -23,7 +23,7 @@
 # Every stage name here is prefixed web- so it cannot collide with
 # apps/api/Dockerfile's stage names -- see that file's header for why that
 # matters to `docker compose ... --build` specifically.
-FROM node:20-alpine AS web-base
+FROM node:24-alpine AS web-base
 RUN corepack enable && corepack prepare pnpm@9.12.0 --activate
 WORKDIR /repo
 
@@ -62,7 +62,7 @@ FROM web-build AS web-deploy
 RUN pnpm --filter @breakpoint/web deploy /app --prod --ignore-scripts
 
 # ---- runtime ----------------------------------------------------------
-FROM node:20-alpine AS web-runtime
+FROM node:24-alpine AS web-runtime
 ENV NODE_ENV=production
 WORKDIR /app
 # Dedicated, unprivileged -- see apps/api/Dockerfile's api-runtime stage for

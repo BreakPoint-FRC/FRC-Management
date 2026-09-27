@@ -4,7 +4,7 @@ The audit screen has its own route because #23 authorizes `AUDIT_LOG/read`
 independently of `ROLES`. It reuses the existing client API hook and UI primitives;
 role changes still use the shared role permission editor.
 
-Use Node 20 and pnpm 9.12.0. Install the browser once:
+Use Node 24 and pnpm 9.12.0. Install the browser once:
 
 ```sh
 pnpm --filter @breakpoint/web exec playwright install chromium

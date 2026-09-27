@@ -26,7 +26,7 @@ import {
   TextField,
   optionsFrom,
 } from "@/components/ui/form";
-import { useApi } from "@/hooks/use-api";
+import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { AccountRow, TaskRow } from "@/lib/api-types";
@@ -88,10 +88,10 @@ export default function TasksPage() {
   const mayReadAccountsGlobally = can(permissions, "ACCOUNTS", "read");
   const mayReadAccountsInGroup = groupId ? can(permissions, "ACCOUNTS", "read", groupId) : false;
   const mayReadAccounts = mayReadAccountsGlobally || mayReadAccountsInGroup;
-  const candidates = useApi<Paginated<AccountRow>>(
-    mayReadAccounts
-      ? `/accounts?pageSize=100${groupId ? `&groupId=${encodeURIComponent(groupId)}` : ""}`
-      : null
+  // Every page, not just the first -- a team past 100 members would otherwise
+  // make the "Sorumlu" filter quietly unable to name anyone past #100.
+  const candidates = useApiAllPages<AccountRow>(
+    mayReadAccounts ? `/accounts${groupId ? `?groupId=${encodeURIComponent(groupId)}` : ""}` : null
   );
 
   const params = new URLSearchParams({ pageSize: "100" });
@@ -129,7 +129,7 @@ export default function TasksPage() {
   const [draft, setDraft] = useState<Draft>(BLANK);
 
   const groupOptions = groups.map((group) => ({ value: group.id, label: group.name }));
-  const assigneeOptions = (candidates.data?.items ?? []).map((account) => ({
+  const assigneeOptions = (candidates.data ?? []).map((account) => ({
     value: account.id,
     label: account.fullName,
   }));
