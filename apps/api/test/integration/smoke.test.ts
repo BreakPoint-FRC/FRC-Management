@@ -66,6 +66,19 @@ describeIntegration("api smoke suite", () => {
     expect(profile.permissions.global.TASKS).toMatchObject({ canRead: true, canDelete: true });
   });
 
+  it("dashboard: requires and accepts the browser's validated local calendar day", async () => {
+    const missing = await ctx.app.inject({ method: "GET", url: "/dashboard", headers: admin() });
+    expect(missing.statusCode).toBe(400);
+
+    const response = await ctx.app.inject({
+      method: "GET",
+      url: "/dashboard?today=2026-09-15",
+      headers: admin(),
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ scope: "team", platform: null });
+  });
+
   it("seasons: creates one and reads it back", async () => {
     const created = await ctx.app.inject({
       method: "POST",

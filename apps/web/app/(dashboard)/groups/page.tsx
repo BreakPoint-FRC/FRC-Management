@@ -21,7 +21,7 @@ import {
   toolStatesPayload,
   type ToolStates,
 } from "@/components/groups/tool-state-grid";
-import { useApi } from "@/hooks/use-api";
+import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { AccountRow, GroupRow } from "@/lib/api-types";
@@ -53,10 +53,11 @@ export default function GroupsPage() {
   const [members, setMembers] = useState<Set<string>>(new Set());
 
   // Only loaded while the members editor is open: the roster of everyone, so
-  // people can be added, not just removed.
-  const accounts = useApi<Paginated<AccountRow>>(
-    panel.kind === "members" ? "/accounts?pageSize=100" : null
-  );
+  // people can be added, not just removed. Every page, not just the first --
+  // this checked set is saved as a full replacement (see submitMembers), so a
+  // roster silently capped at 100 would save as "remove everyone past #100"
+  // for a team large enough to need this most.
+  const accounts = useApiAllPages<AccountRow>(panel.kind === "members" ? "/accounts" : null);
 
   // Seeded from the loaded roster. Doing this during render would be a
   // setState in the render phase, which React re-runs until it settles.
@@ -66,7 +67,7 @@ export default function GroupsPage() {
     const groupId = panel.group.id;
     setMembers(
       new Set(
-        accounts.data.items
+        accounts.data
           .filter((account) => account.groups.some((group) => group.id === groupId))
           .map((account) => account.id)
       )
@@ -260,7 +261,7 @@ export default function GroupsPage() {
                     olmadan kullanılamaz hale gelirdi. Önce rolü kaldırın.
                   </p>
                   <div className="stack-sm">
-                    {data.items.map((account) => {
+                    {data.map((account) => {
                       const holdsRole = account.roles.some((role) => role.groupId === groupId);
 
                       return (

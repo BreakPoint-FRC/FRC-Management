@@ -1,9 +1,20 @@
 /** Display formatting. Turkish locale, because everything the team reads is. */
 
+import { dayKey } from "./calendar-grid";
+
 const DATE = new Intl.DateTimeFormat("tr-TR", {
   day: "2-digit",
   month: "short",
   year: "numeric",
+});
+
+const DATE_ONLY = new Intl.DateTimeFormat("tr-TR", {
+  day: "2-digit",
+  month: "short",
+  year: "numeric",
+  // API date-only fields are represented as UTC midnight. Pinning the
+  // formatter to UTC preserves the named day in every viewer timezone.
+  timeZone: "UTC",
 });
 
 const DATE_TIME = new Intl.DateTimeFormat("tr-TR", {
@@ -17,6 +28,11 @@ const DATE_TIME = new Intl.DateTimeFormat("tr-TR", {
 export function formatDate(value: string | Date | null | undefined): string {
   if (!value) return "—";
   return DATE.format(new Date(value));
+}
+
+export function formatDateOnly(value: string | Date | null | undefined): string {
+  if (!value) return "—";
+  return DATE_ONLY.format(new Date(value));
 }
 
 export function formatDateTime(value: string | Date | null | undefined): string {
@@ -44,10 +60,15 @@ export function formatMoney(value: string | null | undefined): string {
   }).format(amount) + " TL";
 }
 
-/** "yyyy-mm-dd" for a date input, which refuses anything else. */
+/** Preserve an API date-only value's named calendar day for an HTML input. */
 export function toDateInput(value: string | Date | null | undefined): string {
   if (!value) return "";
   return new Date(value).toISOString().slice(0, 10);
+}
+
+/** The user's local calendar day for defaults on newly-created records. */
+export function localDateInput(value: Date = new Date()): string {
+  return dayKey(value);
 }
 
 const MONTH = new Intl.DateTimeFormat("tr-TR", { month: "short", year: "numeric" });
@@ -67,4 +88,20 @@ export function monthLabel(value: string | Date, long = false): string {
       : value;
 
   return (long ? MONTH_LONG : MONTH).format(date);
+}
+
+/**
+ * Whether `value` is safe to render as a real link's `href`.
+ *
+ * The API already rejects anything but http(s) on write, but a value
+ * rendered here should not trust that alone -- a "javascript:" URI in an
+ * `href` runs script in whoever clicks it, and this is the one place in the
+ * app a free-text field (a sponsor's website) becomes a real anchor tag.
+ */
+export function isHttpUrl(value: string): boolean {
+  try {
+    return ["http:", "https:"].includes(new URL(value).protocol);
+  } catch {
+    return false;
+  }
 }

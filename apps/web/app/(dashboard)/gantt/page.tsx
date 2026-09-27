@@ -15,7 +15,7 @@ import {
   RowActions,
 } from "@/components/ui";
 import { CheckboxField, FormPanel, SelectField, TextField } from "@/components/ui/form";
-import { useApi } from "@/hooks/use-api";
+import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { useMutation } from "@/hooks/use-mutation";
 import { apiClient } from "@/lib/api-client";
 import type { GanttBoardRow, TaskRow } from "@/lib/api-types";
@@ -74,9 +74,9 @@ export default function GanttPage() {
   // the rest rather than quietly drawing last season onto this timeline. The
   // group is passed for the same reason as above -- an unfiltered task list is
   // a team-wide read that the board's own lead may not have.
-  const candidates = useApi<Paginated<TaskRow>>(
+  const candidates = useApiAllPages<TaskRow>(
     panel.kind === "tasks"
-      ? `/tasks?pageSize=100${panel.board.groupId ? `&groupId=${panel.board.groupId}` : ""}`
+      ? `/tasks${panel.board.groupId ? `?groupId=${panel.board.groupId}` : ""}`
       : null
   );
 
@@ -259,7 +259,7 @@ export default function GanttPage() {
                 <p className="card-title" style={{ margin: 0 }}>
                   Panoya ekle
                 </p>
-                {data.items
+                {data
                   .filter((task) => !ordered.includes(task.id))
                   .map((task) => (
                     <CheckboxField

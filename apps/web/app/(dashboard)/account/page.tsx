@@ -5,7 +5,7 @@ import { TOOL_KEYS, formatAccountRoles, type PermissionSet } from "@breakpoint/t
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, PageHeader } from "@/components/ui";
 import { useApi } from "@/hooks/use-api";
-import { formatDate } from "@/lib/format";
+import { formatDateOnly } from "@/lib/format";
 import type { SeasonRow } from "@/lib/api-types";
 
 const ACTIONS = [
@@ -106,7 +106,7 @@ export default function AccountPage() {
                     <div>
                       <div className="stat">{data.name}</div>
                       <div className="small muted">
-                        {formatDate(data.startDate)} — {formatDate(data.endDate)}
+                        {formatDateOnly(data.startDate)} — {formatDateOnly(data.endDate)}
                       </div>
                       <div className="small muted" style={{ marginTop: 4 }}>
                         {data._count.tasks} görev · {data._count.meetings} toplantı ·{" "}

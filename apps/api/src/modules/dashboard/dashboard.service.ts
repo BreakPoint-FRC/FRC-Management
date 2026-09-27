@@ -1,5 +1,5 @@
 import type { Prisma, PrismaClient } from "@breakpoint/db";
-import { OPEN_TASK_STATUSES } from "@breakpoint/types";
+import { expandGroupSubtrees, OPEN_TASK_STATUSES } from "@breakpoint/types";
 
 import { canPerform, resolvePermissionMatrix } from "../../lib/authorize";
 import type { AuthenticatedAccount } from "../../plugins/auth";
@@ -82,6 +82,17 @@ const MANAGEMENT_TOOLS = ["ACCOUNTS", "ROLES", "GROUPS", "SEASONS"] as const;
  *   account holds a real, group-scoped assignment there -- would hand a
  *   TEAM_ADMIN or a MENTOR a "Grubum" tab for every single department in the
  *   team, which is not a department they run.
+ *
+ *   IN_GROUP's anchor is AccountRole.groupId. MANAGES_GROUP's is not --
+ *   schema.prisma's own comment on AccountRole says groupId "must be null for
+ *   every other placement [than IN_GROUP] -- the others carry their own
+ *   coverage in RoleGroupScope", and authorize.ts's buildAuthorizationContext
+ *   reads exactly that table (via `entry.role.groupScopes`) plus
+ *   expandGroupSubtrees to reach a captain's whole department tree. Filtering
+ *   MANAGES_GROUP roles on `role.groupId` here (as an earlier version of this
+ *   function did) is therefore not a narrower version of the same check --
+ *   it is always empty, and a real department captain got no "Grubum" tab at
+ *   all. Same source of truth as authorize(), not an approximation of it.
  * - "Takım" is team-wide ACCOUNTS read: what a captain, a mentor and every
  *   admin-flavoured role have in common is visibility into the whole
  *   roster, not just their own group's.
@@ -92,14 +103,19 @@ const MANAGEMENT_TOOLS = ["ACCOUNTS", "ROLES", "GROUPS", "SEASONS"] as const;
  */
 function computeScopes(
   matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
-  myGroupRoles: readonly { placement: string; groupId: string | null }[]
+  myGroupRoles: readonly { placement: string; groupId: string | null; managedGroupRoots: readonly string[] }[],
+  groups: readonly { id: string; parentId: string | null }[]
 ): { groupIds: string[]; team: boolean; management: boolean } {
+  const inGroupIds = myGroupRoles
+    .filter((role) => role.placement === "IN_GROUP" && role.groupId)
+    .map((role) => role.groupId as string);
+
+  const managesGroupRoots = myGroupRoles
+    .filter((role) => role.placement === "MANAGES_GROUP")
+    .flatMap((role) => role.managedGroupRoots);
+
   const anchoredGroupIds = [
-    ...new Set(
-      myGroupRoles
-        .filter((role) => (role.placement === "IN_GROUP" || role.placement === "MANAGES_GROUP") && role.groupId)
-        .map((role) => role.groupId as string)
-    ),
+    ...new Set([...inGroupIds, ...expandGroupSubtrees(managesGroupRoots, groups)]),
   ];
   const groupIds = anchoredGroupIds.filter(
     (groupId) => matrix.byGroup[groupId]?.MEETINGS?.canCreate || matrix.byGroup[groupId]?.MEETINGS?.canUpdate
@@ -135,10 +151,9 @@ export function createDashboardService(prisma: PrismaClient) {
   const mineSummary = async (
     teamId: string,
     accountId: string,
-    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>
+    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
+    todayStart: Date
   ) => {
-    const now = new Date();
-
     const taskWhere = scopeWhere(readableScope(matrix, "TASKS"));
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
 
@@ -158,7 +173,7 @@ export function createDashboardService(prisma: PrismaClient) {
     const [overdueTasks, openTasks, upcomingMeetings, groups, roles] = await Promise.all([
       assignedTaskWhere
         ? prisma.task.findMany({
-            where: { ...assignedTaskWhere, dueDate: { lt: now } },
+            where: { ...assignedTaskWhere, dueDate: { lt: todayStart } },
             select: taskSummarySelect,
             orderBy: { dueDate: "asc" },
             take: LIST_LIMIT,
@@ -166,7 +181,7 @@ export function createDashboardService(prisma: PrismaClient) {
         : Promise.resolve([]),
       assignedTaskWhere
         ? prisma.task.findMany({
-            where: { ...assignedTaskWhere, OR: [{ dueDate: null }, { dueDate: { gte: now } }] },
+            where: { ...assignedTaskWhere, OR: [{ dueDate: null }, { dueDate: { gte: todayStart } }] },
             select: taskSummarySelect,
             orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
             take: LIST_LIMIT,
@@ -177,7 +192,7 @@ export function createDashboardService(prisma: PrismaClient) {
             where: {
               ...meetingWhere,
               teamId,
-              meetingDate: { gte: now, lte: new Date(now.getTime() + UPCOMING_MEETING_WINDOW) },
+              meetingDate: { gte: todayStart, lte: new Date(todayStart.getTime() + UPCOMING_MEETING_WINDOW) },
             },
             select: meetingSummarySelect,
             orderBy: { meetingDate: "asc" },
@@ -224,9 +239,10 @@ export function createDashboardService(prisma: PrismaClient) {
     teamId: string,
     groupIds: readonly string[],
     taskScope: { teamWide: boolean; groupIds: readonly string[] },
-    meetingScope: { teamWide: boolean; groupIds: readonly string[] }
+    meetingScope: { teamWide: boolean; groupIds: readonly string[] },
+    now: Date,
+    todayStart: Date
   ) => {
-    const now = new Date();
     const weekAgo = new Date(now.getTime() - RECENT_WINDOW);
 
     const groups = await prisma.group.findMany({
@@ -252,7 +268,7 @@ export function createDashboardService(prisma: PrismaClient) {
                     teamId,
                     groupId: group.id,
                     status: { in: [...OPEN_TASK_STATUSES] },
-                    dueDate: { lt: now },
+                    dueDate: { lt: todayStart },
                   },
                 })
               : Promise.resolve(0),
@@ -281,7 +297,7 @@ export function createDashboardService(prisma: PrismaClient) {
               : Promise.resolve([]),
             canReadMeetings
               ? prisma.meeting.findFirst({
-                  where: { teamId, groupId: group.id, meetingDate: { gte: now } },
+                  where: { teamId, groupId: group.id, meetingDate: { gte: todayStart } },
                   select: meetingSummarySelect,
                   orderBy: { meetingDate: "asc" },
                 })
@@ -317,8 +333,11 @@ export function createDashboardService(prisma: PrismaClient) {
    * answer), and each department's counts need TASKS read for that specific
    * department.
    */
-  const teamSummary = async (teamId: string, matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>) => {
-    const now = new Date();
+  const teamSummary = async (
+    teamId: string,
+    matrix: Awaited<ReturnType<typeof resolvePermissionMatrix>>,
+    todayStart: Date
+  ) => {
     const meetingWhere = scopeWhere(readableScope(matrix, "MEETINGS"));
     const taskScope = readableScope(matrix, "TASKS");
     const canReadSeasons = matrix.global.SEASONS?.canRead ?? false;
@@ -349,7 +368,7 @@ export function createDashboardService(prisma: PrismaClient) {
           : Promise.resolve(null),
         meetingWhere
           ? prisma.meeting.findFirst({
-              where: { ...meetingWhere, teamId, meetingDate: { gte: now } },
+              where: { ...meetingWhere, teamId, meetingDate: { gte: todayStart } },
               select: meetingSummarySelect,
               orderBy: { meetingDate: "asc" },
             })
@@ -385,7 +404,7 @@ export function createDashboardService(prisma: PrismaClient) {
               teamId,
               groupId: group.id,
               status: { in: [...OPEN_TASK_STATUSES] },
-              dueDate: { lt: now },
+              dueDate: { lt: todayStart },
             },
           }),
           prisma.task.count({
@@ -409,7 +428,7 @@ export function createDashboardService(prisma: PrismaClient) {
       departments,
       activeSeason,
       seasonDaysRemaining: activeSeason
-        ? Math.max(0, Math.ceil((activeSeason.endDate.getTime() - now.getTime()) / DAY))
+        ? Math.max(0, Math.ceil((activeSeason.endDate.getTime() - todayStart.getTime()) / DAY))
         : null,
       upcomingMeeting: upcomingMeeting ? serializeMeeting(upcomingMeeting) : null,
       crossGroupOpenTaskCount: crossGroupOpenCount,
@@ -479,7 +498,7 @@ export function createDashboardService(prisma: PrismaClient) {
   };
 
   return {
-    summary: async (account: AuthenticatedAccount) => {
+    summary: async (account: AuthenticatedAccount, todayStart: Date) => {
       if (account.teamId === null) {
         return {
           scope: "platform" as const,
@@ -492,30 +511,47 @@ export function createDashboardService(prisma: PrismaClient) {
       }
 
       const teamId = account.teamId;
-      const [matrix, accountRoles] = await Promise.all([
+      const now = new Date();
+      const [matrix, accountRoles, groups] = await Promise.all([
         resolvePermissionMatrix(prisma, account.id),
         prisma.accountRole.findMany({
           where: { accountId: account.id, isActive: true },
-          select: { groupId: true, role: { select: { placement: true } } },
+          select: {
+            groupId: true,
+            role: { select: { placement: true, groupScopes: { select: { groupId: true } } } },
+          },
         }),
+        // MANAGES_GROUP's own scope (RoleGroupScope) only names the root(s)
+        // it was granted; expandGroupSubtrees still needs the whole team's
+        // parent/child shape to reach the departments underneath -- same
+        // input authorize.ts's buildAuthorizationContext already fetches for
+        // the same expansion.
+        prisma.group.findMany({ where: { teamId }, select: { id: true, parentId: true } }),
       ]);
 
       const scopes = computeScopes(
         matrix,
-        accountRoles.map((entry) => ({ placement: entry.role.placement, groupId: entry.groupId }))
+        accountRoles.map((entry) => ({
+          placement: entry.role.placement,
+          groupId: entry.groupId,
+          managedGroupRoots: entry.role.groupScopes.map((scope) => scope.groupId),
+        })),
+        groups
       );
 
       const [mine, group, team, management] = await Promise.all([
-        mineSummary(teamId, account.id, matrix),
+        mineSummary(teamId, account.id, matrix, todayStart),
         scopes.groupIds.length > 0
           ? groupSummary(
               teamId,
               scopes.groupIds,
               readableScope(matrix, "TASKS"),
-              readableScope(matrix, "MEETINGS")
+              readableScope(matrix, "MEETINGS"),
+              now,
+              todayStart
             )
           : Promise.resolve(null),
-        scopes.team ? teamSummary(teamId, matrix) : Promise.resolve(null),
+        scopes.team ? teamSummary(teamId, matrix, todayStart) : Promise.resolve(null),
         scopes.management ? managementSummary(teamId, matrix) : Promise.resolve(null),
       ]);
 

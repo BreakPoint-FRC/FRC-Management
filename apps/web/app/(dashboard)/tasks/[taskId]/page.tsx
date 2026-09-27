@@ -14,9 +14,9 @@ import {
 import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, ErrorBox, PageHeader } from "@/components/ui";
 import { CheckboxField, FormPanel } from "@/components/ui/form";
-import { useApi } from "@/hooks/use-api";
+import { useApi, useApiAllPages } from "@/hooks/use-api";
 import { ApiError, apiClient } from "@/lib/api-client";
-import { formatDate, formatDateTime } from "@/lib/format";
+import { formatDateOnly, formatDateTime } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import type { AccountRow, TaskActivityRow, TaskRow } from "@/lib/api-types";
 import { taskStatusTone } from "@/lib/status";
@@ -39,14 +39,16 @@ export default function TaskDetailPage() {
   const [saveError, setSaveError] = useState<ApiError | null>(null);
 
   // Candidates come from the group the task is in; a cross-group task can be
-  // assigned to anyone.
+  // assigned to anyone. Every page, not just the first -- a department (or a
+  // cross-group team) with more than 100 people would otherwise leave anyone
+  // past #100 impossible to pick, with no indication the list was cut short.
   const [editingAssignees, setEditingAssignees] = useState(false);
   const [assignees, setAssignees] = useState<Set<string>>(new Set());
-  const candidates = useApi<Paginated<AccountRow>>(
+  const candidates = useApiAllPages<AccountRow>(
     editingAssignees
       ? task.data?.groupId
-        ? `/accounts?groupId=${encodeURIComponent(task.data.groupId)}&pageSize=100`
-        : "/accounts?pageSize=100"
+        ? `/accounts?groupId=${encodeURIComponent(task.data.groupId)}`
+        : "/accounts"
       : null
   );
 
@@ -147,8 +149,8 @@ export default function TaskDetailPage() {
 
                 <Card title="Tarihler">
                   <div className="small">
-                    <div>Başlangıç: {formatDate(data.startDate)}</div>
-                    <div>Bitiş: {formatDate(data.dueDate)}</div>
+                    <div>Başlangıç: {formatDateOnly(data.startDate)}</div>
+                    <div>Bitiş: {formatDateOnly(data.dueDate)}</div>
                   </div>
                 </Card>
               </div>
@@ -170,7 +172,7 @@ export default function TaskDetailPage() {
                   <AsyncSection state={candidates}>
                     {(people) => (
                       <div className="stack-sm">
-                        {people.items.map((person) => (
+                        {people.map((person) => (
                           <CheckboxField
                             key={person.id}
                             label={person.fullName}

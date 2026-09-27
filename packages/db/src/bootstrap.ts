@@ -1,4 +1,5 @@
 import { hash } from "@node-rs/argon2";
+import { emailSchema } from "@breakpoint/types";
 
 import type { PrismaClient } from "./generated/prisma/client";
 
@@ -63,10 +64,21 @@ export async function bootstrapSystemAdmin(
   if (!input.email || !input.password) {
     throw new Error("SYSTEM_ADMIN_EMAIL and SYSTEM_ADMIN_PASSWORD must both be set. See .env.example.");
   }
+
+  // This command bypasses the API request schemas, so use the same shared
+  // email contract explicitly. Fail before hashing or opening a transaction:
+  // a typo in production configuration must never create an administrator
+  // that cannot sign in through the normalized login flow.
+  const parsedEmail = emailSchema.safeParse(input.email);
+  if (!parsedEmail.success) {
+    throw new Error("SYSTEM_ADMIN_EMAIL must be a valid email address.");
+  }
+  const email = parsedEmail.data;
+
   if (input.password.length < 10) {
     throw new Error("SYSTEM_ADMIN_PASSWORD must be at least 10 characters.");
   }
-  if (input.email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
+  if (email === PLACEHOLDER_EMAIL || input.password === PLACEHOLDER_PASSWORD) {
     throw new Error(
       "SYSTEM_ADMIN_EMAIL/SYSTEM_ADMIN_PASSWORD are still the .env.example placeholders. Set real values before running this."
     );
@@ -91,7 +103,7 @@ export async function bootstrapSystemAdmin(
     }
 
     const existingByEmail = await tx.account.findUnique({
-      where: { email: input.email },
+      where: { email },
       select: {
         id: true,
         teamId: true,
@@ -106,14 +118,14 @@ export async function bootstrapSystemAdmin(
 
     if (existingByEmail && !hasHeldThisPlatformAdminRole) {
       throw new Error(
-        `An account already exists with ${input.email}, and it is not the platform admin -- it belongs to ` +
+        `An account already exists with ${email}, and it is not the platform admin -- it belongs to ` +
           `${existingByEmail.teamId ? "a team" : "the platform but without the SYSTEM_ADMIN role"}. ` +
           "Refusing to convert it: use a different SYSTEM_ADMIN_EMAIL, or remove that account first if this really is intended."
       );
     }
 
     const account = await tx.account.upsert({
-      where: { email: input.email },
+      where: { email },
       // teamId stays null on purpose: a platform admin that sat inside a team
       // would be a back door into it.
       update: {
@@ -124,7 +136,7 @@ export async function bootstrapSystemAdmin(
         mustChangePassword: false,
       },
       create: {
-        email: input.email,
+        email,
         fullName: "Sistem Yöneticisi",
         passwordHash,
         teamId: null,

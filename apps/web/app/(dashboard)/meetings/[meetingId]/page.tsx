@@ -10,7 +10,7 @@ import { AsyncSection, Badge, Card, ErrorBox, PageHeader } from "@/components/ui
 import { useApi } from "@/hooks/use-api";
 import { ApiError, apiClient } from "@/lib/api-client";
 import { buildRollCall, canSaveRollCall, type Candidate } from "@/lib/attendance";
-import { formatDate } from "@/lib/format";
+import { formatDateOnly } from "@/lib/format";
 import { can } from "@/lib/permissions";
 import type { MeetingRow } from "@/lib/api-types";
 import { attendanceTone } from "@/lib/status";
@@ -107,7 +107,7 @@ export default function MeetingDetailPage() {
               {candidates.error ? <ErrorBox error={candidates.error} /> : null}
 
               <div className="row">
-                <span className="muted">{formatDate(data.meetingDate)}</span>
+                <span className="muted">{formatDateOnly(data.meetingDate)}</span>
                 <Badge>{data.groupName ?? "Takım geneli"}</Badge>
                 <span className="small muted">Oluşturan: {data.createdBy.fullName}</span>
               </div>

@@ -138,21 +138,40 @@ export function createAuthService(prisma: PrismaClient) {
       // Revoking the old row and writing the new one in one transaction: a
       // crash between them would either hand out a token nothing can revoke or
       // leave the account with no way back in.
+      //
+      // The revoke is conditioned on revokedAt still being null, and its
+      // affected-row count is what decides whether the new token is written,
+      // so two requests racing on the same still-valid token cannot both win:
+      // the database serializes the two UPDATEs, the first to commit claims
+      // the token, and the second sees 0 rows affected below and falls into
+      // the same reuse-detection path as an actually-stolen token, exactly as
+      // it would if the two presentations were not concurrent.
       const next = randomBytes(REFRESH_TOKEN_BYTES).toString("base64url");
-      await prisma.$transaction([
-        prisma.refreshToken.update({
-          where: { id: stored.id },
+      const claimed = await prisma.$transaction(async (tx) => {
+        const { count } = await tx.refreshToken.updateMany({
+          where: { id: stored.id, revokedAt: null },
           data: { revokedAt: new Date() },
-        }),
-        prisma.refreshToken.create({
+        });
+        if (count === 0) return false;
+
+        await tx.refreshToken.create({
           data: {
             accountId: account.id,
             tokenHash: digest(next),
             userAgent: userAgent?.slice(0, 255) ?? null,
             expiresAt: new Date(Date.now() + refreshTokenTtlMs()),
           },
-        }),
-      ]);
+        });
+        return true;
+      });
+
+      if (!claimed) {
+        await prisma.refreshToken.updateMany({
+          where: { accountId: stored.accountId, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+        throw new UnauthorizedError("Oturum güvenlik nedeniyle sonlandırıldı");
+      }
 
       return {
         token: next,

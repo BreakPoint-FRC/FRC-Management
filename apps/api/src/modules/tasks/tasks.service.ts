@@ -93,7 +93,11 @@ export function createTasksService(prisma: PrismaClient) {
           where,
           select: taskSelect,
           // Nulls last, so undated work does not sit above what is due tomorrow.
-          orderBy: [{ dueDate: { sort: "asc", nulls: "last" } }, { createdAt: "desc" }],
+          orderBy: [
+            { dueDate: { sort: "asc", nulls: "last" } },
+            { createdAt: "desc" },
+            { id: "asc" },
+          ],
           ...toPrismaPage(query),
         }),
         prisma.task.count({ where }),

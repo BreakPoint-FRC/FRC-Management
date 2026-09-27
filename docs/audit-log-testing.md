@@ -4,7 +4,7 @@ The audit screen has its own route because #23 authorizes `AUDIT_LOG/read`
 independently of `ROLES`. It reuses the existing client API hook and UI primitives;
 role changes still use the shared role permission editor.
 
-Use Node 20 and pnpm 9.12.0. Install the browser once:
+Use Node 24 and pnpm 9.12.0. Install the browser once:
 
 ```sh
 pnpm --filter @breakpoint/web exec playwright install chromium
@@ -69,5 +69,5 @@ does not certify the real role-edit flow or the visual acceptance criteria.
 - The real test used a temporary PostgreSQL 18.4 cluster on `127.0.0.1:55432`,
   with all 22 migrations then present and the seed applied. No existing database
   was used.
-- This run used Windows, Node 24.15.0 and pnpm 9.12.0. The repository's pinned
-  Node 20 environment was not exercised by this verification.
+- This run used Windows, Node 24.15.0 and pnpm 9.12.0, matching the repository's
+  pinned Node 24 major version.

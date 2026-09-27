@@ -7,7 +7,17 @@ import { accountRoleSchema } from "./roles";
 // everything with "1!".
 export const passwordSchema = z.string().min(10, "Şifre en az 10 karakter olmalı").max(200);
 
-export const emailSchema = z.string().email("Geçerli bir e-posta adresi girin");
+// trim + lowercase before the format check, not after: email is unique
+// across the whole platform (see accounts.service.ts), and the column itself
+// is a plain case-sensitive Postgres text column. Normalizing every input
+// path through this one schema is what makes "Admin@x.test" and
+// "admin@x.test" collide as the same address instead of silently becoming
+// two different accounts.
+export const emailSchema = z
+  .string()
+  .trim()
+  .toLowerCase()
+  .email("Geçerli bir e-posta adresi girin");
 
 export const accountSchema = z.object({
   id: z.string(),

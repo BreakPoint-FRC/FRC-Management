@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { taskPriorityLabels, taskStatusLabels } from "@breakpoint/types";
 
@@ -8,7 +8,8 @@ import { useAuth } from "@/components/auth/auth-provider";
 import { AsyncSection, Badge, Card, PageHeader } from "@/components/ui";
 import { GuardedLink } from "@/components/unsaved-changes";
 import { useApi } from "@/hooks/use-api";
-import { formatDate } from "@/lib/format";
+import { dayKey } from "@/lib/calendar-grid";
+import { formatDate, formatDateOnly, toDateInput } from "@/lib/format";
 import { canAnywhere } from "@/lib/permissions";
 import type { DashboardRow } from "@/lib/api-types";
 
@@ -39,14 +40,28 @@ const SCOPE_LABEL: Record<Scope, string> = {
  */
 export default function DashboardPage() {
   const { account, permissions } = useAuth();
-  const dashboard = useApi<DashboardRow>("/dashboard");
+  const [today, setToday] = useState<string | null>(null);
+  const dashboard = useApi<DashboardRow>(today === null ? null : `/dashboard?today=${today}`);
   const [tab, setTab] = useState<Scope>("mine");
+
+  useEffect(() => {
+    const updateLocalDay = () => setToday(dayKey(new Date()));
+    updateLocalDay();
+
+    // An open dashboard crosses midnight without a reload. During the rest of
+    // the day React ignores the repeated identical value, so no extra request
+    // is made.
+    const timer = window.setInterval(updateLocalDay, 60_000);
+    return () => window.clearInterval(timer);
+  }, []);
+
+  const dashboardState = today === null ? { ...dashboard, loading: true } : dashboard;
 
   return (
     <>
       <PageHeader title={`Merhaba, ${account?.fullName ?? ""}`} />
 
-      <AsyncSection state={dashboard}>
+      <AsyncSection state={dashboardState}>
         {(data) =>
           data.scope === "platform" && data.platform ? (
             <PlatformSummary data={data.platform} />
@@ -215,7 +230,7 @@ function ManagementSummary({ data }: { data: NonNullable<DashboardRow["managemen
                   {data.activeSeason.name}
                 </div>
                 <div className="small muted">
-                  {formatDate(data.activeSeason.startDate)} — {formatDate(data.activeSeason.endDate)}
+                  {formatDateOnly(data.activeSeason.startDate)} — {formatDateOnly(data.activeSeason.endDate)}
                 </div>
               </div>
             ) : (
@@ -278,7 +293,7 @@ function TeamSummary({
               <div className="stat" style={{ fontSize: 15 }}>
                 {data.upcomingMeeting.title}
               </div>
-              <div className="small muted">{formatDate(data.upcomingMeeting.meetingDate)}</div>
+              <div className="small muted">{formatDateOnly(data.upcomingMeeting.meetingDate)}</div>
             </div>
           ) : (
             <p className="muted" style={{ margin: 0 }}>
@@ -386,7 +401,7 @@ function GroupSummary({ data }: { data: NonNullable<DashboardRow["group"]> }) {
                     {department.upcomingMeeting.title}
                   </p>
                   <p className="small muted" style={{ margin: 0 }}>
-                    {formatDate(department.upcomingMeeting.meetingDate)}
+                    {formatDateOnly(department.upcomingMeeting.meetingDate)}
                   </p>
                 </GuardedLink>
               ) : (
@@ -469,7 +484,7 @@ function MineSummary({ data }: { data: NonNullable<DashboardRow["mine"]> }) {
                     {meeting.title}
                   </p>
                   <p className="small muted" style={{ margin: 0 }}>
-                    {formatDate(meeting.meetingDate)}
+                    {formatDateOnly(meeting.meetingDate)}
                     {meeting.groupName ? ` · ${meeting.groupName}` : ""}
                   </p>
                 </GuardedLink>
@@ -505,7 +520,10 @@ function TaskList({
         </thead>
         <tbody>
           {tasks.map((task) => {
-            const overdue = task.dueDate !== null && new Date(task.dueDate) < new Date();
+            // dueDate is a date-only field (UTC midnight): a task due today
+            // is not overdue until its whole calendar day has passed, so this
+            // has to compare calendar days, not the raw instant against now.
+            const overdue = task.dueDate !== null && toDateInput(task.dueDate) < dayKey(new Date());
             return (
               <tr key={task.id}>
                 <td>
@@ -515,7 +533,7 @@ function TaskList({
                 <td>{taskStatusLabels[task.status]}</td>
                 <td>{taskPriorityLabels[task.priority]}</td>
                 <td style={overdue ? { color: "var(--danger-text)" } : undefined}>
-                  {task.dueDate ? formatDate(task.dueDate) : "—"}
+                  {task.dueDate ? formatDateOnly(task.dueDate) : "—"}
                 </td>
               </tr>
             );

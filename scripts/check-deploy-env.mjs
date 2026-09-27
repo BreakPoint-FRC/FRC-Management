@@ -18,6 +18,8 @@
 const POSTGRES_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_-]*$/;
 const POSTGRES_PASSWORD = /^[A-Za-z0-9_-]+$/;
 
+const LOCAL_HOSTNAMES = new Set(["localhost", "127.0.0.1", "::1"]);
+
 /** @param {string} value */
 function validateHttpOrigin(value) {
   try {
@@ -27,6 +29,14 @@ function validateHttpOrigin(value) {
     }
     if (value !== url.origin) {
       return "must be an origin only (no credentials, path, query, fragment, or trailing slash).";
+    }
+    // A real domain talked to over plain http:// ships every session token
+    // and password change in cleartext to whoever shares the network -- the
+    // one exception is the host's own loopback address, which never leaves
+    // the machine and is how docs/deployment.md's single-machine setup is
+    // verified before a reverse proxy is in front of it.
+    if (url.protocol === "http:" && !LOCAL_HOSTNAMES.has(url.hostname)) {
+      return "uses http:// for a real domain -- production origins must be https:// (localhost/127.0.0.1 are the only http:// exception).";
     }
     return null;
   } catch {
